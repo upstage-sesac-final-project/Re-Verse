@@ -1,0 +1,16 @@
+# Re-Verse CD 워크플로우 (추후 작성)
+# main 브랜치 push 시 Docker 빌드 & 배포 예정
+
+name: Re-Verse CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  placeholder:
+    name: CD (작성 예정)
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "CD 워크플로우 준비 중"
