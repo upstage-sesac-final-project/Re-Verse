@@ -1,0 +1,57 @@
+# Pre-commit 설정
+#
+# [설치]
+#   uv add --dev pre-commit
+#   uv run pre-commit install
+#
+# [실행]
+#   자동 실행 : git commit 시 자동으로 아래 훅 실행
+#   수동 전체 : uv run pre-commit run --all-files
+#   수동 단일 : uv run pre-commit run ruff --all-files
+#
+# [mypy 수동 실행] - PR 올리기 전 타입 체크
+#   uv run mypy app/backend agent
+#
+# [pytest 수동 실행] - PR 올리기 전 테스트
+#   uv run pytest app/backend/tests agent/tests -v --tb=short
+
+repos:
+  # -------------------------------------------------------
+  # 기본 파일 검사 (공백, 줄바꿈, 대용량 파일 등)
+  # -------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1000"]
+      - id: check-toml
+
+  # -------------------------------------------------------
+  # Python - ruff lint
+  # -------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.5
+    hooks:
+      - id: ruff
+        args: [--fix]
+        exclude: ^app/frontend/
+      - id: ruff-format
+        exclude: ^app/frontend/
+
+  # -------------------------------------------------------
+  # Frontend - eslint
+  # 주의: app/frontend에서 npm install이 선행되어야 함
+  # -------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: eslint
+        name: ESLint
+        language: system
+        entry: bash -c 'cd app/frontend && npm run lint'
+        files: ^app/frontend/src/.*\.(js|jsx)$
+        pass_filenames: false

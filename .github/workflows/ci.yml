@@ -1,7 +1,7 @@
 # Re-Verse CI 워크플로우
 #
 # dev 브랜치로 향하는 PR 및 dev 브랜치 push 시 실행됩니다.
-# Backend (FastAPI/Python 3.12/uv) + Frontend (React/Vite) 검사를 병렬 수행합니다.
+# Backend (FastAPI/Python 3.12.10/uv) + Frontend (React/Vite) 검사를 병렬 수행합니다.
 #
 # 검사 항목:
 #   Backend  - ruff lint, mypy type check, pytest
@@ -39,9 +39,10 @@ jobs:
         uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
+          python-version: "3.12.10"
 
       - name: Set up Python
-        run: uv python install
+        run: uv python install 3.12.10
 
       - name: Install dependencies
         run: uv sync --all-extras --dev
