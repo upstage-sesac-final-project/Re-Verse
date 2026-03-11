@@ -25,6 +25,7 @@ dev = [
     "mypy>=1.11.0",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
+    "pre-commit>=4.5.1",
 ]
 
 [tool.ruff]
@@ -56,8 +57,3 @@ packages = ["agent", "app/backend", "shared"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[dependency-groups]
-dev = [
-    "pre-commit>=4.5.1",
-]
