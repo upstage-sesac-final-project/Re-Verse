@@ -20,12 +20,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # 로컬 프론트엔드
-        "https://*.vercel.app",   # Vercel 배포된 프론트엔드
+        "https://*.vercel.app",  # Vercel 배포된 프론트엔드
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # 헬스체크 엔드포인트 (Docker 헬스체크용)
 @app.get("/health")
@@ -36,21 +37,20 @@ async def health_check():
     """
     return {"status": "healthy", "message": "Re:Verse Backend is running"}
 
+
 # 기본 루트 엔드포인트
 @app.get("/")
 async def root():
     """
     API 루트 엔드포인트
     """
-    return {
-        "message": "Welcome to Re:Verse API",
-        "docs": "/docs",
-        "health": "/health"
-    }
+    return {"message": "Welcome to Re:Verse API", "docs": "/docs", "health": "/health"}
+
 
 # API 라우터들은 여기서 include 하세요
 # 예: app.include_router(llm_router, prefix="/api/v1")
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

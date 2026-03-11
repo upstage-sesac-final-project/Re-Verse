@@ -15,14 +15,14 @@ services:
       - DEBUG=false
     volumes: []  # 프로덕션에서는 볼륨 마운트 제거 (override)
     restart: unless-stopped
-    
+
     # 로그 설정
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-    
+
     # 리소스 제한 (EC2 인스턴스 크기에 맞게 조정)
     deploy:
       resources:

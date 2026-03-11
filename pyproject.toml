@@ -57,4 +57,3 @@ packages = ["agent", "app/backend", "shared"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-

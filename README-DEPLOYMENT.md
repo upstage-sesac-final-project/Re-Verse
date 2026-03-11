@@ -1,6 +1,6 @@
 # 🚀 Re:Verse 배포 가이드 (최종 검증 완료)
 
-> **프론트엔드(Vercel) + 백엔드(EC2 Docker) 분리 배포 환경**  
+> **프론트엔드(Vercel) + 백엔드(EC2 Docker) 분리 배포 환경**
 > Mixed Content 문제 해결 및 프로덕션 보안 설정 완료
 
 ## 📋 배포 아키텍처
@@ -232,7 +232,7 @@ uv run ruff check app/backend --fix && uv run mypy app/backend && uv run pytest 
 - [ ] `docker compose logs backend` → 오류 없이 실행 확인
 - [ ] EC2 보안그룹 8000 포트 열림 재확인
 
-### ✅ Vercel 프론트엔드 배포 전 준비  
+### ✅ Vercel 프론트엔드 배포 전 준비
 - [ ] `vercel.json`에 실제 EC2 탄력적 IP 입력
 - [ ] Vercel CLI 설치 및 로그인 완료
 - [ ] `app/frontend/` 경로에 React 프로젝트 존재 확인
@@ -249,7 +249,7 @@ uv run ruff check app/backend --fix && uv run mypy app/backend && uv run pytest 
 
 ## 🐛 트러블슈팅 가이드
 
-### 🚨 1. "API 호출이 안 돼요!" 
+### 🚨 1. "API 호출이 안 돼요!"
 **증상**: 프론트엔드에서 API 요청 시 오류 발생
 
 **확인 순서**:
@@ -383,7 +383,7 @@ fetch('/api/health')
 1. **Vercel 앱 접속**: `https://your-app.vercel.app`
 2. **개발자 도구**: F12 → Network 탭 열기
 3. **API 테스트**: 앱에서 API 호출하는 기능 실행
-4. **네트워크 확인**: 
+4. **네트워크 확인**:
    - `/api/*` 요청들이 **200 OK** 상태
    - **Response Headers**에서 `access-control-allow-origin` 확인
    - **Mixed Content 에러 없음** 확인
@@ -391,7 +391,7 @@ fetch('/api/health')
 ### ✅ 4. 성공 확인 지표
 - [ ] EC2: `curl http://<EC2-IP>:8000/health` → 200 OK
 - [ ] Vercel: 사이트 정상 로드
-- [ ] Proxy: `fetch('/api/health')` → 200 OK  
+- [ ] Proxy: `fetch('/api/health')` → 200 OK
 - [ ] CORS: Console에 CORS 에러 없음
 - [ ] Logs: `docker compose logs backend` → 정상 요청 로그
 
@@ -413,9 +413,9 @@ jobs:
       - uses: actions/checkout@v3
       - name: Deploy to EC2
         # EC2에 SSH 접속하여 docker compose 재배포
-  
+
   deploy-frontend:
-    runs-on: ubuntu-latest  
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - name: Deploy to Vercel
