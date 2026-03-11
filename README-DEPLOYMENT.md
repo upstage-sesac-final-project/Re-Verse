@@ -197,6 +197,24 @@ docker compose logs -f frontend-dev
 - **백엔드**: `app/backend/` 폴더 수정 → 컨테이너 자동 반영
 - **프론트엔드**: `app/frontend/src/` 폴더 수정 → 핫 리로드
 
+### 🛠️ 개발 도구 사용법
+```bash
+# 개발 의존성 설치 (ruff, mypy, pytest 등)
+uv sync --extra dev
+
+# 코드 스타일 체크 및 자동 수정
+uv run ruff check app/backend --fix
+
+# 타입 체크
+uv run mypy app/backend
+
+# 테스트 실행
+uv run pytest app/backend/tests
+
+# 모든 검사 한 번에 실행
+uv run ruff check app/backend --fix && uv run mypy app/backend && uv run pytest app/backend/tests
+```
+
 ---
 
 ## 📝 배포 체크리스트
