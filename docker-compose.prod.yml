@@ -1,0 +1,49 @@
+# Re:Verse - EC2 프로덕션 배포용 (백엔드만)
+# 프론트엔드는 Vercel에서 별도 배포
+# 사용: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    ports:
+      - "8000:8000"  # EC2에서 외부 접근 허용
+    env_file: .env
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+    volumes: []  # 프로덕션에서는 볼륨 마운트 제거 (override)
+    restart: unless-stopped
+    
+    # 로그 설정
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # 리소스 제한 (EC2 인스턴스 크기에 맞게 조정)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # nginx reverse proxy (선택사항 - HTTPS/도메인 설정 시)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/ssl:/etc/ssl:ro  # SSL 인증서 (필요시)
+    depends_on:
+      - backend
+    restart: unless-stopped
+    profiles:
+      - nginx  # 'docker compose --profile nginx up'으로만 실행됨

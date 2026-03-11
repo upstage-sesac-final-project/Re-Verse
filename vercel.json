@@ -1,0 +1,21 @@
+{
+  "buildCommand": "cd app/frontend && npm run build",
+  "outputDirectory": "app/frontend/dist",
+  "framework": "vite",
+  "installCommand": "cd app/frontend && npm install",
+  "devCommand": "cd app/frontend && npm run dev",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "http://YOUR-EC2-IP:8000/api/:path*"
+    }
+  ],
+  "env": {
+    "VITE_API_URL": "/api"
+  },
+  "build": {
+    "env": {
+      "VITE_API_URL": "/api"
+    }
+  }
+}
