@@ -24,7 +24,49 @@ Supabase/External APIs (데이터베이스 & AI 서비스)
 
 ---
 
-## 🛠 1단계: EC2 백엔드 배포
+## 🔄 GitHub Actions CD (자동 배포)
+
+`main` 브랜치에 push하거나 PR을 merge하면 **EC2 백엔드가 자동으로 재배포**됩니다.
+
+### 동작 방식
+
+1. **트리거**: `main`에 push 또는 Actions에서 "Run workflow" 수동 실행
+2. **실행**: GitHub Actions가 EC2에 SSH로 접속
+3. **EC2에서**: `Re-Verse` 폴더로 이동 → `git fetch` / `git reset`으로 최신 main 반영 → `.env` 생성 → `docker compose` 빌드 및 재시작 → 사용하지 않는 이미지 정리
+
+### 필요한 GitHub 시크릿 (Repository secrets)
+
+| 시크릿 이름 | 설명 |
+|-------------|------|
+| `EC2_HOST` | EC2 인스턴스 IP 또는 호스트명 |
+| `EC2_USERNAME` | SSH 사용자 (예: `ubuntu`, `ec2-user`) |
+| `EC2_SSH_KEY` | EC2 접속용 비공개 키 전체 내용 |
+| `ENV_FILE` | EC2에서 쓸 `.env` 파일 내용 전체 (한 덩어리로 붙여넣기) |
+
+### 사용법
+
+**자동 실행 (권장)**
+- `main`에 직접 push하거나, PR을 `main`으로 merge하면 워크플로가 자동 실행됩니다.
+
+**수동 실행**
+1. GitHub 저장소 → **Actions** 탭
+2. 왼쪽에서 **Deploy to EC2** 선택
+3. **Run workflow** → **Run workflow** 클릭
+
+**배포 결과 확인**
+- Actions 탭에서 해당 워크플로 실행 클릭 → 각 step 로그 확인
+- EC2에서: `docker compose -f docker-compose.yml -f docker-compose.prod.yml ps` 로 컨테이너 상태 확인
+
+### EC2 사전 준비 (최초 1회)
+
+- SSH 접속 가능 (22번 포트 열기)
+- Docker, Docker Compose 설치 완료
+- SSH 사용자에게 `docker` 그룹 권한 부여 (`sudo usermod -a -G docker $USER`)
+- **Private 리포인 경우**: EC2에 Deploy Key 등록 후 `git clone` 가능한 경로에서 사용하거나, 스크립트 내 `git clone` URL을 토큰 포함 URL로 변경
+
+---
+
+## 🛠 1단계: EC2 백엔드 배포 (수동)
 
 ### EC2 인스턴스 준비
 ```bash

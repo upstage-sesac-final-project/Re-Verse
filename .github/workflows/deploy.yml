@@ -1,7 +1,7 @@
-# Re-Verse CD 워크플로우 (추후 작성)
-# main 브랜치 push 시 Docker 빌드 & 배포 예정
+# Re-Verse CD: main 브랜치 push 시 EC2 백엔드 자동 배포
+# 프론트엔드는 Vercel GitHub 연동으로 별도 자동 배포
 
-name: Re-Verse CD
+name: Deploy to EC2
 
 on:
   push:
@@ -9,8 +9,26 @@ on:
   workflow_dispatch:
 
 jobs:
-  placeholder:
-    name: CD (작성 예정)
+  deploy:
+    name: EC2 백엔드 배포
     runs-on: ubuntu-latest
     steps:
-      - run: echo "CD 워크플로우 준비 중"
+      - name: EC2 접속 후 최신 코드 배포
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            if [ ! -d "Re-Verse" ]; then
+              git clone https://github.com/upstage-sesac-final-project/Re-Verse.git
+            fi
+            cd Re-Verse
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "${{ secrets.ENV_FILE }}" > .env
+
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+            docker image prune -f
