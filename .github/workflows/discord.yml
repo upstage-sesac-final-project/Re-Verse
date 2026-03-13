@@ -1,0 +1,52 @@
+name: Notify Discord on PR merge to develop
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions: {}
+
+jobs:
+  notify:
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'develop'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_REVIEW_ROLE_ID: ${{ vars.DISCORD_REVIEW_ROLE_ID }}
+        with:
+          script: |
+            const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+            const pr = context.payload.pull_request;
+            const roleId = process.env.DISCORD_REVIEW_ROLE_ID?.trim();
+            const mention = roleId ? `@everyone <@&${roleId}>` : "@everyone";
+
+            if (!webhookUrl) {
+              throw new Error("DISCORD_WEBHOOK_URL is not set");
+            }
+
+            const content = [
+              mention,
+              "",
+              `PR #${pr.number} ${pr.title}`,
+              "dev 브랜치(`develop`)에 머지됐습니다.",
+              "작업 전에 `git fetch` 한 번 해주시고",
+              "`git pull origin develop` 부탁드립니다~",
+              "",
+              pr.html_url,
+            ].join("\n");
+
+            const allowed_mentions = roleId
+              ? { parse: ["everyone"], roles: [roleId] }
+              : { parse: ["everyone"] };
+
+            const res = await fetch(webhookUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ content, allowed_mentions }),
+            });
+
+            if (!res.ok) {
+              throw new Error(`Discord webhook failed: ${res.status} ${await res.text()}`);
+            }

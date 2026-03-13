@@ -1,0 +1,13 @@
+# Re-Verse E2E / 통합 테스트 워크플로우 (추후 작성)
+
+name: Re-Verse Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  placeholder:
+    name: E2E Test (작성 예정)
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "E2E 테스트 워크플로우 준비 중"
