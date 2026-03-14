@@ -1,16 +1,18 @@
+import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-import json
+from typing import Any
 
 
 def _project_root() -> Path:
-    return Path(__file__).resolve().parent
+    # return Path(__file__).resolve().parent
+    # edit_enemies.py 위치: Re-Verse/app/backend/services/json_modify_tools/
+    # parents[4] → Re-Verse/ (프로젝트 루트)
+    return Path(__file__).resolve().parents[4]
 
 
 def _items_path() -> Path:
-    return _project_root() / "data" / "Items.json"
+    return _project_root() / "storage" / "games" / "game_001" / "data" / "Items.json"
 
 
 def _detect_newline(text: str) -> str:
@@ -21,8 +23,8 @@ def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _dump_rmmz_array_json(path: Path, data: List[Any], newline: str) -> None:
-    lines: List[str] = ["["]
+def _dump_rmmz_array_json(path: Path, data: list[Any], newline: str) -> None:
+    lines: list[str] = ["["]
     for i, entry in enumerate(data):
         s = json.dumps(entry, ensure_ascii=False, separators=(",", ":"))
         if i != len(data) - 1:
@@ -32,7 +34,7 @@ def _dump_rmmz_array_json(path: Path, data: List[Any], newline: str) -> None:
     path.write_text(newline.join(lines) + newline, encoding="utf-8")
 
 
-def _make_poison_item(item_id: int) -> Dict[str, Any]:
+def _make_poison_item(item_id: int) -> dict[str, Any]:
     return {
         "id": item_id,
         "animationId": 41,
@@ -61,11 +63,11 @@ def _make_poison_item(item_id: int) -> Dict[str, Any]:
     }
 
 
-def _is_empty_item_slot(item: Dict[str, Any]) -> bool:
+def _is_empty_item_slot(item: dict[str, Any]) -> bool:
     return (item.get("name") or "") == ""
 
 
-def _find_item_by_name(items: List[Any], name: str) -> Optional[int]:
+def _find_item_by_name(items: list[Any], name: str) -> int | None:
     for idx in range(1, len(items)):
         it = items[idx]
         if isinstance(it, dict) and (it.get("name") or "") == name:
@@ -73,7 +75,7 @@ def _find_item_by_name(items: List[Any], name: str) -> Optional[int]:
     return None
 
 
-def _find_first_empty_slot(items: List[Any]) -> Optional[int]:
+def _find_first_empty_slot(items: list[Any]) -> int | None:
     for idx in range(1, len(items)):
         it = items[idx]
         if isinstance(it, dict) and _is_empty_item_slot(it):
@@ -81,7 +83,7 @@ def _find_first_empty_slot(items: List[Any]) -> Optional[int]:
     return None
 
 
-def _upsert_poison_item(items: List[Any]) -> int:
+def _upsert_poison_item(items: list[Any]) -> int:
     existing_idx = _find_item_by_name(items, "독약")
     if existing_idx is not None:
         items[existing_idx] = _make_poison_item(existing_idx)
@@ -97,7 +99,7 @@ def _upsert_poison_item(items: List[Any]) -> int:
     return new_id
 
 
-def main(argv: List[str]) -> int:
+def main(argv: list[str]) -> int:
     if len(argv) != 1:
         print("Usage: python edit_itmes.py 독약", file=sys.stderr)
         return 2
