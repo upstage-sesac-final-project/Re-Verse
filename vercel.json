@@ -6,6 +6,10 @@
     {
       "source": "/api/:path*",
       "destination": "http://34.226.65.141:8000/api/:path*"
+    },
+    {
+      "source": "/game/:path*",
+      "destination": "http://34.226.65.141:8000/game/:path*"
     }
   ],
   "env": {

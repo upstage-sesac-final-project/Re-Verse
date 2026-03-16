@@ -1,0 +1,11 @@
+[
+null,
+{"id":1,"expanded":true,"name":"MAP001","order":2,"parentId":0,"scrollX":816,"scrollY":624},
+{"id":2,"expanded":false,"name":"MAP002","order":3,"parentId":1,"scrollX":1238,"scrollY":1124.5,"quick":false},
+{"id":3,"expanded":true,"name":"숲 내부 2","order":4,"parentId":1,"scrollX":1238,"scrollY":796.5,"quick":false},
+{"id":4,"expanded":false,"name":"숲 내부 3","order":5,"parentId":3,"scrollX":557,"scrollY":498.5,"quick":false},
+{"id":5,"expanded":true,"name":"악마 성","order":6,"parentId":1,"scrollX":1254,"scrollY":844,"quick":false},
+{"id":6,"expanded":false,"name":"MAP006","order":8,"parentId":0,"scrollX":1238,"scrollY":796,"quick":false},
+{"id":7,"expanded":false,"name":"최종장","order":7,"parentId":5,"scrollX":1238,"scrollY":796,"quick":false},
+{"id":8,"expanded":false,"name":"MAP008","order":1,"parentId":0,"scrollX":0,"scrollY":0,"quick":false}
+]

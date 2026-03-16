@@ -1,6 +1,6 @@
 import { post } from './api'
 
-const USE_MOCK = true
+const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 
 const MOCK_RESPONSES = [
   '네, NPC를 생성해 드리겠습니다. 마을 입구에 상인 NPC를 배치했습니다.',
@@ -19,15 +19,29 @@ async function mockSendPrompt() {
   return { role: 'assistant', content: getMockResponse() }
 }
 
+/**
+ * 사용자 프롬프트를 백엔드 LLM 엔드포인트로 전송
+ * Backend: POST /api/v1/llm/process
+ * Request: { request: string, game_id?: string, session_id?: string }
+ * Response: { code, message, result, intent, modifications, affected_files }
+ */
 export async function sendPrompt(message, history) {
   if (USE_MOCK) {
     return mockSendPrompt()
   }
 
   try {
-    const data = await post('/chat', { message, history })
-    return { role: 'assistant', content: data.response }
-  } catch {
-    return mockSendPrompt()
+    const data = await post('/v1/llm/process', { request: message })
+    return {
+      role: 'assistant',
+      content: data.message,
+      intent: data.intent,
+      modifications: data.modifications,
+      affected_files: data.affected_files,
+      result: data.result,
+    }
+  } catch (error) {
+    console.error('LLM API 호출 실패:', error.message)
+    return { role: 'assistant', content: `오류가 발생했습니다: ${error.message}` }
   }
 }
