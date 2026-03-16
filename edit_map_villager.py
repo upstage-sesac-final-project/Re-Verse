@@ -63,7 +63,12 @@ def _make_villager_event(event_id: int) -> Dict[str, Any]:
                     "pattern": NPC_PATTERN,
                     "characterIndex": NPC_CHARACTER_INDEX,
                 },
-                "list": [{"code": 0, "indent": 0, "parameters": []}],
+                "list": [
+                    {"code": 101, "indent": 0, "parameters": [NPC_CHARACTER_NAME, NPC_CHARACTER_INDEX, 0, 2, ""]},
+                    {"code": 401, "indent": 0, "parameters": ["마왕성에 가려면 조건이 필요합니다."]},
+                    {"code": 401, "indent": 0, "parameters": ["그중 요정의 축복을 받은 무기는 비밀의 숲에 있어요."]},
+                    {"code": 0, "indent": 0, "parameters": []},
+                ],
                 "moveFrequency": 3,
                 "moveRoute": {
                     "list": [{"code": 0, "parameters": []}],
@@ -107,7 +112,7 @@ def main(argv: List[str]) -> int:
     )
     parser.add_argument(
         "map",
-        help='Map path (e.g. "data/Map002.json") or map id (e.g. 9).',
+        help='Map path (e.g. "data/Map009.json") or map id (e.g. 9).',
     )
     parser.add_argument(
         "--force",
