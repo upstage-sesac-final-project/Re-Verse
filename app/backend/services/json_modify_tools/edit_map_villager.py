@@ -2,8 +2,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 NPC_X = 20
 NPC_Y = 9
@@ -21,30 +20,30 @@ TEXT_LINES = [
 
 
 def _project_root() -> Path:
-    return Path(__file__).resolve().parent
+    return Path(__file__).resolve().parents[4]
 
 
 def _resolve_map_path(map_arg: str) -> Path:
     s = map_arg.strip().strip('"')
     if s.isdigit():
-        return _project_root() / "data" / f"Map{int(s):03d}.json"
+        return _project_root() / "storage" / "games" / "game_001" / "data" / f"Map{int(s):03d}.json"
     p = Path(s)
     if p.is_absolute():
         return p
     return _project_root() / p
 
 
-def _load_json(path: Path) -> Dict[str, Any]:
+def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _dump_json(path: Path, obj: Dict[str, Any]) -> None:
+def _dump_json(path: Path, obj: dict[str, Any]) -> None:
     # Keep files compact (Map data arrays are huge); RPG Maker MZ reads compact JSON fine.
     text = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
     path.write_text(text + "\n", encoding="utf-8", newline="\n")
 
 
-def _make_villager_event(event_id: int) -> Dict[str, Any]:
+def _make_villager_event(event_id: int) -> dict[str, Any]:
     return {
         "id": event_id,
         "name": NPC_EVENT_NAME,
@@ -75,7 +74,11 @@ def _make_villager_event(event_id: int) -> Dict[str, Any]:
                     "characterIndex": NPC_CHARACTER_INDEX,
                 },
                 "list": [
-                    {"code": 101, "indent": 0, "parameters": [NPC_CHARACTER_NAME, NPC_CHARACTER_INDEX, 0, 2, ""]},
+                    {
+                        "code": 101,
+                        "indent": 0,
+                        "parameters": [NPC_CHARACTER_NAME, NPC_CHARACTER_INDEX, 0, 2, ""],
+                    },
                     *[
                         {"code": 401, "indent": 0, "parameters": [line]}
                         for line in TEXT_LINES
@@ -104,7 +107,7 @@ def _make_villager_event(event_id: int) -> Dict[str, Any]:
     }
 
 
-def _find_existing_event_at(events: List[Any], x: int, y: int) -> Optional[Dict[str, Any]]:
+def _find_existing_event_at(events: list[Any], x: int, y: int) -> dict[str, Any] | None:
     for ev in events[1:]:
         if not isinstance(ev, dict):
             continue
@@ -113,14 +116,14 @@ def _find_existing_event_at(events: List[Any], x: int, y: int) -> Optional[Dict[
     return None
 
 
-def _find_free_event_id(events: List[Any]) -> int:
+def _find_free_event_id(events: list[Any]) -> int:
     for idx in range(1, len(events)):
         if events[idx] is None:
             return idx
     return len(events)
 
 
-def main(argv: List[str]) -> int:
+def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
             f"Add a villager NPC event at fixed position (x={NPC_X},y={NPC_Y}) with graphic "
@@ -133,7 +136,9 @@ def main(argv: List[str]) -> int:
         action="store_true",
         help=f"If an event already exists at (x={NPC_X},y={NPC_Y}), overwrite it instead of aborting.",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Do not write; only report what would change.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Do not write; only report what would change."
+    )
     args = parser.parse_args(argv)
 
     map_path = _resolve_map_path(args.map)
@@ -161,7 +166,7 @@ def main(argv: List[str]) -> int:
         print('ERROR: Invalid map JSON: missing "events" array.', file=sys.stderr)
         return 1
     if events[0] is not None:
-        print('ERROR: Unexpected map JSON: events[0] is not null.', file=sys.stderr)
+        print("ERROR: Unexpected map JSON: events[0] is not null.", file=sys.stderr)
         return 1
 
     existing = _find_existing_event_at(events, NPC_X, NPC_Y)
@@ -207,4 +212,3 @@ def main(argv: List[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

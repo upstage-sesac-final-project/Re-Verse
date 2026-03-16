@@ -12,6 +12,8 @@ from app.backend.services.json_modify_tools.dispatcher import (
 result = run_enemies("까마귀 적을 추가해줘")
 result = run_items("독약 아이템 추가해줘")
 result = run_map_villager("맵 9번에 빌리저 추가해줘")
+result = run_levels("레벨 50으로 설정해줘")
+result = run_skills("최후의일격 스킬 추가해줘")
 """
 
 import io
@@ -20,7 +22,13 @@ from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime
 from typing import Any
 
-from app.backend.services.json_modify_tools import edit_enemies, edit_items, edit_map_villager
+from app.backend.services.json_modify_tools import (
+    edit_enemies,
+    edit_items,
+    edit_levels,
+    edit_map_villager,
+    edit_skills,
+)
 
 # ──────────────────────────────────────────────────────────────
 # 키워드 맵
@@ -45,6 +53,9 @@ ENEMY_KEYWORD_MAP: dict[str, str] = {
 
 # edit_items 에서 현재 지원하는 아이템 목록
 SUPPORTED_ITEMS: list[str] = ["독약", "회복물약", "마나물약"]
+
+# edit_skills 에서 현재 지원하는 스킬 목록
+SUPPORTED_SKILLS: list[str] = ["최후의일격", "전체공격", "회복마법", "버프"]
 
 
 # ──────────────────────────────────────────────────────────────
@@ -81,8 +92,20 @@ def _run_main(main_fn, argv: list[str]) -> dict[str, Any]:
 
 def _extract_map_id(user_input: str) -> str:
     """사용자 입력에서 첫 번째 숫자를 맵 ID로 추출한다. 없으면 기본값 '1'."""
-    match = re.search(r"\b(\d+)\b", user_input)
+    match = re.search(r"(\d+)", user_input)
     return match.group(1) if match else "1"
+
+
+def _extract_level(user_input: str) -> str:
+    """사용자 입력에서 레벨 숫자를 추출한다. 없으면 기본값 '25'."""
+    # "레벨 50", "50레벨", "레벨을 30으로" 등의 패턴 매칭
+    match = re.search(r"(\d+)", user_input)
+    if match:
+        level = int(match.group(1))
+        # 1-99 사이의 합리적인 레벨 값만 허용
+        if 1 <= level <= 99:
+            return str(level)
+    return "25"  # 기본값
 
 
 # ──────────────────────────────────────────────────────────────
@@ -159,4 +182,42 @@ def run_map_villager(user_input: str) -> dict[str, Any]:
 
     result = _run_main(edit_map_villager.main, argv)
     result["command"] = " ".join(argv)
+    return result
+
+
+def run_levels(user_input: str) -> dict[str, Any]:
+    """
+    user_input 에서 레벨 값을 파싱해 edit_levels.main() 을 실행한다.
+    - 숫자 → 목표 레벨 (없으면 기본값 "25")
+    예: "레벨 50으로", "레벨을 30으로 설정", "초기 레벨 40"
+    """
+    level = _extract_level(user_input)
+    argv: list[str] = [level]
+
+    result = _run_main(edit_levels.main, argv)
+    result["command"] = level
+    return result
+
+
+def run_skills(user_input: str) -> dict[str, Any]:
+    """
+    user_input 에서 스킬명을 파싱해 edit_skills.main() 을 실행한다.
+    SUPPORTED_SKILLS 목록과 매칭
+    """
+    skill: str | None = next(
+        (name for name in SUPPORTED_SKILLS if name in user_input),
+        None,
+    )
+    if skill is None:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"지원하는 스킬: {', '.join(SUPPORTED_SKILLS)}",
+            "command": "",
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    result = _run_main(edit_skills.main, [skill])
+    result["command"] = skill
     return result

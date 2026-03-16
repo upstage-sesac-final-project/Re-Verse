@@ -10,7 +10,9 @@ from app.backend.schemas.llm import AgentResponse, ToolCall, UserInputRequest
 from app.backend.services.json_modify_tools.dispatcher import (
     run_enemies,
     run_items,
+    run_levels,
     run_map_villager,
+    run_skills,
 )
 
 
@@ -65,7 +67,36 @@ class LLMService:
         # 의도 분류 + 편집 함수 호출
         tool_calls = []
 
-        if any(
+        # 1. 레벨 수정 (가장 먼저 체크 - 숫자가 포함될 수 있어서)
+        if any(keyword in user_input for keyword in ["레벨", "level", "초기레벨", "초기 레벨"]):
+            intent = "modify_level"
+            tool_name = "edit_levels"
+            message = "레벨을 수정하는 중입니다..."
+            tool_result = await asyncio.to_thread(run_levels, request.request)
+
+        # 2. 스킬 수정
+        elif any(
+            keyword in user_input
+            for keyword in [
+                "스킬",
+                "skill",
+                "기술",
+                "최후의일격",
+                "전체공격",
+                "회복마법",
+                "버프",
+                "필살기",
+                "강화",
+                "공격력강화",
+            ]
+        ):
+            intent = "modify_skill"
+            tool_name = "edit_skills"
+            message = "스킬을 수정하는 중입니다..."
+            tool_result = await asyncio.to_thread(run_skills, request.request)
+
+        # 3. 몬스터/적 수정
+        elif any(
             keyword in user_input
             for keyword in ["적", "몬스터", "몹", "보스", "boss", "적군", "에너미"]
         ):
@@ -74,6 +105,7 @@ class LLMService:
             message = "몬스터를 수정하는 중입니다..."
             tool_result = await asyncio.to_thread(run_enemies, request.request)
 
+        # 4. 아이템 수정
         elif any(
             keyword in user_input
             for keyword in ["아이템", "템", "item", "장비", "소비템", "소모품"]
@@ -83,6 +115,7 @@ class LLMService:
             message = "아이템을 수정하는 중입니다..."
             tool_result = await asyncio.to_thread(run_items, request.request)
 
+        # 5. 맵/지형 수정
         elif any(
             keyword in user_input
             for keyword in ["맵", "지형", "타일", "지도", "건물", "배경", "환경", "마을"]
