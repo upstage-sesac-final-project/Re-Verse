@@ -1,4 +1,4 @@
-export default function RPGMakerFrame({ refreshKey }) {
+export default function RPGMakerFrame({ refreshKey, gameId = 'game_001' }) {
   const scale = 0.9
   const width = 816
   const height = 624
@@ -13,7 +13,7 @@ export default function RPGMakerFrame({ refreshKey }) {
     >
       <iframe
         key={refreshKey}
-        src="/rpgmaker/index.html"
+        src={`/game/${gameId}/index.html`}
         title="RPG Maker MZ"
         allow="autoplay"
         width={width}
