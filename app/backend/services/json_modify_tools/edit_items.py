@@ -63,6 +63,78 @@ def _make_poison_item(item_id: int) -> dict[str, Any]:
     }
 
 
+def _make_health_potion_item(item_id: int) -> dict[str, Any]:
+    return {
+        "id": item_id,
+        "animationId": 41,
+        "consumable": True,
+        "damage": {
+            "critical": False,
+            "elementId": 0,
+            "formula": "0",
+            "type": 0,
+            "variance": 0,
+        },
+        "description": "HP를 500 회복합니다.",
+        "effects": [
+            {
+                "code": 11,
+                "dataId": 0,
+                "value1": 500,
+                "value2": 0,
+            }
+        ],
+        "hitType": 0,
+        "iconIndex": 176,
+        "itypeId": 1,
+        "name": "회복물약",
+        "note": "",
+        "occasion": 0,
+        "price": 50,
+        "repeats": 1,
+        "scope": 7,
+        "speed": 0,
+        "successRate": 100,
+        "tpGain": 0,
+    }
+
+
+def _make_mana_potion_item(item_id: int) -> dict[str, Any]:
+    return {
+        "id": item_id,
+        "animationId": 41,
+        "consumable": True,
+        "damage": {
+            "critical": False,
+            "elementId": 0,
+            "formula": "0",
+            "type": 0,
+            "variance": 0,
+        },
+        "description": "MP를 100 회복합니다.",
+        "effects": [
+            {
+                "code": 12,
+                "dataId": 0,
+                "value1": 100,
+                "value2": 0,
+            }
+        ],
+        "hitType": 0,
+        "iconIndex": 177,
+        "itypeId": 1,
+        "name": "마나물약",
+        "note": "",
+        "occasion": 0,
+        "price": 30,
+        "repeats": 1,
+        "scope": 7,
+        "speed": 0,
+        "successRate": 100,
+        "tpGain": 0,
+    }
+
+
 def _is_empty_item_slot(item: dict[str, Any]) -> bool:
     return (item.get("name") or "") == ""
 
@@ -83,30 +155,31 @@ def _find_first_empty_slot(items: list[Any]) -> int | None:
     return None
 
 
-def _upsert_poison_item(items: list[Any]) -> int:
-    existing_idx = _find_item_by_name(items, "독약")
+def _upsert_item(items: list[Any], name: str, maker_fn) -> int:
+    """아이템을 추가하거나 업데이트하는 공통 함수"""
+    existing_idx = _find_item_by_name(items, name)
     if existing_idx is not None:
-        items[existing_idx] = _make_poison_item(existing_idx)
+        items[existing_idx] = maker_fn(existing_idx)
         return existing_idx
 
     empty_idx = _find_first_empty_slot(items)
     if empty_idx is not None:
-        items[empty_idx] = _make_poison_item(empty_idx)
+        items[empty_idx] = maker_fn(empty_idx)
         return empty_idx
 
     new_id = len(items)
-    items.append(_make_poison_item(new_id))
+    items.append(maker_fn(new_id))
     return new_id
 
 
 def main(argv: list[str]) -> int:
     if len(argv) != 1:
-        print("Usage: python edit_itmes.py 독약", file=sys.stderr)
+        print("Usage: python edit_items.py (독약|회복물약|마나물약)", file=sys.stderr)
         return 2
 
     cmd = argv[0].strip()
-    if cmd != "독약":
-        print(f"Unknown item: {cmd}", file=sys.stderr)
+    if cmd not in {"독약", "회복물약", "마나물약"}:
+        print(f"Unknown item: {cmd} (expected 독약, 회복물약, or 마나물약)", file=sys.stderr)
         return 2
 
     path = _items_path()
@@ -122,9 +195,16 @@ def main(argv: list[str]) -> int:
         print("Unexpected Items.json format (expected [null, ...])", file=sys.stderr)
         return 2
 
-    item_id = _upsert_poison_item(items)
+    # 아이템 타입에 따라 적절한 함수 선택
+    if cmd == "독약":
+        item_id = _upsert_item(items, "독약", _make_poison_item)
+    elif cmd == "회복물약":
+        item_id = _upsert_item(items, "회복물약", _make_health_potion_item)
+    elif cmd == "마나물약":
+        item_id = _upsert_item(items, "마나물약", _make_mana_potion_item)
+
     _dump_rmmz_array_json(path, items, newline)
-    print(f"OK: Items.json updated (독약 id={item_id})")
+    print(f"OK: Items.json updated ({cmd} id={item_id})")
     return 0
 
 

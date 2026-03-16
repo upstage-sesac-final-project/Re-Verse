@@ -65,19 +65,28 @@ class LLMService:
         # 의도 분류 + 편집 함수 호출
         tool_calls = []
 
-        if any(keyword in user_input for keyword in ["적", "몬스터", "몹"]):
+        if any(
+            keyword in user_input
+            for keyword in ["적", "몬스터", "몹", "보스", "boss", "적군", "에너미"]
+        ):
             intent = "modify_enemy"
             tool_name = "edit_enemies"
             message = "몬스터를 수정하는 중입니다..."
             tool_result = await asyncio.to_thread(run_enemies, request.request)
 
-        elif any(keyword in user_input for keyword in ["아이템", "템"]):
+        elif any(
+            keyword in user_input
+            for keyword in ["아이템", "템", "item", "장비", "소비템", "소모품"]
+        ):
             intent = "modify_item"
             tool_name = "edit_items"
             message = "아이템을 수정하는 중입니다..."
             tool_result = await asyncio.to_thread(run_items, request.request)
 
-        elif any(keyword in user_input for keyword in ["맵", "지형", "타일", "지도", "건물"]):
+        elif any(
+            keyword in user_input
+            for keyword in ["맵", "지형", "타일", "지도", "건물", "배경", "환경", "마을"]
+        ):
             intent = "modify_map"
             tool_name = "edit_map_villager"
             message = "맵을 수정하는 중입니다..."

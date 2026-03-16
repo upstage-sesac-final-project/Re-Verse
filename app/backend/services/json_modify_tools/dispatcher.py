@@ -34,10 +34,17 @@ ENEMY_KEYWORD_MAP: dict[str, str] = {
     "demon": "demon",
     "데몬": "demon",
     "악마": "demon",
+    "slime": "slime",
+    "슬라임": "slime",
+    "Slime": "slime",
+    "skeleton": "skeleton",
+    "스켈레톤": "skeleton",
+    "해골": "skeleton",
+    "Skeleton": "skeleton",
 }
 
 # edit_items 에서 현재 지원하는 아이템 목록
-SUPPORTED_ITEMS: list[str] = ["독약"]
+SUPPORTED_ITEMS: list[str] = ["독약", "회복물약", "마나물약"]
 
 
 # ──────────────────────────────────────────────────────────────

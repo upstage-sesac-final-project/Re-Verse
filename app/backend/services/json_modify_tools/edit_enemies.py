@@ -77,13 +77,31 @@ def _make_demon_enemy(enemy_id: int, dwarf: dict[str, Any]) -> dict[str, Any]:
     return enemy
 
 
+def _make_slime_enemy(enemy_id: int, dwarf: dict[str, Any]) -> dict[str, Any]:
+    enemy = copy.deepcopy(dwarf)
+    enemy["id"] = enemy_id
+    enemy["battlerName"] = "Slime"
+    enemy["battlerHue"] = 0
+    enemy["name"] = "Slime"
+    return enemy
+
+
+def _make_skeleton_enemy(enemy_id: int, dwarf: dict[str, Any]) -> dict[str, Any]:
+    enemy = copy.deepcopy(dwarf)
+    enemy["id"] = enemy_id
+    enemy["battlerName"] = "Skeleton"
+    enemy["battlerHue"] = 0
+    enemy["name"] = "Skeleton"
+    return enemy
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 1:
-        print("Usage: python edit_enemies.py (crow|demon)", file=sys.stderr)
+        print("Usage: python edit_enemies.py (crow|demon|slime|skeleton)", file=sys.stderr)
         return 2
 
     cmd = argv[0].strip().lower()
-    if cmd not in {"crow", "demon"}:
+    if cmd not in {"crow", "demon", "slime", "skeleton"}:
         print(f"Unknown enemy: {argv[0]} (expected crow or demon)", file=sys.stderr)
         return 2
 
@@ -105,8 +123,21 @@ def main(argv: list[str]) -> int:
         print("Cannot find dwarf template (name=난쟁이 or battlerName=Gnome).", file=sys.stderr)
         return 2
 
-    target_name = "Crow" if cmd == "crow" else "Demon"
-    maker = _make_crow_enemy if cmd == "crow" else _make_demon_enemy
+    # target_name = "Crow" if cmd == "crow" else "Demon"
+    # maker = _make_crow_enemy if cmd == "crow" else _make_demon_enemy
+
+    if cmd == "crow":
+        target_name = "Crow"
+        maker = _make_crow_enemy
+    elif cmd == "demon":
+        target_name = "Demon"
+        maker = _make_demon_enemy
+    elif cmd == "slime":
+        target_name = "Slime"
+        maker = _make_slime_enemy
+    elif cmd == "skeleton":
+        target_name = "Skeleton"
+        maker = _make_skeleton_enemy
 
     existing_idx = _find_enemy_by_name(enemies, target_name)
     if existing_idx is not None:
