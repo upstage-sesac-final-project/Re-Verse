@@ -2,7 +2,14 @@ import argparse
 import json
 import os
 import sys
-from typing import Optional, List, Dict, Any
+from pathlib import Path
+from typing import Any
+
+
+def _project_root() -> Path:
+    # edit_map_villager.py 위치: Re-Verse/app/backend/services/json_modify_tools/
+    # parents[4] → Re-Verse/ (프로젝트 루트)
+    return Path(__file__).resolve().parents[4]
 
 
 NPC_X = 20
@@ -16,16 +23,23 @@ NPC_PATTERN = 1
 def _resolve_map_path(map_arg: str) -> str:
     map_arg = map_arg.strip().strip('"')
     if map_arg.isdigit():
-        return os.path.join("data", f"Map{int(map_arg):03d}.json")
+        return str(
+            _project_root()
+            / "storage"
+            / "games"
+            / "game_001"
+            / "data"
+            / f"Map{int(map_arg):03d}.json"
+        )
     return map_arg
 
 
-def _load_json(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+def _load_json(path: str) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
-def _dump_json(path: str, obj: Dict[str, Any]) -> None:
+def _dump_json(path: str, obj: dict[str, Any]) -> None:
     # Keep files compact (Map data arrays are huge); RPG Maker MZ reads compact JSON fine.
     text = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
     with open(path, "w", encoding="utf-8", newline="\n") as f:
@@ -33,7 +47,7 @@ def _dump_json(path: str, obj: Dict[str, Any]) -> None:
         f.write("\n")
 
 
-def _make_villager_event(event_id: int) -> Dict[str, Any]:
+def _make_villager_event(event_id: int) -> dict[str, Any]:
     return {
         "id": event_id,
         "name": "Villager",
@@ -90,7 +104,7 @@ def _make_villager_event(event_id: int) -> Dict[str, Any]:
     }
 
 
-def _find_existing_event_at(events: List[Any], x: int, y: int) -> Optional[Dict[str, Any]]:
+def _find_existing_event_at(events: list[Any], x: int, y: int) -> dict[str, Any] | None:
     for ev in events[1:]:
         if not ev:
             continue
@@ -99,14 +113,14 @@ def _find_existing_event_at(events: List[Any], x: int, y: int) -> Optional[Dict[
     return None
 
 
-def _find_free_event_id(events: List[Any]) -> int:
+def _find_free_event_id(events: list[Any]) -> int:
     for idx in range(1, len(events)):
         if events[idx] is None:
             return idx
     return len(events)
 
 
-def main(argv: List[str]) -> int:
+def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description='Add a villager NPC event at fixed position (x=20,y=9) with graphic characterName "People2".'
     )

@@ -4,10 +4,14 @@ Agent 호출을 담당하는 서비스 레이어
 """
 
 import asyncio
-from datetime import datetime
 
 from app.backend.core.config import settings
 from app.backend.schemas.llm import AgentResponse, ToolCall, UserInputRequest
+from app.backend.services.json_modify_tools.dispatcher import (
+    run_enemies,
+    run_items,
+    run_map_villager,
+)
 
 
 class LLMService:
@@ -58,25 +62,43 @@ class LLMService:
         # MVP: 간단한 키워드 기반 의도 파악 (임시)
         user_input = request.request.lower()
 
-        # 의도 분류
-        if any(keyword in user_input for keyword in ["npc", "캐릭터", "주민", "사람"]):
-            intent = "modify_npc"
-            tool_name = "modify_npc"
-            message = "NPC를 수정하는 중입니다..."
+        # 의도 분류 + 편집 함수 호출
+        tool_calls = []
 
-        elif any(keyword in user_input for keyword in ["맵", "지형", "타일", "지도", "건물"]):
+        if any(
+            keyword in user_input
+            for keyword in ["적", "몬스터", "몹", "보스", "boss", "적군", "에너미"]
+        ):
+            intent = "modify_enemy"
+            tool_name = "edit_enemies"
+            message = "몬스터를 수정하는 중입니다..."
+            tool_result = await asyncio.to_thread(run_enemies, request.request)
+
+        elif any(
+            keyword in user_input
+            for keyword in ["아이템", "템", "item", "장비", "소비템", "소모품"]
+        ):
+            intent = "modify_item"
+            tool_name = "edit_items"
+            message = "아이템을 수정하는 중입니다..."
+            tool_result = await asyncio.to_thread(run_items, request.request)
+
+        elif any(
+            keyword in user_input
+            for keyword in ["맵", "지형", "타일", "지도", "건물", "배경", "환경", "마을"]
+        ):
             intent = "modify_map"
-            tool_name = "modify_map"
+            tool_name = "edit_map_villager"
             message = "맵을 수정하는 중입니다..."
+            tool_result = await asyncio.to_thread(run_map_villager, request.request)
 
         else:
             intent = "unknown"
             tool_name = "none"
+            tool_result = None
             message = "요청을 이해하지 못했습니다. 더 구체적으로 말씀해주세요."
 
-        # Mock tool call 생성
-        tool_calls = []
-        if tool_name != "none":
+        if tool_result is not None:
             tool_calls.append(
                 ToolCall(
                     tool_name=tool_name,
@@ -84,30 +106,29 @@ class LLMService:
                         "user_input": request.request,
                         "game_id": request.game_id,
                     },
-                    result={
-                        "status": "success",
-                        "modified_files": ["Actors.json"]
-                        if intent == "modify_npc"
-                        else ["Map001.json"],
-                        "timestamp": datetime.now().isoformat(),
-                    },
+                    result=tool_result,
                 )
             )
 
-        # 시뮬레이션 지연 (실제 Agent 호출 시뮬레이션)
-        await asyncio.sleep(0.5)
+        # tool_result 기반으로 실제 성공 여부 판단
+        edit_success = tool_result.get("success", False) if tool_result else False
 
         return AgentResponse(
             intent=intent,
             tool_calls=tool_calls,
             result={
                 "intent": intent,
-                "processed": True,
+                "processed": edit_success,
                 "user_input": request.request,
-                "modifications": [tool_name] if tool_name != "none" else [],
+                "modifications": [tool_name] if edit_success else [],
+                "error": tool_result.get("stderr") if tool_result and not edit_success else None,
             },
-            message=message,
-            success=True if intent != "unknown" else False,
+            message=message
+            if edit_success
+            else tool_result.get("stderr", message)
+            if tool_result
+            else message,
+            success=edit_success if intent != "unknown" else False,
         )
 
 

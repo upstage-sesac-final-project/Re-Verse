@@ -1,25 +1,27 @@
-import sys
-from pathlib import Path
-from typing import Any, Dict, List, Optional
-
 import copy
 import json
+import sys
+from pathlib import Path
+from typing import Any
 
 
 def _project_root() -> Path:
-    return Path(__file__).resolve().parent
+    # return Path(__file__).resolve().parent
+    # edit_enemies.py 위치: Re-Verse/app/backend/services/json_modify_tools/
+    # parents[4] → Re-Verse/ (프로젝트 루트)
+    return Path(__file__).resolve().parents[4]
 
 
 def _enemies_path() -> Path:
-    return _project_root() / "data" / "Enemies.json"
+    return _project_root() / "storage" / "games" / "game_001" / "data" / "Enemies.json"
 
 
 def _detect_newline(text: str) -> str:
     return "\r\n" if "\r\n" in text else "\n"
 
 
-def _dump_rmmz_array_json(path: Path, data: List[Any], newline: str) -> None:
-    lines: List[str] = ["["]
+def _dump_rmmz_array_json(path: Path, data: list[Any], newline: str) -> None:
+    lines: list[str] = ["["]
     for i, entry in enumerate(data):
         s = json.dumps(entry, ensure_ascii=False, separators=(",", ":"))
         if i != len(data) - 1:
@@ -29,7 +31,7 @@ def _dump_rmmz_array_json(path: Path, data: List[Any], newline: str) -> None:
     path.write_text(newline.join(lines) + newline, encoding="utf-8")
 
 
-def _find_enemy_by_name(enemies: List[Any], name: str) -> Optional[int]:
+def _find_enemy_by_name(enemies: list[Any], name: str) -> int | None:
     for idx in range(1, len(enemies)):
         e = enemies[idx]
         if isinstance(e, dict) and (e.get("name") or "") == name:
@@ -37,7 +39,7 @@ def _find_enemy_by_name(enemies: List[Any], name: str) -> Optional[int]:
     return None
 
 
-def _find_first_empty_slot(enemies: List[Any]) -> Optional[int]:
+def _find_first_empty_slot(enemies: list[Any]) -> int | None:
     for idx in range(1, len(enemies)):
         e = enemies[idx]
         if isinstance(e, dict) and (e.get("name") or "") == "":
@@ -45,7 +47,7 @@ def _find_first_empty_slot(enemies: List[Any]) -> Optional[int]:
     return None
 
 
-def _find_dwarf_template(enemies: List[Any]) -> Optional[Dict[str, Any]]:
+def _find_dwarf_template(enemies: list[Any]) -> dict[str, Any] | None:
     idx = _find_enemy_by_name(enemies, "난쟁이")
     if idx is not None and isinstance(enemies[idx], dict):
         return enemies[idx]
@@ -57,7 +59,7 @@ def _find_dwarf_template(enemies: List[Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _make_crow_enemy(enemy_id: int, dwarf: Dict[str, Any]) -> Dict[str, Any]:
+def _make_crow_enemy(enemy_id: int, dwarf: dict[str, Any]) -> dict[str, Any]:
     enemy = copy.deepcopy(dwarf)
     enemy["id"] = enemy_id
     enemy["battlerName"] = "Crow"
@@ -66,7 +68,7 @@ def _make_crow_enemy(enemy_id: int, dwarf: Dict[str, Any]) -> Dict[str, Any]:
     return enemy
 
 
-def _make_demon_enemy(enemy_id: int, dwarf: Dict[str, Any]) -> Dict[str, Any]:
+def _make_demon_enemy(enemy_id: int, dwarf: dict[str, Any]) -> dict[str, Any]:
     enemy = copy.deepcopy(dwarf)
     enemy["id"] = enemy_id
     enemy["battlerName"] = "Demon"
@@ -75,13 +77,31 @@ def _make_demon_enemy(enemy_id: int, dwarf: Dict[str, Any]) -> Dict[str, Any]:
     return enemy
 
 
-def main(argv: List[str]) -> int:
+def _make_slime_enemy(enemy_id: int, dwarf: dict[str, Any]) -> dict[str, Any]:
+    enemy = copy.deepcopy(dwarf)
+    enemy["id"] = enemy_id
+    enemy["battlerName"] = "Slime"
+    enemy["battlerHue"] = 0
+    enemy["name"] = "Slime"
+    return enemy
+
+
+def _make_skeleton_enemy(enemy_id: int, dwarf: dict[str, Any]) -> dict[str, Any]:
+    enemy = copy.deepcopy(dwarf)
+    enemy["id"] = enemy_id
+    enemy["battlerName"] = "Skeleton"
+    enemy["battlerHue"] = 0
+    enemy["name"] = "Skeleton"
+    return enemy
+
+
+def main(argv: list[str]) -> int:
     if len(argv) != 1:
-        print("Usage: python edit_enemies.py (crow|demon)", file=sys.stderr)
+        print("Usage: python edit_enemies.py (crow|demon|slime|skeleton)", file=sys.stderr)
         return 2
 
     cmd = argv[0].strip().lower()
-    if cmd not in {"crow", "demon"}:
+    if cmd not in {"crow", "demon", "slime", "skeleton"}:
         print(f"Unknown enemy: {argv[0]} (expected crow or demon)", file=sys.stderr)
         return 2
 
@@ -103,8 +123,21 @@ def main(argv: List[str]) -> int:
         print("Cannot find dwarf template (name=난쟁이 or battlerName=Gnome).", file=sys.stderr)
         return 2
 
-    target_name = "Crow" if cmd == "crow" else "Demon"
-    maker = _make_crow_enemy if cmd == "crow" else _make_demon_enemy
+    # target_name = "Crow" if cmd == "crow" else "Demon"
+    # maker = _make_crow_enemy if cmd == "crow" else _make_demon_enemy
+
+    if cmd == "crow":
+        target_name = "Crow"
+        maker = _make_crow_enemy
+    elif cmd == "demon":
+        target_name = "Demon"
+        maker = _make_demon_enemy
+    elif cmd == "slime":
+        target_name = "Slime"
+        maker = _make_slime_enemy
+    elif cmd == "skeleton":
+        target_name = "Skeleton"
+        maker = _make_skeleton_enemy
 
     existing_idx = _find_enemy_by_name(enemies, target_name)
     if existing_idx is not None:
