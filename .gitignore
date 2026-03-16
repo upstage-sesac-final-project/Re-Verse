@@ -52,8 +52,9 @@ app/frontend/.env.*.local
 # 스토리지 (게임 데이터 - 실제 게임 파일은 git 제외)
 # =============================================================================
 # 디렉토리 전체 제외 대신 파일 단위로 제외해야 .gitkeep이 살아남음
-storage/games/*/data/*
-!storage/games/*/data/.gitkeep
+storage/games/*/
+# storage/games/*/data/*
+# !storage/games/*/data/.gitkeep
 
 # =============================================================================
 # IDE / OS
