@@ -28,7 +28,7 @@ repos:
       - id: check-json
       - id: check-merge-conflict
       - id: check-added-large-files
-        args: ["--maxkb=1000"]
+        args: ["--maxkb=2000"]
       - id: check-toml
 
   # -------------------------------------------------------
