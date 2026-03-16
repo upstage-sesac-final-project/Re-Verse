@@ -107,7 +107,7 @@ def main(argv: List[str]) -> int:
     )
     parser.add_argument(
         "map",
-        help='Map path (e.g. "data/Map009.json") or map id (e.g. 9).',
+        help='Map path (e.g. "data/Map002.json") or map id (e.g. 9).',
     )
     parser.add_argument(
         "--force",
