@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from app.backend.api.v1 import api_router
@@ -69,6 +70,9 @@ async def root():
 # API 라우터들은 여기서 include 하세요
 # 예: app.include_router(llm_router, prefix="/api/v1")
 app.include_router(api_router, prefix="/api/v1")
+
+# storage/games 정적 파일 서빙 (게임 뷰어용)
+app.mount("/game", StaticFiles(directory=settings.STORAGE_PATH, html=True), name="game")
 
 if __name__ == "__main__":
     import uvicorn
