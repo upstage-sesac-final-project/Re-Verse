@@ -14,7 +14,7 @@ export default function GameEditor() {
       <div className="w-[400px] border-r border-gray-700 flex-shrink-0">
         <ChatInterface onGameUpdate={handleGameUpdate} />
       </div>
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 min-w-0 h-full">
         <RPGMakerFrame refreshKey={refreshKey} />
       </div>
     </div>
