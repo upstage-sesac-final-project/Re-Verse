@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
+from agent.monitoring.langsmith_setup import setup_langsmith
 from app.backend.api.v1 import api_router
 from app.backend.core.config import settings
 
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Re:Verse Backend Starting...")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"Debug Mode: {settings.DEBUG}")
+    setup_langsmith()
 
     yield
 
