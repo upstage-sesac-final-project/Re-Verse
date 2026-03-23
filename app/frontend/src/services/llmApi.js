@@ -14,9 +14,21 @@ function getMockResponse() {
   return MOCK_RESPONSES[Math.floor(Math.random() * MOCK_RESPONSES.length)]
 }
 
+const MOCK_CHANGES = [
+  [
+    { step_id: 1, tool_name: 'edit_enemies', description: '슬라임 HP 수정', success: true, result_summary: 'hp: 100 → 500' },
+  ],
+  [
+    { step_id: 1, tool_name: 'edit_skills', description: '파이어볼 데미지 수정', success: true, result_summary: 'damage: 50 → 120' },
+    { step_id: 2, tool_name: 'edit_items', description: 'MP 포션 효과 수정', success: false, result_summary: '대상 아이템을 찾을 수 없음' },
+  ],
+  [],
+]
+
 async function mockSendPrompt() {
   await new Promise((resolve) => setTimeout(resolve, 500))
-  return { role: 'assistant', content: getMockResponse() }
+  const changes = MOCK_CHANGES[Math.floor(Math.random() * MOCK_CHANGES.length)]
+  return { role: 'assistant', content: getMockResponse(), changes_log: changes }
 }
 
 /**
@@ -39,6 +51,7 @@ export async function sendPrompt(message, history) {
       modifications: data.modifications,
       affected_files: data.affected_files,
       result: data.result,
+      changes_log: data.changes_log ?? [],
     }
   } catch (error) {
     console.error('LLM API 호출 실패:', error.message)
