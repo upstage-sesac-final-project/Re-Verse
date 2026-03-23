@@ -21,7 +21,7 @@ class AgentConfig(BaseSettings):
 
     # ── LLM ─────────────────────────────────────────────────
     LLM_API_KEY: str = ""
-    LLM_MODEL: str = "solar-pro"
+    LLM_MODEL: str = "solar-pro3"
     LLM_BASE_URL: str = "https://api.upstage.ai/v1"  # 비우면 공식 OpenAI
 
     # ── 공통 LLM 파라미터 ────────────────────────────────────

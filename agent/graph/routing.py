@@ -1,0 +1,46 @@
+"""조건부 라우팅 함수 — 워크플로우 분기 로직."""
+
+from agent.graph.state import AgentState
+
+
+def route_after_router(state: AgentState) -> str:
+    """Router 이후 분기.
+
+    - game_create / game_modify / game_query → definition
+    - clarification_needed / general_chat / out_of_scope → __end__ (final_response 포함)
+    """
+    intent = state.get("intent", "out_of_scope")
+
+    if intent in ("game_create", "game_modify", "game_query"):
+        return "definition"
+    return "__end__"
+
+
+def route_after_definition(state: AgentState) -> str:
+    """Definition 이후 분기.
+
+    - 파라미터 충분 → planner
+    - 파라미터 불충분 → __end__ (clarification 메시지 포함)
+    """
+    if state.get("params_sufficient", False):
+        return "planner"
+    return "__end__"
+
+
+def route_after_validator(state: AgentState) -> str:
+    """Validator 이후 분기.
+
+    - 검증 통과 → synthesizer
+    - 검증 실패 + retry < MAX_RETRIES → executor (재시도)
+    - 검증 실패 + retry >= MAX_RETRIES → synthesizer (에러 응답 포함)
+    """
+    validation = state.get("validation_result", {})
+    retry_count = state.get("retry_count", 0)
+
+    if validation.get("passed", False):
+        return "synthesizer"
+
+    if retry_count < 2:
+        return "executor"
+
+    return "synthesizer"

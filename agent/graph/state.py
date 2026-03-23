@@ -1,0 +1,49 @@
+"""AgentState — LangGraph 워크플로우의 공유 상태."""
+
+from operator import add
+from typing import Annotated, Literal, TypedDict
+
+
+class AgentState(TypedDict, total=False):
+    # ── 입력 ────────────────────────────────────────────────
+    user_input: str  # 사용자 원본 입력
+    game_id: str  # 수정 대상 게임 ID (예: "game_001")
+
+    # ── 1단계 Router ────────────────────────────────────────
+    intent: Literal[
+        "game_create",
+        "game_modify",
+        "game_query",
+        "clarification_needed",
+        "general_chat",
+        "out_of_scope",
+    ]
+    confidence: float  # 의도 분류 신뢰도 (0.0~1.0)
+
+    # ── 2단계 Definition ────────────────────────────────────
+    target_files: list[str]  # 수정 대상 JSON 파일 목록 (예: ["Enemies.json"])
+    modifications: list[dict]  # 수정 내용 상세
+    extracted_ids: dict  # 이름→ID 매핑 (예: {"enemy_id": 1})
+    params_sufficient: bool  # 파라미터 충분 여부
+
+    # ── 3단계 Planner ───────────────────────────────────────
+    game_context: dict  # 플래너 프롬프트에 주입할 현재 게임 데이터
+    execution_plan: list[dict]  # 단계별 실행 명령 [{"step_id", "tool_name", "params", ...}]
+
+    # ── 4단계 Executor ──────────────────────────────────────
+    current_game_state: dict  # 수정 전 스냅샷 (파일명 → 데이터)
+    modified_game_state: dict  # 수정 후 스냅샷
+
+    # ── 5단계 Validator ─────────────────────────────────────
+    validation_result: dict  # {"passed": bool, "errors": [...], "error_count": int}
+    retry_count: int  # 검증 실패 후 재시도 횟수
+
+    # ── 6단계 Synthesizer ───────────────────────────────────
+    final_response: str  # 사용자에게 전달할 최종 응답
+
+    # ── 대화 이력 ────────────────────────────────────────────
+    conversation_history: list[dict]  # [{"role": "user"|"assistant", "content": str}]
+
+    # ── 누적 필드 (add reducer — 덮어쓰지 않고 쌓임) ────────
+    changes_log: Annotated[list, add]  # 실행 단계별 변경 이력
+    tool_results: Annotated[list, add]  # 툴 호출 결과 누적
