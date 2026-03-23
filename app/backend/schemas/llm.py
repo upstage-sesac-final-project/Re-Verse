@@ -42,6 +42,16 @@ class AgentResponse(BaseModel):
 # ==================== Backend → Frontend ====================
 
 
+class ChangeLog(BaseModel):
+    """단일 변경 로그 항목"""
+
+    step_id: int = Field(..., description="실행 순서")
+    tool_name: str = Field(..., description="호출된 도구 이름")
+    description: str = Field("", description="작업 설명")
+    success: bool = Field(True, description="성공 여부")
+    result_summary: str = Field("", description="결과 요약")
+
+
 class ProcessResponse(BaseModel):
     """프로세스 처리 응답"""
 
@@ -53,3 +63,4 @@ class ProcessResponse(BaseModel):
     intent: str | None = Field(None, description="파악된 의도")
     modifications: list[str] | None = Field(None, description="수정된 항목 목록")
     affected_files: list[str] | None = Field(None, description="영향받은 파일 목록")
+    changes_log: list[ChangeLog] = Field(default_factory=list, description="실행된 변경 로그")
