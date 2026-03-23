@@ -5,7 +5,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 
 # 루트 .env 경로 (어느 디렉토리에서 실행해도 동일하게 참조)
-_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
+_ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"
 
 
 class AgentConfig(BaseSettings):
