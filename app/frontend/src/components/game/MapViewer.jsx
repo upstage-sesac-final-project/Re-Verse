@@ -126,6 +126,137 @@ function drawTile(ctx, tileId, dx, dy, cellSize, images) {
   }
 }
 
+// ── 이벤트 페이지 디코딩 헬퍼 ────────────────────────────────
+const TRIGGER_LABEL = ['버튼', '플레이어 접촉', '이벤트 접촉', '자동실행', '병렬처리']
+const MOVE_TYPE_LABEL = ['고정', '랜덤', '접근', '커스텀']
+const PRIORITY_LABEL = ['하층', '캐릭터와 동층', '상층']
+
+const CMD_LABEL = {
+  101: (p) => `💬 메시지: "${p[4] || ''}"`,
+  401: (p) => `   "${p[0]}"`,
+  102: (p) => `❓ 선택지: [${p[0]?.join(' / ')}]`,
+  111: () => '┌ 조건 분기',
+  411: () => '├ 아닐 때',
+  412: () => '└ 분기 끝',
+  112: () => '↩ 반복',
+  113: () => '⛔ 반복 중단',
+  115: () => '⏹ 이벤트 종료',
+  117: (p) => `📋 공통 이벤트 #${p[0]}`,
+  121: (p) => `🔘 스위치 #${p[0]}~#${p[1]} ${p[2] === 0 ? 'ON' : 'OFF'}`,
+  122: (p) => `🔢 변수 #${p[0]} 조작`,
+  123: (p) => `🔀 셀프스위치 ${p[0]} ${p[1] === 0 ? 'ON' : 'OFF'}`,
+  201: (p) => `🚀 장소이동 → 맵#${p[1]} (${p[2]},${p[3]})`,
+  205: () => '🚶 이동 루트 설정',
+  216: (p) => `👁 투명화 ${p[0] ? 'ON' : 'OFF'}`,
+  220: () => '⬛ 화면 페이드 아웃',
+  221: () => '⬜ 화면 페이드 인',
+  222: () => '🎨 화면 색조 변경',
+  223: () => '⚡ 화면 플래시',
+  224: () => '📳 화면 진동',
+  230: (p) => `⏱ 대기 ${p[0]}프레임`,
+  231: () => '🖼 픽처 표시',
+  235: () => '🗑 픽처 지우기',
+  241: (p) => `🎵 BGM: ${p[0]?.name ?? ''}`,
+  249: (p) => `🎶 ME: ${p[0]?.name ?? ''}`,
+  250: (p) => `🔔 SE: ${p[0]?.name ?? ''}`,
+  301: (p) => `⚔️ 전투 처리 (트룹#${p[1]})`,
+  601: () => '├ 승리 시',
+  602: () => '├ 도망 시',
+  603: () => '├ 패배 시',
+  604: () => '└ 전투 끝',
+  302: () => '🛒 상점 처리',
+  311: () => '❤️ HP 변경',
+  312: () => '💧 MP 변경',
+  342: () => '✨ TP 변경',
+  321: () => '🎭 직업 변경',
+  322: () => '📚 스킬 증감',
+  323: () => '🗡 장비 변경',
+  351: () => '📜 메뉴 화면',
+  352: () => '💾 세이브 화면',
+  353: () => '💀 게임 오버',
+  354: () => '🏠 타이틀로',
+  355: (p) => `⚙️ 스크립트: ${String(p[0]).slice(0, 30)}`,
+  356: (p) => `🔌 플러그인: ${String(p[0]).slice(0, 30)}`,
+}
+
+function decodeCommand(cmd) {
+  if (cmd.code === 0) return null
+  const fn = CMD_LABEL[cmd.code]
+  if (fn) {
+    try { return fn(cmd.parameters) } catch { return `[${cmd.code}]` }
+  }
+  return `[cmd:${cmd.code}]`
+}
+
+function getConditionTags(cond) {
+  const tags = []
+  if (cond.switch1Valid) tags.push(`SW#${cond.switch1Id} ON`)
+  if (cond.switch2Valid) tags.push(`SW#${cond.switch2Id} ON`)
+  if (cond.variableValid) tags.push(`변수#${cond.variableId}≥${cond.variableValue}`)
+  if (cond.selfSwitchValid) tags.push(`셀프SW ${cond.selfSwitchCh} ON`)
+  if (cond.actorValid) tags.push(`액터#${cond.actorId}`)
+  if (cond.itemValid) tags.push(`아이템#${cond.itemId}`)
+  return tags
+}
+
+// ── 이벤트 페이지 상세 컴포넌트 ──────────────────────────────
+function PageDetail({ page, index }) {
+  const [open, setOpen] = useState(false)
+  const conds = getConditionTags(page.conditions ?? {})
+  const cmds = (page.list ?? []).map(decodeCommand).filter(Boolean)
+
+  return (
+    <div className="rounded mb-1.5" style={{ border: '1px solid var(--border)', background: 'var(--bg-primary)' }}>
+      {/* 페이지 헤더 */}
+      <button
+        className="w-full flex items-center justify-between px-2 py-1.5 text-left"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+          Page {index + 1}
+          {page.image?.characterName
+            ? <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}> · {page.image.characterName}</span>
+            : null}
+        </span>
+        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {/* 페이지 요약 (항상 표시) */}
+      <div className="px-2 pb-1.5 flex flex-wrap gap-1">
+        <Tag color="#7c5cff">{TRIGGER_LABEL[page.trigger] ?? page.trigger}</Tag>
+        <Tag color="#4caf82">{MOVE_TYPE_LABEL[page.moveType] ?? page.moveType}</Tag>
+        <Tag color="#6b6b8a">{PRIORITY_LABEL[page.priorityType] ?? page.priorityType}</Tag>
+        {conds.map((c, i) => <Tag key={i} color="#e0a020">{c}</Tag>)}
+      </div>
+
+      {/* 명령어 목록 (펼쳤을 때) */}
+      {open && cmds.length > 0 && (
+        <div
+          className="px-2 pb-2 pt-1 space-y-0.5"
+          style={{ borderTop: '1px solid var(--border)' }}
+        >
+          {cmds.map((text, i) => (
+            <div key={i} className="text-xs" style={{ color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+              {text}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Tag({ color, children }) {
+  return (
+    <span
+      className="px-1 py-0.5 rounded text-xs"
+      style={{ background: color + '22', color, border: `1px solid ${color}55`, lineHeight: 1 }}
+    >
+      {children}
+    </span>
+  )
+}
+
 // ── 이벤트 종류 → 색상 ────────────────────────────────────────
 function getEventColor(event) {
   const name = event.name ?? ''
@@ -392,7 +523,7 @@ export default function MapViewer({ gameId }) {
         {/* 이벤트 사이드 패널 */}
         {selectedEvent && (
           <div
-            className="w-52 flex-shrink-0 overflow-y-auto p-3"
+            className="w-64 flex-shrink-0 overflow-y-auto p-3"
             style={{ borderLeft: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
           >
             <div className="flex items-center justify-between mb-3">
@@ -408,15 +539,11 @@ export default function MapViewer({ gameId }) {
             </div>
             {selectedEvent.pages?.length > 0 && (
               <div className="mt-3">
-                <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>페이지</p>
+                <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  페이지 ({selectedEvent.pages.length}개)
+                </p>
                 {selectedEvent.pages.map((page, i) => (
-                  <div key={i} className="rounded px-2 py-1.5 mb-1 text-xs"
-                    style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)' }}>
-                    <p style={{ color: 'var(--text-primary)' }}>
-                      Page {i + 1}{page.characterName && ` · ${page.characterName}`}
-                    </p>
-                    <p style={{ color: 'var(--text-secondary)' }}>명령 {page.list?.length ?? 0}개</p>
-                  </div>
+                  <PageDetail key={i} page={page} index={i} />
                 ))}
               </div>
             )}
