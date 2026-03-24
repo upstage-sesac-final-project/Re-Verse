@@ -14,17 +14,7 @@ from agent.prompts.router_prompt import build_prompt
 
 logger = logging.getLogger(__name__)
 
-_VALID_INTENTS = frozenset(
-    {
-        "게임_요소_생성",
-        "게임_요소_수정",
-        "게임_요소_조회",
-        "추가_정보_필요",
-        "일반_대화",
-        "범위_외",
-    }
-)
-_TERMINAL_INTENTS = frozenset({"추가_정보_필요", "일반_대화", "범위_외"})
+_TERMINAL_INTENTS = frozenset({"추가_정보_필요", "복합_의도", "일반_대화", "범위_외"})
 _ACTION_INTENTS = frozenset({"게임_요소_생성", "게임_요소_수정", "게임_요소_조회"})
 _CONFIDENCE_THRESHOLD = 0.7
 
@@ -35,6 +25,7 @@ class _RouterOutput(BaseModel):
         "게임_요소_수정",
         "게임_요소_조회",
         "추가_정보_필요",
+        "복합_의도",
         "일반_대화",
         "범위_외",
     ] = Field(description="분류된 의도")
@@ -87,7 +78,11 @@ async def router(state: AgentState) -> dict:
     }
 
     # 터미널 인텐트는 즉시 응답을 final_response 에 기록
-    if intent in _TERMINAL_INTENTS:
+    if intent == "복합_의도":
+        result["final_response"] = (
+            "요청을 하나씩 입력해주세요. 예) '슬라임 HP 올려줘' 후 '드래곤 만들어줘'"
+        )
+    elif intent in _TERMINAL_INTENTS:
         result["final_response"] = output.response or "조금 더 구체적으로 말씀해주시겠어요?"
 
     return result

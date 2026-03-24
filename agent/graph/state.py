@@ -15,6 +15,7 @@ class AgentState(TypedDict, total=False):
         "게임_요소_수정",
         "게임_요소_조회",
         "추가_정보_필요",
+        "복합_의도",
         "일반_대화",
         "범위_외",
     ]
