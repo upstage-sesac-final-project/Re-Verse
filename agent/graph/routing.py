@@ -6,12 +6,12 @@ from agent.graph.state import AgentState
 def route_after_router(state: AgentState) -> str:
     """Router 이후 분기.
 
-    - game_create / game_modify / game_query → definition
-    - clarification_needed / general_chat / out_of_scope → __end__ (final_response 포함)
+    - 게임_요소_생성 / 게임_요소_수정 / 게임_요소_조회 → definition
+    - 추가_정보_필요 / 일반_대화 / 범위_외 → __end__ (final_response 포함)
     """
-    intent = state.get("intent", "out_of_scope")
+    intent = state.get("intent", "범위_외")
 
-    if intent in ("game_create", "game_modify", "game_query"):
+    if intent in ("게임_요소_생성", "게임_요소_수정", "게임_요소_조회"):
         return "definition"
     return "__end__"
 
