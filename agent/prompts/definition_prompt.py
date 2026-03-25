@@ -3,9 +3,44 @@
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from agent.graph.state import AgentState
+from agent.prompts.examples import (
+    ACTORS_EXAMPLE_PROMPT,
+    ARMORS_EXAMPLE_PROMPT,
+    CLASSES_EXAMPLE_PROMPT,
+    ENEMIES_EXAMPLE_PROMPT,
+    ITEMS_EXAMPLE_PROMPT,
+    SKILLS_EXAMPLE_PROMPT,
+    WEAPONS_EXAMPLE_PROMPT,
+)
 
-BASE_SYSTEM_PROMPT = """당신은 RPG Maker MZ 전문 데이터 설계자입니다.
+# .format() 사용 시 실제 중괄호는 {{ }}로 이중 처리해야 합니다.
+BASE_SYSTEM_PROMPT_TEMPLATE = """당신은 RPG Maker MZ 전문 데이터 설계자입니다.
 사용자의 요청을 분석하여 데이터 간의 관계를 파악하고, 필요한 모든 수정 단계를 정확히 정의하십시오.
+
+### [RPG Maker MZ 표준 데이터 구조 레퍼런스 (Raw JSON)]
+데이터를 생성(CREATE)하거나 수정(UPDATE)할 때, 반드시 아래 제공된 필드명과 구조(camelCase)를 엄격히 따르십시오. 
+임의로 필드명을 바꾸거나 없는 필드를 생성하지 마십시오.
+
+- **Skills (스킬)**:
+{skills}
+
+- **Items (아이템)**:
+{items}
+
+- **Actors (캐릭터)**:
+{actors}
+
+- **Weapons (무기)**:
+{weapons}
+
+- **Armors (방어구)**:
+{armors}
+
+- **Enemies (적)**:
+{enemies}
+
+- **Classes (직업)**:
+{classes}
 
 [공통 규칙]
 - 결과는 반드시 `FinalDefinitionResponse` 구조(modifications 리스트 포함)로 반환하십시오.
@@ -14,10 +49,10 @@ BASE_SYSTEM_PROMPT = """당신은 RPG Maker MZ 전문 데이터 설계자입니�
 ### [RPG Maker MZ 표준 데이터 규칙]
 1. **Actors (캐릭터)**:
    - `learnings` 필드가 **없습니다**. 특정 캐릭터에게 스킬을 부여하려면 반드시 `traits` 리스트에 추가하십시오.
-   - 스킬 추가 Trait 구조: `{"code": 43, "dataId": 스킬ID, "value1": 0, "value2": 0}`
+   - 스킬 추가 Trait 구조: {{"code": 43, "dataId": 스킬ID, "value": 1}}
 2. **Classes (직업)**:
    - 특정 레벨에 배우게 하려면 `learnings` 리스트에 추가하십시오.
-   - Learning 구조: `{"level": 레벨, "note": "", "skillId": 스킬ID}`
+   - Learning 구조: {{"level": 레벨, "note": "", "skillId": 스킬ID}}
 3. **기본 우선순위 (Default Behavior)**:
    - "주인공에게 파이어볼 추가"처럼 '레벨'이나 '직업' 언급이 없는 경우:
      **해당 Actor의 `traits`에 즉시 부여(Code 43)**하는 것을 기본값으로 삼으십시오.
@@ -27,6 +62,18 @@ BASE_SYSTEM_PROMPT = """당신은 RPG Maker MZ 전문 데이터 설계자입니�
 1. **데이터 존재 여부 확인**: 대상을 '추가'할 때, 해당 대상이 [Track B] 후보군에 없다면 먼저 `CREATE` 작업을 수행하십시오.
 2. **복합 작업 생성**: "A에게 B를 넣어줘" 요청은 반드시 2단계(B 생성 + A의 traits/learnings 연결)로 정의하십시오.
 """
+
+# 주입될 데이터들의 중괄호도 .format()이 해석하지 못하도록 미리 이중 처리하거나, 
+# 템플릿의 .format 대신 더 단순한 방식을 사용합니다.
+# 여기서는 가장 확실한 문자열 치환(replace) 방식을 사용하겠습니다.
+
+BASE_SYSTEM_PROMPT = BASE_SYSTEM_PROMPT_TEMPLATE.replace("{skills}", SKILLS_EXAMPLE_PROMPT) \
+    .replace("{items}", ITEMS_EXAMPLE_PROMPT) \
+    .replace("{actors}", ACTORS_EXAMPLE_PROMPT) \
+    .replace("{weapons}", WEAPONS_EXAMPLE_PROMPT) \
+    .replace("{armors}", ARMORS_EXAMPLE_PROMPT) \
+    .replace("{enemies}", ENEMIES_EXAMPLE_PROMPT) \
+    .replace("{classes}", CLASSES_EXAMPLE_PROMPT)
 
 # Router(1번 노드)의 한글 인텐트와 매핑
 INTENT_SPECIFIC_INSTRUCTIONS = {

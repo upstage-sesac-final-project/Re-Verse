@@ -70,7 +70,7 @@ class KnowledgeRetriever:
             self.index_markdown_file(file, force=True)
         print("[Knowledge] 전체 재인덱싱 완료!\n")
 
-    def retrieve_knowledge(self, query: str, k: int = 5) -> str:
+    def retrieve_knowledge(self, query: str, k: int = 3) -> str:
         """가장 관련성 높은 기술 지식 검색 (여러 파일 통합 결과 반환)"""
         try:
             # 데이터가 하나도 없으면 자동 인덱싱
