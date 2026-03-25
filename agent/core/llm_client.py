@@ -1,25 +1,14 @@
-"""LLM 클라이언트 — OpenAI 호환 API를 통합 지원한다.
-
-Solar, OpenAI, vLLM 등 OpenAI 호환 모든 API를 ChatOpenAI 하나로 처리한다.
-프로바이더 전환은 .env 의 LLM_BASE_URL / LLM_MODEL / LLM_API_KEY 만 수정하면 된다.
-
-사용 예시:
-    from agent.core.llm_client import invoke_llm, invoke_llm_simple
-
-    # 단순 호출
-    text = await invoke_llm_simple("시스템 프롬프트", "유저 메시지")
-
-    # Structured Output
-    result: MyModel = await invoke_llm(messages, structured_output=MyModel)
-"""
+"""LLM 클라이언트 — Upstage Solar 및 OpenAI 호환 API를 지원한다."""
 
 import logging
-from typing import Any
+import os
+from typing import Any, cast
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
+from langchain_upstage import ChatUpstage
+from pydantic import BaseModel, SecretStr
 
 from agent.core.config import agent_config
 
@@ -37,25 +26,38 @@ def get_llm() -> BaseChatModel:
 
 
 def _build_llm() -> BaseChatModel:
-    """AgentConfig 설정으로 ChatOpenAI 인스턴스를 생성한다."""
+    """AgentConfig 설정으로 적절한 LLM 인스턴스를 생성한다."""
     if not agent_config.LLM_API_KEY:
         raise RuntimeError("LLM_API_KEY가 설정되지 않았습니다. 루트 .env 파일을 확인하세요.")
 
-    init_kwargs: dict[str, Any] = {
-        "api_key": agent_config.LLM_API_KEY,
-        "model": agent_config.LLM_MODEL,
-        "max_tokens": agent_config.LLM_MAX_TOKENS,
-        "temperature": agent_config.LLM_TEMPERATURE,
-    }
-    if agent_config.LLM_BASE_URL:
-        init_kwargs["base_url"] = agent_config.LLM_BASE_URL
+    # 라이브러리 호환성을 위해 환경 변수 명시적 설정
+    os.environ["UPSTAGE_API_KEY"] = agent_config.LLM_API_KEY
+    os.environ["OPENAI_API_KEY"] = agent_config.LLM_API_KEY
 
-    llm = ChatOpenAI(**init_kwargs)
-    logger.info(
-        "LLM 초기화: model=%s, base_url=%s",
-        agent_config.LLM_MODEL,
-        agent_config.LLM_BASE_URL or "(OpenAI 기본)",
-    )
+    llm: BaseChatModel
+
+    # Upstage Solar 모델인 경우 전용 클래스 사용 (function_calling 호환성 최적화)
+    if "solar" in agent_config.LLM_MODEL.lower():
+        llm = ChatUpstage(
+            api_key=SecretStr(agent_config.LLM_API_KEY),
+            model=agent_config.LLM_MODEL,
+            temperature=agent_config.LLM_TEMPERATURE,
+        )
+        logger.info("Upstage 전용 LLM 초기화: model=%s", agent_config.LLM_MODEL)
+    else:
+        # 기타 OpenAI 호환 모델
+        init_kwargs: dict[str, Any] = {
+            "api_key": SecretStr(agent_config.LLM_API_KEY),
+            "model": agent_config.LLM_MODEL,
+            "max_tokens": agent_config.LLM_MAX_TOKENS,
+            "temperature": agent_config.LLM_TEMPERATURE,
+        }
+        if agent_config.LLM_BASE_URL:
+            init_kwargs["base_url"] = agent_config.LLM_BASE_URL
+            
+        llm = ChatOpenAI(**init_kwargs)
+        logger.info("OpenAI 호환 LLM 초기화: model=%s", agent_config.LLM_MODEL)
+        
     return llm
 
 
@@ -76,16 +78,19 @@ async def invoke_llm(
 
     try:
         if structured_output is not None:
-            bound = llm.with_structured_output(structured_output)
+            # function_calling 방식을 유지하면서 구조화된 출력 반환
+            logger.info("구조화된 응답 생성 시작 (%s)", structured_output.__name__)
+            bound = llm.with_structured_output(structured_output, method="function_calling")
             result = await bound.ainvoke(messages)
+            logger.info("구조화된 응답 수신 완료")
             if result is None:
                 raise ValueError(
                     f"LLM이 {structured_output.__name__} 형식으로 응답하지 못했습니다."
                 )
-            return result
+            return cast(BaseModel, result)
 
         response = await llm.ainvoke(messages)
-        return response.content
+        return cast(str, response.content)
 
     except Exception as e:
         logger.error("LLM 호출 실패 [%s]: %s", agent_config.LLM_MODEL, e)

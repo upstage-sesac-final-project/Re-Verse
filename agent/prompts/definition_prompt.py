@@ -1,13 +1,70 @@
-"""TODO: 프롬프트 구현
+"""Definition 노드용 프롬프트 빌더 (Multi-Step & Dependency 지원)."""
 
-담당: 정민님
-"""
-
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from agent.graph.state import AgentState
 
+BASE_SYSTEM_PROMPT = """당신은 RPG Maker MZ 전문 데이터 설계자입니다.
+사용자의 요청을 분석하여 데이터 간의 관계를 파악하고, 필요한 모든 수정 단계를 정확히 정의하십시오.
 
-def build_prompt(state: AgentState) -> list[BaseMessage]:
-    # TODO: 구현 필요
-    return []
+[공통 규칙]
+- 결과는 반드시 `FinalDefinitionResponse` 구조(modifications 리스트 포함)로 반환하십시오.
+- 모든 필드명은 camelCase를 준수하십시오.
+
+### [RPG Maker MZ 표준 데이터 규칙]
+1. **Actors (캐릭터)**:
+   - `learnings` 필드가 **없습니다**. 특정 캐릭터에게 스킬을 부여하려면 반드시 `traits` 리스트에 추가하십시오.
+   - 스킬 추가 Trait 구조: `{"code": 43, "dataId": 스킬ID, "value1": 0, "value2": 0}`
+2. **Classes (직업)**:
+   - 특정 레벨에 배우게 하려면 `learnings` 리스트에 추가하십시오.
+   - Learning 구조: `{"level": 레벨, "note": "", "skillId": 스킬ID}`
+3. **기본 우선순위 (Default Behavior)**:
+   - "주인공에게 파이어볼 추가"처럼 '레벨'이나 '직업' 언급이 없는 경우:
+     **해당 Actor의 `traits`에 즉시 부여(Code 43)**하는 것을 기본값으로 삼으십시오.
+   - "마법사 직업이 배우게 해줘" 또는 "10레벨에 배우게 해줘"라고 명시된 경우에만 `Classes.json`의 `learnings`를 수정하십시오.
+
+### [의존성 및 연결(Linking) 범용 규칙]
+1. **데이터 존재 여부 확인**: 대상을 '추가'할 때, 해당 대상이 [Track B] 후보군에 없다면 먼저 `CREATE` 작업을 수행하십시오.
+2. **복합 작업 생성**: "A에게 B를 넣어줘" 요청은 반드시 2단계(B 생성 + A의 traits/learnings 연결)로 정의하십시오.
+"""
+
+# Router(1번 노드)의 한글 인텐트와 매핑
+INTENT_SPECIFIC_INSTRUCTIONS = {
+    "게임_요소_생성": """
+### [생성(CREATE) 전용 규칙]
+- **주체 식별 및 기본값**:
+  - 주체(예: "주인공")가 명시된 경우: [대상 생성] -> [Actor의 traits에 연결]의 2단계 작업을 생성하십시오.
+  - 별도 언급이 없다면 `Actors.json`의 1번 데이터(ID: 1)를 주인공으로 간주하여 `traits`를 수정하십시오.
+- **ID 결정**: 신규 생성 시에는 반드시 제공된 '신규 생성용 ID'를 할당하십시오.
+""",
+    "게임_요소_수정": """
+### [수정(UPDATE) 전용 규칙]
+- 기존 데이터의 속성을 변경하거나 새로운 관계를 맺어주는 작업입니다.
+- **연결 매핑**: [Track B] 후보군에서 가장 적절한 대상을 찾아 ID를 매핑하십시오.
+""",
+    "게임_요소_조회": """
+### [조회(READ) 전용 규칙]
+- 데이터를 읽어오는 작업입니다. 수정을 제안하지 마십시오.
+""",
+    "추가_정보_필요": """
+### [추가정보 필요 전용 규칙]
+- 정보가 매우 부족한 경우에만 사용하고, 웬만하면 기본값(주인공의 traits 등)을 적용하십시오.
+"""
+}
+
+def build_prompt(state: AgentState, knowledge_context: str, retrieved_context: str) -> list[BaseMessage]:
+    intent = state.get("intent", "게임_요소_수정")
+    specific_instruction = INTENT_SPECIFIC_INSTRUCTIONS.get(intent, INTENT_SPECIFIC_INSTRUCTIONS.get("게임_요소_수정"))
+
+    system_message = f"{BASE_SYSTEM_PROMPT}\n{specific_instruction}\n\n### [Track A: 기술 지식]\n{knowledge_context}"
+    human_message = f"""### [Track B: 엔티티 및 ID 정보]
+{retrieved_context}
+
+### [사용자 요청]
+- 원문: "{state.get('user_input', '')}"
+- 파악된 의도: "{intent}"
+
+위 정보를 바탕으로 모든 수정 단계를 정의하십시오. Actors에게는 `learnings`를 절대 사용하지 말고 `traits`를 사용하십시오.
+"""
+
+    return [SystemMessage(content=system_message), HumanMessage(content=human_message)]
