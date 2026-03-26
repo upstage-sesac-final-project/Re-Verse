@@ -90,6 +90,19 @@ def _get_next_id(game_id: str, category: str) -> int:
     except Exception:
         return 1
 
+def _normalize_category(category: str) -> str:
+    """카테고리명(예: Actors, Enemies)을 단수형(예: actor, enemy)으로 정규화한다."""
+    if not category:
+        return "unknown"
+    cat = category.lower()
+    if cat == "classes":
+        return "class"
+    if cat == "enemies":
+        return "enemy"
+    if cat.endswith("s"):
+        return cat[:-1]
+    return cat
+
 async def definition(state: AgentState) -> dict:
     """사용자 입력과 의도를 바탕으로 구체적인 수정 대상 목록을 정의한다."""
     print("\n[Step 2] Definition 노드 진입")
@@ -109,11 +122,9 @@ async def definition(state: AgentState) -> dict:
     retrieved_context = ""
     for cat in search_categories:
         next_id = _get_next_id(game_id, cat)
-        # 검색 정확도를 위해 k를 조금 늘리고, 결과가 없으면 명시적으로 표시
         results = retriever.retrieve_entities(user_input, cat, k=3)
         retrieved_context += f"\n### [{cat} 정보]\n- 신규 생성 시(CREATE) 사용할 ID: {next_id}\n"
         if results:
-            # 이름, ID와 함께 설명(있는 경우)을 포함하여 LLM의 판단을 도움
             items_str = []
             for r in results:
                 info = f"{r['name']}(ID:{r['id']})"
@@ -138,28 +149,56 @@ async def definition(state: AgentState) -> dict:
     ))
 
 
-    # 5. 결과 후처리 (현재 값 조회 등)
+    # 5. 결과 후처리 (표준화된 형식으로 변환)
 
-    modifications = []
+    formatted_mods = []
+    extracted_ids = {}
+    target_files = set()
+
     for mod in response.modifications:
-        mod_dict = mod.model_dump()
-        t_id = mod_dict.get("target_entity", {}).get("id")
-        t_cat = mod_dict.get("target_entity", {}).get("category")
-        t_field = mod_dict.get("target_field")
+        target_files.add(mod.file)
+        
+        # 카테고리 정규화 (Actors -> actor)
+        cat_type = _normalize_category(mod.target_entity.category)
+        
+        # ID 추출 및 캐싱 (extracted_ids용)
+        t_id = mod.target_entity.id
+        if t_id and t_id != "NEW":
+            # 숫자 형태면 int로 변환하여 저장
+            extracted_ids[f"{cat_type}_id"] = int(t_id) if str(t_id).isdigit() else t_id
 
-        if t_id and t_cat and t_field and t_id != "NEW":
-            mod_dict["current_value"] = _get_actual_value(game_id, t_cat, t_id, t_field)
-        modifications.append(mod_dict)
+        # Params 구성 (PROGRESS.md 규격: target_id, name, field: value)
+        mod_params = {
+            f"{cat_type}_id": t_id,
+            "name": mod.target_entity.name
+        }
+        
+        # 수정/조회할 구체적 필드가 있는 경우 추가
+        if mod.target_field:
+            mod_params[mod.target_field] = mod.new_value
+        
+        # 보조 객체가 있는 경우 (예: 추가할 스킬 ID 등)
+        if mod.action_object:
+            obj_cat = _normalize_category(mod.action_object.category)
+            mod_params[f"{obj_cat}_id"] = mod.action_object.id
+            if mod.action_object.id and mod.action_object.id != "NEW":
+                extracted_ids[f"{obj_cat}_id"] = int(mod.action_object.id) if str(mod.action_object.id).isdigit() else mod.action_object.id
 
-    print(f"[*] 분석 완료: {len(modifications)}개의 작업 식별됨.")
+        # 최종 리스트 추가
+        formatted_mods.append({
+            "type": mod.action.lower(),  # create, update, read, delete
+            "target": cat_type,
+            "params": mod_params
+        })
 
-    # 6. 상태 업데이트
+    print(f"[*] 분석 완료: {len(formatted_mods)}개의 작업 식별됨.")
+
+    # 6. 최종 상태 업데이트
     return {
-        "target_files": list(set([m["file"] for m in modifications])),
-        "modifications": modifications,
-        "extracted_ids": {
-            "target_ids": [m["target_entity"]["id"] for m in modifications]
-        },
+        "target_files": list(target_files),
+        "modifications": formatted_mods,      # 규격화된 수정 목록
+        "execution_plan": formatted_mods,     # Executor(3번 노드)가 읽을 입력값
+        "extracted_ids": extracted_ids,       # 추출된 ID 맵
         "params_sufficient": response.params_sufficient,
         "final_response": response.message_for_user if not response.params_sufficient else None
     }
