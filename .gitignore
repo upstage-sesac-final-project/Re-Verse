@@ -77,3 +77,9 @@ CLAUDE.md
 # =============================================================================
 storage/*.db
 storage/chroma_db/
+
+# 게임 백업 파일 전체 무시
+storage/games/**/backup/*.bak
+
+# 게임 데이터 특정 파일 무시
+storage/games/*/data/*.json
