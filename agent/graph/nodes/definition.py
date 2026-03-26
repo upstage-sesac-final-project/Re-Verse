@@ -16,25 +16,62 @@ logger = logging.getLogger(__name__)
 
 def _get_actual_value(game_id: str, category: str, target_id: Any, field: str) -> Any:
     """실제 JSON 파일에서 현재 값을 조회한다."""
-    if not target_id or target_id == "NEW":
+    if not target_id or target_id == "NEW" or not field:
         return None
 
-    filename = f"{category}.json"
-    file_path = os.path.join("storage", "games", game_id, "data", filename)
-
-    if not os.path.exists(file_path):
+    field = field.strip()
+    # 카테고리 이름을 기반으로 파일명 후보 생성
+    cat_name = category[0].upper() + category[1:] if category else ""
+    filenames = [f"{cat_name}.json", f"{category}.json", f"{category.lower()}.json"]
+    
+    data = None
+    actual_filename = None
+    for fname in filenames:
+        file_path = os.path.join("storage", "games", game_id, "data", fname)
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, encoding="utf-8") as f:
+                    data = json.load(f)
+                    actual_filename = fname
+                    break
+            except Exception:
+                continue
+    
+    if data is None:
+        print(f"  [Lookup Error] 파일을 찾을 수 없음: {filenames}")
         return None
 
     try:
-        with open(file_path, encoding="utf-8") as f:
-            data = json.load(f)
-            data_map = {item["id"]: item for item in data if item is not None}
+        # ID 매핑 (문자열/숫자 모두 대응)
+        data_map = {str(item["id"]): item for item in data if item is not None and "id" in item}
+        item = data_map.get(str(target_id))
+        
+        if not item:
+            print(f"  [Lookup Error] {actual_filename} 내 ID {target_id} 없음 (목록: {list(data_map.keys())[:5]}...)")
+            return None
 
-        item = data_map.get(int(target_id))
-        if item and field in item:
-            return item[field]
-        return None
-    except Exception:
+        # 배열 인덱스 처리 (예: params[0], 공백 허용)
+        if "[" in field and field.endswith("]"):
+            import re
+            match = re.match(r"(\w+)\s*\[\s*(\d+)\s*\]", field)
+            if match:
+                base_field, index = match.groups()
+                index = int(index)
+                if base_field in item and isinstance(item[base_field], list):
+                    if index < len(item[base_field]):
+                        val = item[base_field][index]
+                        print(f"  [Lookup Success] {actual_filename}[{target_id}].{base_field}[{index}] = {val}")
+                        return val
+                    else:
+                        print(f"  [Lookup Error] 인덱스 범위 초과: {index} (길이: {len(item[base_field])})")
+        
+        # 일반 필드 처리
+        val = item.get(field)
+        print(f"  [Lookup Success] {actual_filename}[{target_id}].{field} = {val}")
+        return val
+    except Exception as e:
+        print(f"  [Lookup Exception] {e}")
+        logger.error(f"[Lookup] Error: {e}")
         return None
 
 def _get_next_id(game_id: str, category: str) -> int:
@@ -72,10 +109,22 @@ async def definition(state: AgentState) -> dict:
     retrieved_context = ""
     for cat in search_categories:
         next_id = _get_next_id(game_id, cat)
+        # 검색 정확도를 위해 k를 조금 늘리고, 결과가 없으면 명시적으로 표시
         results = retriever.retrieve_entities(user_input, cat, k=3)
-        retrieved_context += f"\n### [{cat} 정보]\n- 신규 ID: {next_id}\n"
+        retrieved_context += f"\n### [{cat} 정보]\n- 신규 생성 시(CREATE) 사용할 ID: {next_id}\n"
         if results:
-            retrieved_context += "- 기존 데이터: " + ", ".join([f"{r['name']}(ID:{r['id']})" for r in results]) + "\n"
+            # 이름, ID와 함께 설명(있는 경우)을 포함하여 LLM의 판단을 도움
+            items_str = []
+            for r in results:
+                info = f"{r['name']}(ID:{r['id']})"
+                if r.get('description'):
+                    info += f" - 설명: {r['description'][:20]}..."
+                items_str.append(info)
+            retrieved_context += "- 기존 데이터(ID 찾기용): " + ", ".join(items_str) + "\n"
+        else:
+            retrieved_context += "- 기존 데이터: (검색 결과 없음)\n"
+
+    retrieved_context += "\n**주의**: 사용자가 언급한 대상이 '기존 데이터' 목록에 없다면, 함부로 ID를 추측하지 말고 `params_sufficient=False`와 함께 사용자에게 확인을 요청하십시오.\n"
 
     # 4. 프롬프트 생성
     messages = build_prompt(state, knowledge_context, retrieved_context)

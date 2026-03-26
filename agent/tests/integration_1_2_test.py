@@ -62,11 +62,24 @@ async def main():
                 mods = definition_output.get("modifications", [])
                 print(f"[*] 총 {len(mods)}개의 수정 단계가 식별되었습니다.")
                 for i, mod in enumerate(mods, 1):
-                    print(f"\n({i}) 파일: {mod['file']} | 액션: {mod['action']}")
-                    print(f"    대상: {mod['target_entity']['category']} (ID: {mod['target_entity']['id']})")
+                    action = mod['action']
+                    print(f"\n({i}) 파일: {mod['file']} | 액션: {action}")
+                    print(f"    대상: {mod['target_entity']['category']} (ID: {mod['target_entity']['id']}, 이름: {mod['target_entity']['name']})")
+                    
                     if mod.get('action_object'):
-                        print(f"    객체: {mod['action_object']['category']} (ID: {mod['action_object']['id']})")
-                    print(f"    필드: {mod.get('target_field')} -> {mod.get('new_value')}")
+                        print(f"    객체: {mod['action_object']['category']} (ID: {mod['action_object']['id']}, 이름: {mod['action_object']['name']})")
+                    
+                    # 액션에 따른 필드 값 출력 분기
+                    field_info = f"    필드: {mod.get('target_field')}"
+                    if action == "READ":
+                        print(f"{field_info} (현재값: {mod.get('current_value')})")
+                    elif action == "UPDATE":
+                        print(f"{field_info} (현재값: {mod.get('current_value')} -> 변경값: {mod.get('new_value')})")
+                    elif action == "CREATE":
+                        print(f"{field_info} (생성값: {mod.get('new_value')})")
+                    else:
+                        print(f"{field_info} -> {mod.get('new_value')}")
+                    
                     print(f"    추론: {mod.get('thought_process')}")
 
         except Exception as e:
