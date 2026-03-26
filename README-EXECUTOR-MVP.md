@@ -199,10 +199,6 @@ uv run python agent/examples/executor_mvp_example.py
 
 ---
 
-## 🎉 **MVP 완료!**
-
-정철님, **4단계 Executor의 MVP 버전이 완전히 구현**되었습니다!
-
 ### **구현 완료된 것들:**
 - ✅ 기본 executor.py 노드 (LLM 번역 + dispatcher 호출)
 - ✅ 백업/롤백 시스템
