@@ -4,6 +4,7 @@ from langgraph.graph import END, START, StateGraph
 
 from agent.graph.nodes.definition import definition
 from agent.graph.nodes.executor import executor
+from agent.graph.nodes.map_node import map_node
 from agent.graph.nodes.planner import planner
 from agent.graph.nodes.router import router
 from agent.graph.nodes.synthesizer import synthesizer
@@ -31,6 +32,7 @@ def build_graph() -> StateGraph:
 
     # ── 노드 등록 ──────────────────────────────────────────
     builder.add_node("router", router)
+    builder.add_node("map_node", map_node)
     builder.add_node("definition", definition)
     builder.add_node("planner", planner)
     builder.add_node("executor", executor)
@@ -44,7 +46,7 @@ def build_graph() -> StateGraph:
     builder.add_conditional_edges(
         "router",
         route_after_router,
-        {"definition": "definition", "__end__": END},
+        {"map_node": "map_node", "definition": "definition", "__end__": END},
     )
     builder.add_conditional_edges(
         "definition",
@@ -58,6 +60,7 @@ def build_graph() -> StateGraph:
     )
 
     # ── 선형 엣지 ──────────────────────────────────────────
+    builder.add_edge("map_node", "synthesizer")
     builder.add_edge("planner", "executor")
     builder.add_edge("executor", "validator")
     builder.add_edge("synthesizer", END)

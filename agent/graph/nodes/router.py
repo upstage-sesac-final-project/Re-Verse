@@ -15,7 +15,7 @@ from agent.prompts.router_prompt import build_prompt
 logger = logging.getLogger(__name__)
 
 _TERMINAL_INTENTS = frozenset({"추가_정보_필요", "복합_의도", "일반_대화", "범위_외"})
-_ACTION_INTENTS = frozenset({"게임_요소_생성", "게임_요소_수정", "게임_요소_조회"})
+_ACTION_INTENTS = frozenset({"게임_요소_생성", "게임_요소_수정", "게임_요소_조회", "게임_맵_수정"})
 _CONFIDENCE_THRESHOLD = 0.7
 
 
@@ -24,6 +24,7 @@ class _RouterOutput(BaseModel):
         "게임_요소_생성",
         "게임_요소_수정",
         "게임_요소_조회",
+        "게임_맵_수정",
         "추가_정보_필요",
         "복합_의도",
         "일반_대화",

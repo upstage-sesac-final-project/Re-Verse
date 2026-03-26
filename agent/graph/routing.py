@@ -11,6 +11,8 @@ def route_after_router(state: AgentState) -> str:
     """
     intent = state.get("intent", "범위_외")
 
+    if intent == "게임_맵_수정":
+        return "map_node"
     if intent in ("게임_요소_생성", "게임_요소_수정", "게임_요소_조회"):
         return "definition"
     return "__end__"
