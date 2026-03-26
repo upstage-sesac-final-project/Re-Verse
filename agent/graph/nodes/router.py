@@ -4,18 +4,31 @@
 """
 
 import logging
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from agent.core.llm_client import invoke_llm  # noqa: F401
+from agent.core.llm_client import invoke_llm
 from agent.graph.state import AgentState
-from agent.prompts.router_prompt import build_prompt  # noqa: F401
+from agent.prompts.router_prompt import build_prompt
 
 logger = logging.getLogger(__name__)
 
+_TERMINAL_INTENTS = frozenset({"추가_정보_필요", "복합_의도", "일반_대화", "범위_외"})
+_ACTION_INTENTS = frozenset({"게임_요소_생성", "게임_요소_수정", "게임_요소_조회"})
+_CONFIDENCE_THRESHOLD = 0.7
+
 
 class _RouterOutput(BaseModel):
-    intent: str = Field(description="분류된 의도")
+    intent: Literal[
+        "게임_요소_생성",
+        "게임_요소_수정",
+        "게임_요소_조회",
+        "추가_정보_필요",
+        "복합_의도",
+        "일반_대화",
+        "범위_외",
+    ] = Field(description="분류된 의도")
     confidence: float = Field(ge=0.0, le=1.0, description="분류 신뢰도")
     reasoning: str = Field(description="분류 근거")
     response: str = Field(
@@ -24,5 +37,52 @@ class _RouterOutput(BaseModel):
 
 
 async def router(state: AgentState) -> dict:
-    # TODO: 구현 필요
-    raise NotImplementedError
+    user_input = state.get("user_input", "")
+
+    # 빈 입력 사전 차단 — LLM 호출 없이 즉시 반환
+    if not user_input.strip():
+        logger.info("Router: 빈 입력 감지 → 추가_정보_필요")
+        return {
+            "intent": "추가_정보_필요",
+            "confidence": 1.0,
+            "final_response": "무엇을 도와드릴까요? 만들거나 수정하고 싶은 게임 요소를 알려주세요.",
+        }
+
+    logger.info("Router 시작: user_input=%r", user_input)
+
+    messages = build_prompt(state)
+    output: _RouterOutput = await invoke_llm(messages, structured_output=_RouterOutput)  # type: ignore[assignment]
+
+    logger.info(
+        "Router 결과: intent=%s, confidence=%.2f | %s",
+        output.intent,
+        output.confidence,
+        output.reasoning,
+    )
+
+    intent = output.intent
+
+    # confidence 가 기준 미만이면 추가 정보 요청으로 강제 전환
+    if intent in _ACTION_INTENTS and output.confidence < _CONFIDENCE_THRESHOLD:
+        logger.info(
+            "confidence %.2f < %.2f → 추가_정보_필요로 전환 (원래 의도: %s)",
+            output.confidence,
+            _CONFIDENCE_THRESHOLD,
+            intent,
+        )
+        intent = "추가_정보_필요"
+
+    result: dict = {
+        "intent": intent,
+        "confidence": output.confidence,
+    }
+
+    # 터미널 인텐트는 즉시 응답을 final_response 에 기록
+    if intent == "복합_의도":
+        result["final_response"] = (
+            "요청을 하나씩 입력해주세요. 예) '슬라임 HP 올려줘' 후 '드래곤 만들어줘'"
+        )
+    elif intent in _TERMINAL_INTENTS:
+        result["final_response"] = output.response or "조금 더 구체적으로 말씀해주시겠어요?"
+
+    return result

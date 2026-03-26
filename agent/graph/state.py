@@ -11,12 +11,13 @@ class AgentState(TypedDict, total=False):
 
     # ── 1단계 Router ────────────────────────────────────────
     intent: Literal[
-        "game_create",
-        "game_modify",
-        "game_query",
-        "clarification_needed",
-        "general_chat",
-        "out_of_scope",
+        "게임_요소_생성",
+        "게임_요소_수정",
+        "게임_요소_조회",
+        "추가_정보_필요",
+        "복합_의도",
+        "일반_대화",
+        "범위_외",
     ]
     confidence: float  # 의도 분류 신뢰도 (0.0~1.0)
 
@@ -28,7 +29,9 @@ class AgentState(TypedDict, total=False):
 
     # ── 3단계 Planner ───────────────────────────────────────
     game_context: dict  # 플래너 프롬프트에 주입할 현재 게임 데이터
-    execution_plan: list[dict]  # 단계별 실행 명령 [{"step_id", "tool_name", "params", ...}]
+    # 단계별 실행 명령. 레거시: [{"task": "..."}]. 구조화(3단계): step_id, action_type,
+    # target_file, target_info, depends_on, condition, description 등.
+    execution_plan: list[dict]
 
     # ── 4단계 Executor ──────────────────────────────────────
     current_game_state: dict  # 수정 전 스냅샷 (파일명 → 데이터)
@@ -47,3 +50,7 @@ class AgentState(TypedDict, total=False):
     # ── 누적 필드 (add reducer — 덮어쓰지 않고 쌓임) ────────
     changes_log: Annotated[list, add]  # 실행 단계별 변경 이력
     tool_results: Annotated[list, add]  # 툴 호출 결과 누적
+
+    # ── 4단계 Executor 추가 필드들 (MVP) ──────────────────────
+    backup_paths: dict  # 백업 파일 경로들 {"Skills.json": "/path/to/backup.bak"}
+    operation_id: str  # 실행 추적용 고유 ID
