@@ -5,13 +5,25 @@
 
 import logging
 
-from agent.core.llm_client import invoke_llm  # noqa: F401
+from agent.core.llm_client import invoke_llm
 from agent.graph.state import AgentState
-from agent.prompts.synthesizer_prompt import build_prompt  # noqa: F401
+from agent.prompts.synthesizer_prompt import build_prompt
 
 logger = logging.getLogger(__name__)
 
 
 async def synthesizer(state: AgentState) -> dict:
-    # TODO: 구현 필요
-    raise NotImplementedError
+    validation = state.get("validation_result") or {}
+    passed = validation.get("passed", True)
+
+    logger.info(
+        "Synthesizer 시작: intent=%s, passed=%s",
+        state.get("intent"),
+        passed,
+    )
+
+    messages = build_prompt(state)
+    response: str = await invoke_llm(messages)  # type: ignore[assignment]
+
+    logger.info("Synthesizer 완료: response_len=%d", len(response))
+    return {"final_response": response}
