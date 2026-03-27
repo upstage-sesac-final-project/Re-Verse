@@ -11,7 +11,9 @@ from pathlib import Path
 from agent.graph.nodes.executor import executor
 from agent.graph.state import AgentState
 from app.backend.services.json_modify_tools.managers.actor_manager import ActorManager
+from app.backend.services.json_modify_tools.managers.class_manager import ClassManager
 from app.backend.services.json_modify_tools.managers.skill_manager import SkillManager
+from app.backend.services.json_modify_tools.managers.system_manager import SystemManager
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -142,6 +144,112 @@ async def test_structured_execution_plan_actors():
     logs2 = result2.get("changes_log", [])
     skipped = [x for x in logs2 if x.get("skipped")]
     assert any("존재" in (x.get("skip_reason") or "") for x in skipped)
+
+
+async def test_structured_execution_plan_full_update_flow():
+    """Classes/Actors/System 연계 query-create-update가 모두 동작하는지 검증."""
+    unique_suffix = uuid.uuid4().hex[:8]
+    class_name = f"ZZZ_CLASS_{unique_suffix}"
+    actor_name = f"ZZZ_ACTOR_{unique_suffix}"
+
+    # 4단계 엔진(Structured execution_plan)에서 아래 step들이 순서대로 실행돼야 한다.
+    # 1~2: Classes.json query -> create
+    # 3~4: Actors.json query -> create
+    # 5: Actors.json update(=classId 갱신)
+    # 6: System.json update(=partyMembers에 actorId 추가)
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": f"Classes.json에서 '{class_name}' 클래스 존재 여부 조회",
+                "action_type": "query",
+                "target_file": "Classes.json",
+                "target_info": {"class_name": class_name},
+                "depends_on": [],
+                "condition": "",
+            },
+            {
+                "step_id": 2,
+                "description": f"{class_name} 클래스가 없으면 생성",
+                "action_type": "create",
+                "target_file": "Classes.json",
+                "target_info": {"class_name": class_name},
+                "depends_on": [1],
+                "condition": "step 1에서 클래스가 존재하지 않을 경우",
+            },
+            {
+                "step_id": 3,
+                "description": f"Actors.json에서 '{actor_name}' 액터 존재 여부 조회",
+                "action_type": "query",
+                "target_file": "Actors.json",
+                "target_info": {"actor_name": actor_name},
+                "depends_on": [],
+                "condition": "",
+            },
+            {
+                "step_id": 4,
+                "description": f"{actor_name} 액터가 없으면 생성",
+                "action_type": "create",
+                "target_file": "Actors.json",
+                "target_info": {"actor_name": actor_name},
+                "depends_on": [3],
+                "condition": "step 3에서 액터가 존재하지 않을 경우",
+            },
+            {
+                "step_id": 5,
+                "description": "액터 classId를 클래스 인덱스로 업데이트",
+                "action_type": "update",
+                "target_file": "Actors.json",
+                "target_info": {"actor_name": actor_name, "class_name": class_name},
+                "depends_on": [1, 2, 3, 4],
+                "condition": "",
+            },
+            {
+                "step_id": 6,
+                "description": "System.partyMembers에 액터 추가",
+                "action_type": "update",
+                "target_file": "System.json",
+                "target_info": {"actor_name": actor_name},
+                "depends_on": [5],
+                "condition": "",
+            },
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+    logs = result.get("changes_log", [])
+    assert any(x.get("tool_name") == "structured_classes_query" for x in logs)
+    assert any(x.get("tool_name") == "structured_classes_create" for x in logs)
+    assert any(x.get("tool_name") == "structured_actors_query" for x in logs)
+    assert any(x.get("tool_name") == "structured_actors_create" for x in logs)
+    assert any(
+        x.get("tool_name") == "structured_actors_update" and x.get("success") is True for x in logs
+    )
+    assert any(
+        x.get("tool_name") == "structured_system_update" and x.get("success") is True for x in logs
+    )
+
+    data_path = Path(__file__).resolve().parents[2] / "storage" / "games" / "game_001" / "data"
+    class_mgr = ClassManager(data_path, "verify_class")
+    actor_mgr = ActorManager(data_path, "verify_actor")
+    system_mgr = SystemManager(data_path, "verify_system")
+
+    class_q = await class_mgr.execute("query", class_name=class_name)
+    actor_q = await actor_mgr.execute("query", actor_name=actor_name)
+    assert class_q.get("exists") is True
+    assert actor_q.get("exists") is True
+
+    actor_update = await actor_mgr.execute(
+        "update_class", target_info={"actor_name": actor_name, "class_name": class_name}
+    )
+    assert actor_update.get("success") is True
+
+    system_update = await system_mgr.execute(
+        "add_party_member", target_info={"actor_name": actor_name}
+    )
+    assert system_update.get("success") is True
 
 
 async def test_skill_manager_directly():
