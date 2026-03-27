@@ -7,16 +7,17 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-ROOT_PATH = str(Path(__file__).resolve().parents[2])
-if ROOT_PATH not in sys.path:
-    sys.path.append(ROOT_PATH)
-
 from agent.core.llm_client import reset_llm
 from agent.graph.nodes.definition import definition
 from agent.graph.nodes.executor import executor
 from agent.graph.nodes.planner import planner
 from agent.graph.nodes.router import router
 from agent.graph.nodes.validator import validator
+
+
+ROOT_PATH = str(Path(__file__).resolve().parents[2])
+if ROOT_PATH not in sys.path:
+    sys.path.append(ROOT_PATH)
 
 logging.basicConfig(level=logging.ERROR)
 
