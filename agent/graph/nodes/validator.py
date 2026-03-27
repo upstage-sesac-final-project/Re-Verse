@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import ValidationError
 
 import agent.schemas as schemas_pkg
+from agent.prompts.validator_prompt import build_prompt as build_validator_prompt
 from agent.graph.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -704,27 +705,44 @@ def build_fallback_summary(
     )
 
 
+def _messages_to_prompt_pair(messages: list[Any]) -> tuple[str, str]:
+    system_parts: list[str] = []
+    user_parts: list[str] = []
+
+    for message in messages:
+        content = getattr(message, "content", "")
+        if not isinstance(content, str):
+            content = str(content)
+
+        message_type = getattr(message, "type", "").lower()
+        if message_type == "system":
+            system_parts.append(content)
+        else:
+            user_parts.append(content)
+
+    return "\n\n".join(system_parts).strip(), "\n\n".join(user_parts).strip()
+
+
 async def summarize_validation_results(
     validation_results: list[dict[str, Any]],
     retry_count: int,
 ) -> str:
     fallback_summary = build_fallback_summary(validation_results, retry_count)
-    payload = build_summary_payload(validation_results, retry_count)
 
     if not validation_results:
         return fallback_summary
 
-    system_prompt = (
-        "You summarize internal RPG Maker JSON validation results. "
-        "Use only the provided facts. Do not invent errors, causes, or fixes. "
-        "Return exactly one concise Korean sentence."
-    )
-    user_message = (
-        "Summarize this validation result in one Korean sentence.\n"
-        "Focus on modified file count, success/failure count, total error count, "
-        "and the main failed targets when any exist.\n\n"
-        f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
-    )
+    prompt_state: AgentState = {
+        "validation_results": validation_results,
+        "success": all(item.get("success") for item in validation_results),
+        "retry_count": retry_count,
+    }
+    messages = build_validator_prompt(prompt_state)
+    system_prompt, user_message = _messages_to_prompt_pair(messages)
+
+    if not system_prompt or not user_message:
+        logger.warning("Validator prompt build failed, using fallback summary.")
+        return fallback_summary
 
     try:
         from agent.core.llm_client import invoke_llm_simple
