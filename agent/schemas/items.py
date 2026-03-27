@@ -38,7 +38,7 @@ class Item(BaseModel):
     id: int = Field(description="아이템 id, 분류용")
     note: str = Field(description="메모", default="")
 
-    #--------------- 일반 설정
+    # --------------- 일반 설정
 
     name: str = Field(description="일반 설정 > 이름")
     iconIndex: int = Field(description="일반 설정 > 아이콘", default=0)
@@ -49,7 +49,7 @@ class Item(BaseModel):
     scope: int = Field(description="일반 설정 > 범위", ge=0, le=14)
     occasion: int = Field(description="일반 설정 > 사용 가능할 때(상황)", ge=0, le=3)
 
-    #--------------- 발동
+    # --------------- 발동
 
     speed: int = Field(description="발동 > 속도 보정", ge=0, le=2000)
     successRate: int = Field(description="발동 > 성공율", ge=1, le=100)
@@ -58,17 +58,16 @@ class Item(BaseModel):
     hitType: int = Field(description="발동 > 명중 유형", ge=0, le=2)
     animationId: int = Field(description="발동 > 애니메이션", ge=-1, le=120)
 
-    #--------------- 피해
+    # --------------- 피해
 
     damage: Damage = Field(description="피해 정의")
 
-    #--------------- 사용 효과
+    # --------------- 사용 효과
 
     effects: list[Effect] = Field(description="사용 효과", default_factory=list)
 
 
 class ItemsFile(RootModel[Annotated[list[Item | None], Field(min_length=1)]]):
-
     @model_validator(mode="after")
     def validate_leading_null(self):
         if not self.root:

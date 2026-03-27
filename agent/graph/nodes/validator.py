@@ -88,7 +88,9 @@ DB_REFERENCE_RULES: tuple[ReferenceRule, ...] = (
 )
 
 SYSTEM_INDEX_RULES: tuple[ReferenceRule, ...] = (
-    ReferenceRule("Skills.json", "damage.elementId", "system_index", "elements", frozenset({0, -1})),
+    ReferenceRule(
+        "Skills.json", "damage.elementId", "system_index", "elements", frozenset({0, -1})
+    ),
     ReferenceRule("Skills.json", "requiredWtypeId1", "system_index", "weaponTypes", frozenset({0})),
     ReferenceRule("Skills.json", "requiredWtypeId2", "system_index", "weaponTypes", frozenset({0})),
     ReferenceRule("Skills.json", "stypeId", "system_index", "skillTypes"),
@@ -200,7 +202,9 @@ def build_state_error(message: str) -> dict[str, Any]:
     )
 
 
-def find_first_difference(schema_value: Any, raw_value: Any, path: str = "$") -> tuple[str, Any, Any] | None:
+def find_first_difference(
+    schema_value: Any, raw_value: Any, path: str = "$"
+) -> tuple[str, Any, Any] | None:
     if type(schema_value) is not type(raw_value):
         return path, raw_value, schema_value
 
@@ -242,7 +246,9 @@ def find_first_difference(schema_value: Any, raw_value: Any, path: str = "$") ->
     return None
 
 
-def validate_with_model(model: type, data: Any, target_name: str) -> tuple[bool, list[dict[str, Any]]]:
+def validate_with_model(
+    model: type, data: Any, target_name: str
+) -> tuple[bool, list[dict[str, Any]]]:
     original_data = deepcopy(data)
 
     try:

@@ -35,12 +35,12 @@ class Rotation(BaseModel):
 class Animation(BaseModel):
     id: int = Field(description="애니메이션 id, 분류용")
 
-    #--------------- 일반 설정
+    # --------------- 일반 설정
 
     name: str = Field(description="일반 설정 > 이름", default="")
     displayType: int = Field(description="일반 설정 > 디스플레이 유형", default=0)
 
-    #--------------- 파티클 효과
+    # --------------- 파티클 효과
 
     effectName: str = Field(description="파티클 효과 > 파일명")
     scale: int = Field(description="파티클 효과 > 배율", ge=10, le=1000)
@@ -49,19 +49,19 @@ class Animation(BaseModel):
     offsetX: int = Field(description="파티클 효과 > 오프셋 X", default=0)
     offsetY: int = Field(description="파티클 효과 > 오프셋 Y", default=0)
 
-    #--------------- 효과음
+    # --------------- 효과음
 
     soundTimings: list[SoundTiming] = Field(description="효과음 타이밍", default_factory=list)
 
-    #--------------- 플래시
+    # --------------- 플래시
 
     flashTimings: list[FlashTiming] = Field(description="플래시 타이밍", default_factory=list)
 
-    #--------------- timings : 아마도? MV 호환용 레거시 필드로 추정
+    # --------------- timings : 아마도? MV 호환용 레거시 필드로 추정
     timings: list = Field(description="이놈 때문에 내가", default_factory=list)
 
+
 class AnimationsFile(RootModel[Annotated[list[Animation | None], Field(min_length=1)]]):
-    
     @model_validator(mode="after")
     def validate_leading_null(self):
         if not self.root:

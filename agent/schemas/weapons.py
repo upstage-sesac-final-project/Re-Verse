@@ -12,7 +12,7 @@ class Weapons(BaseModel):
     note: str = Field(description="메모", default="")
     etypeId: int = Field(description="장비 유형", ge=0, le=5)
 
-    #--------------- 일반 설정
+    # --------------- 일반 설정
 
     name: str = Field(description="일반 설정 > 이름")
     iconIndex: int = Field(description="일반 설정 > 아이콘", default=0)
@@ -21,17 +21,16 @@ class Weapons(BaseModel):
     price: int = Field(description="일반 설정 > 가격", default=100, ge=0, le=999999)
     animationId: int = Field(description="일반 설정 > 애니메이션", ge=-1, le=120)
 
-    #--------------- 능력치 변화량
+    # --------------- 능력치 변화량
 
     params: list[int] = Field(description="능력치 변화량", default=[0, 0, 8, 0, 0, 0, 0, 0])
 
-    #--------------- 특성
+    # --------------- 특성
 
     traits: list[Trait] = Field(description="특성 목록", default_factory=list)
 
 
 class WeaponsFile(RootModel[Annotated[list[Weapons | None], Field(min_length=1)]]):
-
     @model_validator(mode="after")
     def validate_leading_null(self):
         if not self.root:

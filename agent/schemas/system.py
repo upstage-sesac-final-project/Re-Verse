@@ -54,7 +54,9 @@ class System(BaseModel):
 
     airship: Vehicle = Field(description="비공정 설정")
     armorTypes: list[str | None] = Field(default_factory=list, description="방어구 타입 목록")
-    attackMotions: list[AttackMotion | None] = Field(default_factory=list, description="무기 타입별 공격 모션")
+    attackMotions: list[AttackMotion | None] = Field(
+        default_factory=list, description="무기 타입별 공격 모션"
+    )
     battleBgm: AudioFile = Field(description="전투 BGM")
     battleback1Name: str = Field(default="", description="기본 전투 배경 1")
     battleback2Name: str = Field(default="", description="기본 전투 배경 2")
@@ -88,7 +90,9 @@ class System(BaseModel):
     startY: int = Field(default=0, ge=0, description="게임 시작 Y 좌표")
     switches: list[str | None] = Field(default_factory=list, description="스위치명 목록")
     terms: SystemTerms = Field(description="시스템 용어 설정")
-    testBattlers: list[TestBattler] = Field(default_factory=list, description="전투 테스트 액터 설정")
+    testBattlers: list[TestBattler] = Field(
+        default_factory=list, description="전투 테스트 액터 설정"
+    )
     testTroopId: int = Field(default=0, ge=0, description="전투 테스트 적군 ID")
     title1Name: str = Field(default="", description="타이틀 이미지 1")
     title2Name: str = Field(default="", description="타이틀 이미지 2")

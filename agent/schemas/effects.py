@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ALLOWED_EFFECT_CODES = {11, 12, 13, 21, 22, 31, 32, 33, 34, 41, 42, 43, 44}
 
+
 class Effect(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

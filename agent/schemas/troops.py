@@ -40,31 +40,21 @@ class TroopPageCondition(BaseModel):
         description="페이지 조건 > 적 조건 사용 여부",
         default=False,
     )
-    enemyIndex: int = Field(
-        description="페이지 조건 > 적 인덱스", default=0, ge=0
-    )
-    enemyHp: int = Field(
-        description="페이지 조건 > 적 HP 비율", default=50, ge=0, le=100
-    )
+    enemyIndex: int = Field(description="페이지 조건 > 적 인덱스", default=0, ge=0)
+    enemyHp: int = Field(description="페이지 조건 > 적 HP 비율", default=50, ge=0, le=100)
 
     actorValid: bool = Field(
         description="페이지 조건 > 액터 조건 사용 여부",
         default=False,
     )
-    actorId: int = Field(
-        description="페이지 조건 > 액터 ID", default=1, ge=0
-    )
-    actorHp: int = Field(
-        description="페이지 조건 > 액터 HP 비율", default=50, ge=0, le=100
-    )
+    actorId: int = Field(description="페이지 조건 > 액터 ID", default=1, ge=0)
+    actorHp: int = Field(description="페이지 조건 > 액터 HP 비율", default=50, ge=0, le=100)
 
     switchValid: bool = Field(
         description="페이지 조건 > 스위치 조건 사용 여부",
         default=False,
     )
-    switchId: int = Field(
-        description="페이지 조건 > 스위치 ID", default=1, ge=0
-    )
+    switchId: int = Field(description="페이지 조건 > 스위치 ID", default=1, ge=0)
 
 
 class TroopPage(BaseModel):
@@ -78,20 +68,19 @@ class TroopPage(BaseModel):
 class Troop(BaseModel):
     id: int = Field(description="적 군단 id, 분류용")
 
-    #--------------- 일반 설정
+    # --------------- 일반 설정
 
     name: str = Field(description="일반 설정 > 적 군단 이름", default="")
     members: list[TroopMember] = Field(
         description="일반 설정 > 적 군단 멤버 목록", default_factory=list
     )
 
-    #--------------- 전투 이벤트
+    # --------------- 전투 이벤트
 
     pages: list[TroopPage] = Field(description="전투 이벤트", default_factory=list)
 
 
 class TroopsFile(RootModel[Annotated[list[Troop | None], Field(min_length=1)]]):
-
     @model_validator(mode="after")
     def validate_leading_null(self):
         if not self.root:

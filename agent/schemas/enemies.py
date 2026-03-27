@@ -25,30 +25,29 @@ class Enemy(BaseModel):
     id: int = Field(description="적 캐릭터 id, 분류용")
     note: str = Field(description="메모", default="")
 
-    #--------------- 일반 설정
+    # --------------- 일반 설정
 
     name: str = Field(description="일반 설정 > 이름", default="")
 
-    #--------------- 보상
+    # --------------- 보상
 
     exp: int = Field(description="보상 > EXP", ge=0, default=0)
     gold: int = Field(description="보상 > 소지금액", ge=0, default=0)
 
-    #--------------- 드롭 아이템
+    # --------------- 드롭 아이템
 
     dropItems: list[DropItem] = Field(description="드롭 아이템", default_factory=list)
 
-    #--------------- 행동 패턴
+    # --------------- 행동 패턴
 
     actions: list[Action] = Field(description="행동 패턴", default_factory=list)
 
-    #--------------- 특성
+    # --------------- 특성
 
     traits: list[Trait] = Field(description="특성 목록", default_factory=list)
 
 
 class EnemiesFile(RootModel[Annotated[list[Enemy | None], Field(min_length=1)]]):
-
     @model_validator(mode="after")
     def validate_leading_null(self):
         if not self.root:

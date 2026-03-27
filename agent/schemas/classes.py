@@ -17,7 +17,7 @@ class Class(BaseModel):
     id: int = Field(description="직업 id, 분류용")
     note: str = Field(description="메모", default="")
 
-    #--------------- 일반 설정
+    # --------------- 일반 설정
 
     name: str = Field(description="일반 설정 > 이름")
     expParams: list[int] = Field(
@@ -27,7 +27,7 @@ class Class(BaseModel):
         max_length=4,
     )
 
-    #--------------- 능력치 곡선
+    # --------------- 능력치 곡선
 
     params: list[list[int]] = Field(
         description=" 능력치 곡선, 첫번째 리스트 길이는 8로 고정",
@@ -36,18 +36,16 @@ class Class(BaseModel):
         max_length=8,
     )
 
-    #--------------- 습득할 스킬
+    # --------------- 습득할 스킬
 
     learnings: list[Learning] = Field(description="습득할 스킬", default_factory=list)
 
-    #--------------- 특성
+    # --------------- 특성
 
     traits: list[Trait] = Field(description="특성 목록", default_factory=list)
 
 
 class ClassesFile(RootModel[Annotated[list[Class | None], Field(min_length=1)]]):
-
-
     @model_validator(mode="after")
     def validate_leading_null(self):
         if not self.root:

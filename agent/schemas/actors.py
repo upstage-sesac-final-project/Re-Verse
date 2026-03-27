@@ -11,7 +11,7 @@ class Actor(BaseModel):
     id: int = Field(description="액터 id, 분류용")
     note: str = Field(description="메모", default="")
 
-    #--------------- 일반 설정
+    # --------------- 일반 설정
 
     name: str = Field(description="액터 이름")
     nickname: str = Field(description="액터 별명", default="")
@@ -20,7 +20,7 @@ class Actor(BaseModel):
     maxLevel: int = Field(description="최대 레벨", default=99, ge=1, le=99)
     profile: str = Field(description="설명", default="")
 
-    #--------------- 이미지
+    # --------------- 이미지
 
     faceName: str = Field(description="읽어올 페이스 파일명", pattern=r"^Actor\d+$")
     faceIndex: int = Field(
@@ -28,9 +28,7 @@ class Actor(BaseModel):
         ge=0,
         le=7,
     )
-    characterName: str = Field(
-        description="읽어올 보행 캐릭터 파일명", pattern=r"^Actor\d+$"
-    )
+    characterName: str = Field(description="읽어올 보행 캐릭터 파일명", pattern=r"^Actor\d+$")
     characterIndex: int = Field(
         description="인덱스 = 보행 캐릭터 결정, characterName보다 값 1 줄어야 함",
         ge=0,
@@ -38,14 +36,14 @@ class Actor(BaseModel):
     )
     battlerName: str = Field(description="전투 캐릭터 결정", pattern=r"^Actor\d+_\d+$")
 
-    #--------------- 초기 장비
+    # --------------- 초기 장비
 
     equips: list[int] = Field(
         description="장비 id 리스트. 허용 길이는 해당 actor의 classId가 참조하는 설정을 따름",
         default_factory=list,
     )
 
-    #--------------- 특성
+    # --------------- 특성
 
     traits: list[Trait] = Field(description="특성 목록", default_factory=list)
 
@@ -60,9 +58,9 @@ class Actor(BaseModel):
 #         if self.root[0] is not None:
 #             raise ValueError("Actors.json 첫 원소는 반드시 null이어야 함")
 #         return self
-    
+
+
 class ActorsFile(RootModel[Annotated[list[Actor | None], Field(min_length=1)]]):
-    
     @model_validator(mode="after")
     def validate_leading_null(self):
         if not self.root:
