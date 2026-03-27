@@ -14,7 +14,6 @@ from agent.graph.nodes.planner import planner
 from agent.graph.nodes.router import router
 from agent.graph.nodes.validator import validator
 
-
 ROOT_PATH = str(Path(__file__).resolve().parents[2])
 if ROOT_PATH not in sys.path:
     sys.path.append(ROOT_PATH)
