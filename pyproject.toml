@@ -19,6 +19,10 @@ dependencies = [
     "langchain-community>=0.3.0",
     "langchain-openai>=0.2.0",
     "langsmith>=0.1.0",
+    "langchain-upstage>=0.7.7",
+    "langchain-chroma>=1.1.0",
+    "sentence-transformers>=5.3.0",
+    "langchain-text-splitters>=1.1.1",
     "boto3>=1.42.77",
     "sqlalchemy>=2.0.48",
     "psycopg[binary]>=3.3.3",
@@ -69,3 +73,8 @@ packages = ["agent", "app/backend", "shared"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.5.1",
+]

@@ -27,6 +27,7 @@ class AgentConfig(BaseSettings):
     # ── 공통 LLM 파라미터 ────────────────────────────────────
     LLM_MAX_TOKENS: int = 4096
     LLM_TEMPERATURE: float = 0.0  # 에이전트는 결정론적 출력이 기본
+    LLM_PARALLEL_TOOL_CALLS: bool = False  # Solar API 호환성을 위해 기본값 False
 
     # ── LangSmith ────────────────────────────────────────────
     LANGSMITH_API_KEY: str = ""
