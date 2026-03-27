@@ -12,7 +12,10 @@ class KnowledgeRetriever:
 
     def __init__(self, collection_name: str = "knowledge"):
         self.collection_name = collection_name
-        self.source_files = ["rpgmaker-mz-data-schema.md", "rpgmaker-mz-data-schema2.md"]
+        self.source_files = [
+            "agent/rag/data/rpgmaker-mz-data-schema.md",
+            "agent/rag/data/rpgmaker-mz-data-schema2.md",
+        ]
 
     def index_markdown_file(self, file_path: str, force: bool = False):
         """지식 파일을 인덱싱 (섹션 단위 분할 및 벡터화)"""

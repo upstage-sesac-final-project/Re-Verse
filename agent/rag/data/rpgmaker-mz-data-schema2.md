@@ -82,4 +82,3 @@
 | `testBattlers` | `Classes` | `context_ref` | 네 정의 기준으로 관련 값 함께 참조 |
 | `testBattlers[].equips[]` | `Weapons`, `Armors` | `index_ref` | 장비 인덱스 값 불러옴 |
 | `testTroopId` | `Troops` | `index_ref` | `Troops`의 해당 인덱스 값 불러옴 |
-

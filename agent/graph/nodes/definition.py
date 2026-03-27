@@ -6,11 +6,11 @@ import os
 from typing import Any, cast
 
 from agent.core.llm_client import invoke_llm
+from agent.graph.schemas import FinalDefinitionResponse
 from agent.graph.state import AgentState
 from agent.prompts.definition_prompt import build_prompt
 from agent.rag.knowledge_retriever import knowledge_retriever
 from agent.rag.retriever import RPGRetriever
-from app.backend.schemas.rpgmaker import FinalDefinitionResponse
 
 logger = logging.getLogger(__name__)
 
