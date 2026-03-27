@@ -70,3 +70,8 @@ packages = ["agent", "app/backend", "shared"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.5.1",
+]

@@ -54,10 +54,10 @@ def _build_llm() -> BaseChatModel:
         }
         if agent_config.LLM_BASE_URL:
             init_kwargs["base_url"] = agent_config.LLM_BASE_URL
-            
+
         llm = ChatOpenAI(**init_kwargs)
         logger.info("OpenAI 호환 LLM 초기화: model=%s", agent_config.LLM_MODEL)
-        
+
     return llm
 
 

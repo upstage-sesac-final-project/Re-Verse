@@ -18,7 +18,7 @@ BASE_SYSTEM_PROMPT_TEMPLATE = """당신은 RPG Maker MZ 전문 데이터 설계�
 사용자의 요청을 분석하여 데이터 간의 관계를 파악하고, 필요한 모든 작업 단계(조회 및 수정 포함)를 정확히 정의하십시오.
 
 ### [RPG Maker MZ 표준 데이터 구조 레퍼런스 (Raw JSON)]
-데이터를 생성(CREATE), 조회(READ), 또는 수정(UPDATE)할 때, 반드시 아래 제공된 필드명과 구조(camelCase)를 엄격히 따르십시오. 
+데이터를 생성(CREATE), 조회(READ), 또는 수정(UPDATE)할 때, 반드시 아래 제공된 필드명과 구조(camelCase)를 엄격히 따르십시오.
 임의로 필드명을 바꾸거나 없는 필드를 생성하지 마십시오.
 
 - **Skills (스킬)**:
@@ -64,17 +64,19 @@ BASE_SYSTEM_PROMPT_TEMPLATE = """당신은 RPG Maker MZ 전문 데이터 설계�
 2. **복합 작업 생성**: "A에게 B를 넣어줘" 요청은 반드시 2단계(B 생성 + A의 traits/learnings 연결)로 정의하십시오.
 """
 
-# 주입될 데이터들의 중괄호도 .format()이 해석하지 못하도록 미리 이중 처리하거나, 
+# 주입될 데이터들의 중괄호도 .format()이 해석하지 못하도록 미리 이중 처리하거나,
 # 템플릿의 .format 대신 더 단순한 방식을 사용합니다.
 # 여기서는 가장 확실한 문자열 치환(replace) 방식을 사용하겠습니다.
 
-BASE_SYSTEM_PROMPT = BASE_SYSTEM_PROMPT_TEMPLATE.replace("{skills}", SKILLS_EXAMPLE_PROMPT) \
-    .replace("{items}", ITEMS_EXAMPLE_PROMPT) \
-    .replace("{actors}", ACTORS_EXAMPLE_PROMPT) \
-    .replace("{weapons}", WEAPONS_EXAMPLE_PROMPT) \
-    .replace("{armors}", ARMORS_EXAMPLE_PROMPT) \
-    .replace("{enemies}", ENEMIES_EXAMPLE_PROMPT) \
+BASE_SYSTEM_PROMPT = (
+    BASE_SYSTEM_PROMPT_TEMPLATE.replace("{skills}", SKILLS_EXAMPLE_PROMPT)
+    .replace("{items}", ITEMS_EXAMPLE_PROMPT)
+    .replace("{actors}", ACTORS_EXAMPLE_PROMPT)
+    .replace("{weapons}", WEAPONS_EXAMPLE_PROMPT)
+    .replace("{armors}", ARMORS_EXAMPLE_PROMPT)
+    .replace("{enemies}", ENEMIES_EXAMPLE_PROMPT)
     .replace("{classes}", CLASSES_EXAMPLE_PROMPT)
+)
 
 # Router(1번 노드)의 한글 인텐트와 매핑
 INTENT_SPECIFIC_INSTRUCTIONS = {
@@ -105,12 +107,17 @@ INTENT_SPECIFIC_INSTRUCTIONS = {
     "추가_정보_필요": """
 ### [추가정보 필요 전용 규칙]
 - 정보가 매우 부족한 경우에만 사용하고, 웬만하면 기본값(주인공의 traits 등)을 적용하십시오.
-"""
+""",
 }
 
-def build_prompt(state: AgentState, knowledge_context: str, retrieved_context: str) -> list[BaseMessage]:
+
+def build_prompt(
+    state: AgentState, knowledge_context: str, retrieved_context: str
+) -> list[BaseMessage]:
     intent = state.get("intent", "게임_요소_수정")
-    specific_instruction = INTENT_SPECIFIC_INSTRUCTIONS.get(intent, INTENT_SPECIFIC_INSTRUCTIONS.get("게임_요소_수정"))
+    specific_instruction = INTENT_SPECIFIC_INSTRUCTIONS.get(
+        intent, INTENT_SPECIFIC_INSTRUCTIONS.get("게임_요소_수정")
+    )
 
     system_message = f"{BASE_SYSTEM_PROMPT}\n{specific_instruction}\n\n### [Track A: 기술 지식]\n{knowledge_context}"
     human_message = f"""### [Track B: 엔티티 및 ID 정보]
@@ -122,7 +129,7 @@ def build_prompt(state: AgentState, knowledge_context: str, retrieved_context: s
 3. **단일 대상 우선**: 사용자가 명시적으로 여러 대상을 지칭하지 않는 한, 가장 적절한 엔티티 하나에 대해서만 작업을 생성하십시오.
 
 ### [사용자 요청]
-- 원문: "{state.get('user_input', '')}"
+- 원문: "{state.get("user_input", "")}"
 - 파악된 의도: "{intent}"
 
 위 정보를 바탕으로 모든 작업 단계를 정의하십시오. Actors에게는 `learnings`를 절대 사용하지 말고 `traits`를 사용하십시오.

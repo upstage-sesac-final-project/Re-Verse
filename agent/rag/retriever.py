@@ -19,12 +19,11 @@ class RPGRetriever:
         # 해당 카테고리 데이터가 이미 있는지 효율적으로 확인
         try:
             count = vector_store.count(
-                self.collection_name,
-                where={"category": category, "game_id": self.game_id}
+                self.collection_name, where={"category": category, "game_id": self.game_id}
             )
             if count > 0:
                 # print(f"  [RAG] {category} 데이터가 이미 존재합니다. ({count}건)")
-                return # 이미 존재
+                return  # 이미 존재
         except Exception as e:
             print(f"  [RAG] 체크 중 오류 (진행): {e}")
 
@@ -43,12 +42,14 @@ class RPGRetriever:
             name = item.get("name", "")
             desc = item.get("description", "")
             texts.append(f"[{category}] 이름: {name}, 설명: {desc}")
-            metadatas.append({
-                "id": str(item.get("id")), 
-                "name": name, 
-                "category": category, 
-                "game_id": self.game_id
-            })
+            metadatas.append(
+                {
+                    "id": str(item.get("id")),
+                    "name": name,
+                    "category": category,
+                    "game_id": self.game_id,
+                }
+            )
             ids.append(f"{self.game_id}_{category}_{item.get('id')}")
 
         if texts:
@@ -65,16 +66,18 @@ class RPGRetriever:
             self.collection_name,
             query_vector,
             k=k,
-            where={"category": category, "game_id": self.game_id}
+            where={"category": category, "game_id": self.game_id},
         )
 
         formatted_results = []
         if results and results.get("metadatas"):
             for i in range(len(results["metadatas"][0])):
                 meta = results["metadatas"][0][i]
-                formatted_results.append({
-                    "id": meta["id"],
-                    "name": meta["name"],
-                    "score": results["distances"][0][i] if results.get("distances") else 0
-                })
+                formatted_results.append(
+                    {
+                        "id": meta["id"],
+                        "name": meta["name"],
+                        "score": results["distances"][0][i] if results.get("distances") else 0,
+                    }
+                )
         return formatted_results

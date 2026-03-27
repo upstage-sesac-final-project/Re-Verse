@@ -6,9 +6,10 @@ from agent.rag.vectorstore import vector_store
 
 logger = logging.getLogger(__name__)
 
+
 class KnowledgeRetriever:
     """RPG Maker MZ 기술 지식 검색기 (SQLite3 기반)"""
-    
+
     def __init__(self, collection_name: str = "knowledge"):
         self.collection_name = collection_name
         self.source_files = ["rpgmaker-mz-data-schema.md", "rpgmaker-mz-data-schema2.md"]
@@ -21,8 +22,16 @@ class KnowledgeRetriever:
 
         # 중복 인덱싱 방지 (force=True인 경우 제외)
         try:
-            if not force and vector_store.count(self.collection_name, where={"source_file": os.path.basename(file_path)}) > 0:
-                print(f"  [Knowledge] '{os.path.basename(file_path)}' 지식이 이미 존재합니다. 건너뜁니다.")
+            if (
+                not force
+                and vector_store.count(
+                    self.collection_name, where={"source_file": os.path.basename(file_path)}
+                )
+                > 0
+            ):
+                print(
+                    f"  [Knowledge] '{os.path.basename(file_path)}' 지식이 이미 존재합니다. 건너뜁니다."
+                )
                 return
         except Exception:
             pass
@@ -43,15 +52,11 @@ class KnowledgeRetriever:
             text = section.strip()
             if not text:
                 continue
-            
+
             header = text.split("\n")[0].strip()
             # 메타데이터에 출처 파일 명시 (LLM 판단 도구)
             texts.append(text)
-            metadatas.append({
-                "source_file": file_name, 
-                "header": header, 
-                "category": "Knowledge"
-            })
+            metadatas.append({"source_file": file_name, "header": header, "category": "Knowledge"})
             # 고유 ID 생성 (파일명 + 인덱스)
             ids.append(f"{file_name}_{i}")
 
@@ -83,18 +88,21 @@ class KnowledgeRetriever:
         print(f"  [Knowledge] 통합 지식 검색 중: '{query}'")
         try:
             query_vector = upstage_embeddings.embed_query(query)
-            results = vector_store.similarity_search(self.collection_name, query_vector, k=k, where={"category": "Knowledge"})
-            
+            results = vector_store.similarity_search(
+                self.collection_name, query_vector, k=k, where={"category": "Knowledge"}
+            )
+
             if results and results.get("documents") and results["documents"][0]:
                 formatted_results = []
                 for i, doc in enumerate(results["documents"][0]):
                     source = results["metadatas"][0][i].get("source_file", "Unknown")
                     formatted_results.append(f"### [지식 출처: {source}]\n{doc}")
-                
+
                 return "\n\n---\n\n".join(formatted_results)
         except Exception as e:
             print(f"  [Knowledge] 검색 중 오류: {e}")
-            
+
         return "관련된 기술 지식을 찾지 못했습니다."
+
 
 knowledge_retriever = KnowledgeRetriever()
