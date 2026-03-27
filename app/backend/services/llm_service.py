@@ -14,6 +14,7 @@ from app.backend.services.json_modify_tools.dispatcher import (
     run_map_villager,
     run_skills,
 )
+from app.backend.services.s3_game_storage import sync_game_from_s3, sync_game_to_s3
 
 
 class LLMService:
@@ -33,10 +34,15 @@ class LLMService:
         Returns:
             AgentResponse: Agent 처리 결과
         """
-        try:
-            # Agent 호출 (현재는 mock, 실제로는 agent 모듈 호출)
-            agent_result = await self._call_agent(user_request)
+        # 프로덕션(S3): 요청 전 해당 game_id 폴더를 S3에서 내려받아 로컬에서 수정한 뒤 성공 시 다시 업로드
+        gid = user_request.game_id or "game_001"
+        if settings.STORAGE_BACKEND == "s3":
+            await asyncio.to_thread(sync_game_from_s3, gid)
 
+        try:
+            agent_result = await self._call_agent(user_request)
+            if settings.STORAGE_BACKEND == "s3" and agent_result.success:
+                await asyncio.to_thread(sync_game_to_s3, gid)
             return agent_result
 
         except TimeoutError:

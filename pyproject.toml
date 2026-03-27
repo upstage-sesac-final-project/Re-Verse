@@ -19,6 +19,9 @@ dependencies = [
     "langchain-community>=0.3.0",
     "langchain-openai>=0.2.0",
     "langsmith>=0.1.0",
+    "boto3>=1.42.77",
+    "sqlalchemy>=2.0.48",
+    "psycopg[binary]>=3.3.3",
 ]
 
 [project.optional-dependencies]

@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from agent.core.llm_client import invoke_llm
 from agent.graph.state import AgentState
+from app.backend.core.game_paths import get_game_data_path
 from app.backend.services.json_modify_tools.dispatcher import (
     run_enemies,
     run_items,
@@ -613,9 +614,8 @@ async def executor(state: AgentState) -> dict:
 
 
 def _get_data_path(game_id: str) -> Path:
-    """게임 데이터 경로 계산 (executor 위치: agent/graph/nodes/ → 루트는 parents[3])."""
-    root = Path(__file__).resolve().parents[3]  # Re-Verse/
-    return root / "storage" / "games" / game_id / "data"
+    """게임 `data/` 경로. `STORAGE_PATH` 설정과 동일(로컬 개발 vs EC2+S3 동기화 경로)."""
+    return get_game_data_path(game_id)
 
 
 def _create_snapshot(data_path: Path, target_files: list[str]) -> dict[str, Any]:

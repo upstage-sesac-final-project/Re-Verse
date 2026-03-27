@@ -18,6 +18,8 @@ services:
       - ./app/backend:/app/app/backend
       - ./agent:/app/agent
       - ./shared:/app/shared
+      # 로컬 storage/games ↔ 컨테이너 (STORAGE_PATH 기본 ./storage/games)
+      - ./storage:/app/storage
     restart: unless-stopped
 
   # 프론트엔드 개발 서버 (선택사항 - 로컬에서 함께 띄우고 싶을 때만)
