@@ -11,7 +11,7 @@ from .effects import Effect
 class Damage(BaseModel):
     type: int = Field(description="피해 > 유형", ge=0)
     formula: str = Field(description="피해 > 계산식")
-    elementId: int = Field(description="피해 > 속성", ge=0, le=10)
+    elementId: int = Field(description="피해 > 속성", ge=-1, le=10)
     critical: bool = Field(description="피해 > 치명타 여부", default=True)
     variance: int = Field(description="피해 > 분산도", ge=0, le=100)
 

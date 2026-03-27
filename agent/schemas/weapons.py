@@ -18,7 +18,7 @@ class Weapons(BaseModel):
     name: str = Field(description="일반 설정 > 이름")
     iconIndex: int = Field(description="일반 설정 > 아이콘", default=0)
     description: str = Field(description="일반 설정 > 설명", default="")
-    wtypeId: int = Field(description="일반 설정 > 무기 유형", ge=0, le=6)
+    wtypeId: int = Field(description="일반 설정 > 무기 유형", ge=0, le=12)
     price: int = Field(description="일반 설정 > 가격", default=100, ge=0, le=999999)
     animationId: int = Field(description="일반 설정 > 애니메이션", ge=-1, le=120)
 

@@ -65,7 +65,7 @@ class State(BaseModel):
     message2: str = Field(description="메시지 > 적 캐릭터가 해당 상태가 됐을 때:", default="")
     message3: str = Field(description="메시지 > 해당 상태가 계속될 때:", default="")
     message4: str = Field(description="메시지 > 해당 상태가 해제될 때:", default="")
-    messageType: int = Field(description="뭐임?!")
+    messageType: int = Field(description="뭐임?!") # 0으로 바꾸고 테스트
 
     #--------------- 특성
 

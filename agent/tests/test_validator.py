@@ -1,228 +1,21 @@
 from __future__ import annotations
 
+import argparse
+import asyncio
+import importlib.util
 import json
 import sys
-from copy import deepcopy
-from dataclasses import dataclass
-from importlib import import_module
+import types
 from pathlib import Path
 from typing import Any
-
-from pydantic import ValidationError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import agent.schemas as schemas_pkg
-
-
-@dataclass(frozen=True)
-class SchemaSpec:
-    canonical_name: str
-    module_name: str
-    model_name: str
-
-
-SCHEMA_REGISTRY: dict[str, SchemaSpec] = {
-    "actor": SchemaSpec("actors", "actors", "ActorsFile"),
-    "actors": SchemaSpec("actors", "actors", "ActorsFile"),
-    "actors.json": SchemaSpec("actors", "actors", "ActorsFile"),
-    "animation": SchemaSpec("animations", "animations", "AnimationsFile"),
-    "animations": SchemaSpec("animations", "animations", "AnimationsFile"),
-    "animations.json": SchemaSpec("animations", "animations", "AnimationsFile"),
-    "armor": SchemaSpec("armors", "armors", "ArmorsFile"),
-    "armors": SchemaSpec("armors", "armors", "ArmorsFile"),
-    "armors.json": SchemaSpec("armors", "armors", "ArmorsFile"),
-    "class": SchemaSpec("classes", "classes", "ClassesFile"),
-    "classes": SchemaSpec("classes", "classes", "ClassesFile"),
-    "classes.json": SchemaSpec("classes", "classes", "ClassesFile"),
-    "enemy": SchemaSpec("enemies", "enemies", "EnemiesFile"),
-    "enemies": SchemaSpec("enemies", "enemies", "EnemiesFile"),
-    "enemies.json": SchemaSpec("enemies", "enemies", "EnemiesFile"),
-    "item": SchemaSpec("items", "items", "ItemsFile"),
-    "items": SchemaSpec("items", "items", "ItemsFile"),
-    "items.json": SchemaSpec("items", "items", "ItemsFile"),
-    "skill": SchemaSpec("skills", "skills", "SkillsFile"),
-    "skills": SchemaSpec("skills", "skills", "SkillsFile"),
-    "skills.json": SchemaSpec("skills", "skills", "SkillsFile"),
-    "state": SchemaSpec("states", "states", "StatesFile"),
-    "states": SchemaSpec("states", "states", "StatesFile"),
-    "states.json": SchemaSpec("states", "states", "StatesFile"),
-    "system": SchemaSpec("system", "system", "System"),
-    "system.json": SchemaSpec("system", "system", "System"),
-    "troop": SchemaSpec("troops", "troops", "TroopsFile"),
-    "troops": SchemaSpec("troops", "troops", "TroopsFile"),
-    "troops.json": SchemaSpec("troops", "troops", "TroopsFile"),
-    "weapon": SchemaSpec("weapons", "weapons", "WeaponsFile"),
-    "weapons": SchemaSpec("weapons", "weapons", "WeaponsFile"),
-    "weapons.json": SchemaSpec("weapons", "weapons", "WeaponsFile"),
-}
-
-
-def available_schemas() -> str:
-    canonical_names = sorted({spec.canonical_name for spec in SCHEMA_REGISTRY.values()})
-    return ", ".join(canonical_names)
-
-
-def resolve_schema(schema_name: str) -> SchemaSpec:
-    normalized = schema_name.strip().lower()
-    spec = SCHEMA_REGISTRY.get(normalized)
-    if spec is None:
-        raise SystemExit(
-            f"unknown schema: {schema_name}\n"
-            f"available: {available_schemas()}"
-        )
-    return spec
-
-
-def load_model(spec: SchemaSpec) -> type:
-    try:
-        module = import_module(f"{schemas_pkg.__name__}.{spec.module_name}")
-    except Exception as error:
-        raise SystemExit(
-            f"failed to import schema: {spec.canonical_name}\n"
-            f"reason: {error}"
-        ) from error
-
-    model = getattr(module, spec.model_name, None)
-    if not isinstance(model, type) or not hasattr(model, "model_validate"):
-        raise SystemExit(
-            f"invalid schema configuration: {spec.canonical_name} -> "
-            f"{spec.module_name}.{spec.model_name}"
-        )
-    return model
-
-
-def to_jsonable(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {k: to_jsonable(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [to_jsonable(v) for v in value]
-    try:
-        json.dumps(value)
-        return value
-    except TypeError:
-        return str(value)
-
-
-def build_output(
-    validation_results: list[dict[str, Any]],
-    validation_summary: str,
-    success: bool,
-) -> dict[str, Any]:
-    return {
-        "validation_results": validation_results,
-        "validation_summary": validation_summary,
-        "success": success,
-    }
-
-
-def find_first_difference(schema_value: Any, raw_value: Any, path: str = "$") -> tuple[str, Any, Any] | None:
-    if type(schema_value) is not type(raw_value):
-        return path, raw_value, schema_value
-
-    if isinstance(schema_value, dict):
-        schema_keys = set(schema_value.keys())
-        raw_keys = set(raw_value.keys())
-
-        extra_keys = sorted(raw_keys - schema_keys)
-        if extra_keys:
-            key = extra_keys[0]
-            return f"{path}.{key}", raw_value[key], None
-
-        missing_keys = sorted(schema_keys - raw_keys)
-        if missing_keys:
-            key = missing_keys[0]
-            return f"{path}.{key}", None, schema_value[key]
-
-        for key in schema_value:
-            nested = find_first_difference(schema_value[key], raw_value[key], f"{path}.{key}")
-            if nested is not None:
-                return nested
-
-        return None
-
-    if isinstance(schema_value, list):
-        if len(schema_value) != len(raw_value):
-            return path, raw_value, schema_value
-
-        for index, (schema_item, raw_item) in enumerate(zip(schema_value, raw_value)):
-            nested = find_first_difference(schema_item, raw_item, f"{path}[{index}]")
-            if nested is not None:
-                return nested
-
-        return None
-
-    if schema_value != raw_value:
-        return path, raw_value, schema_value
-
-    return None
-
-
-def validate_with_model(model: type, data: Any, target_name: str) -> dict[str, Any]:
-    original_data = deepcopy(data)
-
-    try:
-        validated = model.model_validate(deepcopy(data))
-    except ValidationError as error:
-        return build_output(
-            validation_results=[
-                {
-                    "target": target_name,
-                    "success": False,
-                    "message": f"{target_name} schema validation failed",
-                    "errors": to_jsonable(error.errors()),
-                }
-            ],
-            validation_summary=f"{target_name} validation failed",
-            success=False,
-        )
-
-    print("MODEL =", model)
-    print("MODULE =", model.__module__)
-    print("RAW_KEYS[1] =", list(original_data[1].keys()))
-    print("RAW_ITEM[1] =", original_data[1])
-
-    normalized = validated.model_dump(mode="json", exclude_unset=True)
-
-    print("NORM_KEYS[1] =", list(normalized[1].keys()))
-    print("NORM_ITEM[1] =", normalized[1])
-
-    mismatch = find_first_difference(normalized, original_data)
-    if mismatch is not None:
-        location, raw_value, schema_value = mismatch
-        return build_output(
-            validation_results=[
-                {
-                    "target": target_name,
-                    "success": False,
-                    "message": f"{target_name} schema validation failed",
-                    "errors": [
-                        {
-                            "loc": location,
-                            "msg": "input does not strictly match schema",
-                            "raw": to_jsonable(raw_value),
-                            "schema": to_jsonable(schema_value),
-                        }
-                    ],
-                }
-            ],
-            validation_summary=f"{target_name} validation failed",
-            success=False,
-        )
-
-    return build_output(
-        validation_results=[
-            {
-                "target": target_name,
-                "success": True,
-                "message": f"{target_name} schema validation passed",
-            }
-        ],
-        validation_summary=f"{target_name} validation passed",
-        success=True,
-    )
+AGENT_ROOT = PROJECT_ROOT / "agent"
+GRAPH_ROOT = AGENT_ROOT / "graph"
+NODES_ROOT = GRAPH_ROOT / "nodes"
 
 
 def load_json_file(json_path: Path) -> Any:
@@ -234,49 +27,230 @@ def load_json_file(json_path: Path) -> Any:
             return json.load(file)
 
 
-def main() -> None:
-    if len(sys.argv) < 3:
-        raise SystemExit("usage: python agent/tests/test_validator.py [schema] [json_path]")
+def collect_snapshot_from_paths(json_paths: list[Path]) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {}
+    for json_path in json_paths:
+        if not json_path.exists():
+            raise FileNotFoundError(f"file not found: {json_path}")
+        if not json_path.is_file():
+            raise ValueError(f"not a file: {json_path}")
+        snapshot[json_path.name] = load_json_file(json_path)
+    return snapshot
 
-    schema_name = sys.argv[1]
-    json_path = Path(sys.argv[2])
 
-    if not json_path.exists():
-        raise SystemExit(f"file not found: {json_path}")
+def collect_snapshot_from_dir(directory: Path | None) -> dict[str, Any]:
+    if directory is None:
+        return {}
+    if not directory.exists():
+        raise FileNotFoundError(f"directory not found: {directory}")
+    if not directory.is_dir():
+        raise ValueError(f"not a directory: {directory}")
 
-    spec = resolve_schema(schema_name)
-    model = load_model(spec)
+    snapshot: dict[str, Any] = {}
+    for json_path in sorted(directory.glob("*.json")):
+        snapshot[json_path.name] = load_json_file(json_path)
+    return snapshot
+
+
+def merge_snapshots(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    merged.update(override)
+    return merged
+
+
+def parse_backup_paths(entries: list[str]) -> dict[str, str]:
+    backup_paths: dict[str, str] = {}
+    for entry in entries:
+        file_name, separator, backup_path = entry.partition("=")
+        if not separator or not file_name.strip() or not backup_path.strip():
+            raise ValueError(f"invalid --backup-path value: {entry}")
+        backup_paths[file_name.strip()] = backup_path.strip()
+    return backup_paths
+
+
+def build_default_changes_log(modified_files: list[str]) -> list[dict[str, Any]]:
+    return [
+        {
+            "step_id": index,
+            "target_file": file_name,
+            "tool_name": f"manual_validate_{Path(file_name).stem.lower()}",
+            "success": True,
+        }
+        for index, file_name in enumerate(modified_files, start=1)
+    ]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Build validator state from JSON file paths and run the state-based validator node."
+        )
+    )
+    parser.add_argument(
+        "--modified",
+        dest="modified_paths",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Path to a modified JSON file. Repeat for multiple files.",
+    )
+    parser.add_argument(
+        "--current",
+        dest="current_paths",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Path to the current/original JSON file. Repeat for multiple files.",
+    )
+    parser.add_argument(
+        "--current-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="Directory of current/original JSON snapshots used as the validation baseline.",
+    )
+    parser.add_argument(
+        "--changes-log",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Optional JSON file containing a changes_log array.",
+    )
+    parser.add_argument(
+        "--backup-path",
+        action="append",
+        default=[],
+        metavar="FILE=PATH",
+        help="Optional backup path metadata. Repeat for multiple files.",
+    )
+    parser.add_argument(
+        "--retry-count",
+        type=int,
+        default=0,
+        help="Optional retry count forwarded to the validator state.",
+    )
+    return parser.parse_args()
+
+
+def build_state(args: argparse.Namespace) -> dict[str, Any]:
+    modified_paths = [Path(value).resolve() for value in args.modified_paths]
+    current_paths = [Path(value).resolve() for value in args.current_paths]
+    current_dir = args.current_dir.resolve() if args.current_dir is not None else None
+
+    if not modified_paths:
+        raise ValueError("at least one --modified path is required")
+
+    current_game_state = collect_snapshot_from_dir(current_dir)
+    current_game_state = merge_snapshots(
+        current_game_state,
+        collect_snapshot_from_paths(current_paths),
+    )
+
+    modified_game_state = merge_snapshots(
+        current_game_state,
+        collect_snapshot_from_paths(modified_paths),
+    )
+
+    if args.changes_log is not None:
+        changes_log = load_json_file(args.changes_log.resolve())
+        if not isinstance(changes_log, list):
+            raise ValueError("--changes-log must contain a JSON array")
+    else:
+        changes_log = build_default_changes_log([path.name for path in modified_paths])
+
+    backup_paths = parse_backup_paths(args.backup_path)
+
+    state = {
+        "current_game_state": current_game_state,
+        "modified_game_state": modified_game_state,
+        "changes_log": changes_log,
+        "backup_paths": backup_paths,
+        "retry_count": args.retry_count,
+    }
+    return state
+
+
+def ensure_stub_package(module_name: str, package_path: Path) -> None:
+    if module_name in sys.modules:
+        return
+
+    package = types.ModuleType(module_name)
+    package.__file__ = str(package_path / "__init__.py")
+    package.__path__ = [str(package_path)]  # type: ignore[attr-defined]
+    package.__package__ = module_name
+    sys.modules[module_name] = package
+
+    parent_name, _, child_name = module_name.rpartition(".")
+    if parent_name and parent_name in sys.modules:
+        setattr(sys.modules[parent_name], child_name, package)
+
+
+def load_module_from_path(module_name: str, module_path: Path) -> types.ModuleType:
+    existing = sys.modules.get(module_name)
+    if isinstance(existing, types.ModuleType):
+        return existing
+
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"failed to create module spec: {module_name}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+    parent_name, _, child_name = module_name.rpartition(".")
+    if parent_name and parent_name in sys.modules:
+        setattr(sys.modules[parent_name], child_name, module)
+
+    return module
+
+
+def load_validator_callable() -> Any:
+    ensure_stub_package("agent.graph", GRAPH_ROOT)
+    ensure_stub_package("agent.graph.nodes", NODES_ROOT)
+
+    load_module_from_path("agent.graph.state", GRAPH_ROOT / "state.py")
+    validator_module = load_module_from_path(
+        "agent.graph.nodes.validator",
+        NODES_ROOT / "validator.py",
+    )
+
+    validator_callable = getattr(validator_module, "validator", None)
+    if validator_callable is None:
+        raise ImportError("validator function not found in agent/graph/nodes/validator.py")
+    return validator_callable
+
+
+async def run() -> int:
+    args = parse_args()
 
     try:
-        data = load_json_file(json_path)
-    except json.JSONDecodeError as error:
-        result = build_output(
-            validation_results=[
+        validator = load_validator_callable()
+        state = build_state(args)
+        result = await validator(state)
+    except (FileNotFoundError, ValueError, json.JSONDecodeError, ImportError) as error:
+        error_result = {
+            "validation_results": [
                 {
-                    "target": json_path.name,
+                    "target": "driver",
                     "success": False,
-                    "message": f"{json_path.name} schema validation failed",
-                    "errors": [
-                        {
-                            "loc": "$",
-                            "msg": "invalid JSON syntax",
-                            "line": error.lineno,
-                            "column": error.colno,
-                        }
-                    ],
+                    "message": "test_validator.py failed to build validator state",
+                    "errors": [{"loc": "$", "msg": str(error)}],
+                    "error_count": 1,
                 }
             ],
-            validation_summary=f"{json_path.name} validation failed",
-            success=False,
-        )
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-        raise SystemExit(1)
+            "validation_summary": str(error),
+            "success": False,
+        }
+        print(json.dumps(error_result, ensure_ascii=False, indent=2))
+        return 1
 
-    result = validate_with_model(model=model, data=data, target_name=json_path.name)
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result.get("success") else 1
 
-    if not result["success"]:
-        raise SystemExit(1)
+
+def main() -> None:
+    raise SystemExit(asyncio.run(run()))
 
 
 if __name__ == "__main__":
