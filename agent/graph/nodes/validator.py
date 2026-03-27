@@ -13,8 +13,8 @@ from typing import Any
 from pydantic import ValidationError
 
 import agent.schemas as schemas_pkg
-from agent.prompts.validator_prompt import build_prompt as build_validator_prompt
 from agent.graph.state import AgentState
+from agent.prompts.validator_prompt import build_prompt as build_validator_prompt
 
 logger = logging.getLogger(__name__)
 

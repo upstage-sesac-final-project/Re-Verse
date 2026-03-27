@@ -1,6 +1,7 @@
 """Validator summary prompt."""
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+
 from agent.graph.state import AgentState
 
 _SYSTEM = """\
@@ -17,6 +18,7 @@ _SYSTEM = """\
 - 전체가 성공이면 검증 통과 사실을 간단히 요약하세요.
 - 출력은 설명 없이 summary 문장만 출력하세요.
 """
+
 
 def build_prompt(state: AgentState) -> list[BaseMessage]:
     validation_results = state.get("validation_results", [])

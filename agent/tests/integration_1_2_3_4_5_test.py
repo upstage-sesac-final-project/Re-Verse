@@ -7,7 +7,6 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-
 ROOT_PATH = str(Path(__file__).resolve().parents[2])
 if ROOT_PATH not in sys.path:
     sys.path.append(ROOT_PATH)
@@ -18,7 +17,6 @@ from agent.graph.nodes.executor import executor
 from agent.graph.nodes.planner import planner
 from agent.graph.nodes.router import router
 from agent.graph.nodes.validator import validator
-
 
 logging.basicConfig(level=logging.ERROR)
 
@@ -31,11 +29,7 @@ SUPPORTED_INTENTS = {
 
 def build_validation_result_compat(state: dict[str, Any]) -> dict[str, Any]:
     validation_results = state.get("validation_results", [])
-    flattened_errors = [
-        error
-        for item in validation_results
-        for error in item.get("errors", [])
-    ]
+    flattened_errors = [error for item in validation_results for error in item.get("errors", [])]
     error_count = sum(int(item.get("error_count", 0)) for item in validation_results)
     return {
         "passed": state.get("success", False),
@@ -46,14 +40,10 @@ def build_validation_result_compat(state: dict[str, Any]) -> dict[str, Any]:
 
 def print_router_result(state: dict[str, Any]) -> None:
     print("\n[1. Router Result]")
-    print(
-        f"  [*] intent: {state.get('intent')} "
-        f"(confidence={state.get('confidence', 0.0):.2f})"
-    )
+    print(f"  [*] intent: {state.get('intent')} (confidence={state.get('confidence', 0.0):.2f})")
     if state.get("intent") not in SUPPORTED_INTENTS:
         print(
-            "  [*] response: "
-            f"{state.get('final_response', 'No executable intent was returned.')}"
+            f"  [*] response: {state.get('final_response', 'No executable intent was returned.')}"
         )
 
 
