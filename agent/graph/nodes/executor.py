@@ -33,7 +33,9 @@ from app.backend.services.json_modify_tools.dispatcher import (
     run_skills,
 )
 from app.backend.services.json_modify_tools.managers.actor_manager import ActorManager
+from app.backend.services.json_modify_tools.managers.class_manager import ClassManager
 from app.backend.services.json_modify_tools.managers.skill_manager import SkillManager
+from app.backend.services.json_modify_tools.managers.system_manager import SystemManager
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +62,13 @@ TARGET_FILE_MAP = {
 
 
 def _is_structured_execution_plan(plan: list[dict]) -> bool:
-    """3단계 Planner가 action_type / step_id / target_file 형태로 넘긴 플랜인지 판별."""
+    """3단계 Planner가 만든 "구조화 실행 플랜"인지 판별한다.
+
+    기대 포맷(필수 키):
+      - `step_id`
+      - `action_type` (query/create/update 등)
+      - `target_file` (예: `Actors.json`, `Classes.json`, `System.json`)
+    """
     if not plan or not isinstance(plan[0], dict):
         return False
     row = plan[0]
@@ -68,6 +76,7 @@ def _is_structured_execution_plan(plan: list[dict]) -> bool:
 
 
 def _collect_structured_target_files(execution_plan: list[dict]) -> set[str]:
+    """구조화 플랜에 등장한 JSON 파일들을 추려서 snapshot/backup 범위를 결정한다."""
     files: set[str] = set()
     for step in execution_plan:
         if not isinstance(step, dict):
@@ -79,7 +88,11 @@ def _collect_structured_target_files(execution_plan: list[dict]) -> set[str]:
 
 
 def _topological_sort_steps(execution_plan: list[dict]) -> list[dict]:
-    """depends_on(step_id) 기준 위상 정렬. 실패 시 step_id 오름차순 폴백."""
+    """depends_on(step_id) 기준 위상 정렬.
+
+    - 정상: 의존 step이 먼저 실행되게 순서를 만든다.
+    - 비정상(순환/누락): 완전 보장은 못하지만 step_id 오름차순으로 폴백한다.
+    """
     by_id: dict[int, dict] = {}
     for step in execution_plan:
         if not isinstance(step, dict) or "step_id" not in step:
@@ -127,7 +140,13 @@ def _topological_sort_steps(execution_plan: list[dict]) -> list[dict]:
 
 
 def _should_execute_structured_step(step: dict, step_results: dict[int, dict]) -> tuple[bool, str]:
-    """조건부 create(이미 존재 시 스킵) 등."""
+    """조건부로 step 실행/스킵을 결정한다.
+
+    MVP에서는 아래 휴리스틱을 적용한다.
+    - `depends_on` 결과가 없거나(누락), 의존 step이 실패하면 현재 step은 실행하지 않는다.
+    - `action_type == "create"`이고 `condition`에 "존재하지 않/없을 경우..." 같은 문구가 있으면
+      이전 `query` 결과의 `exists`를 보고 create를 스킵한다.
+    """
     try:
         # step_id 파싱이 실패하면(형식 이상) 안전하게 실행 여부를 기본값으로 반환
         int(step.get("step_id", -1))
@@ -149,11 +168,11 @@ def _should_execute_structured_step(step: dict, step_results: dict[int, dict]) -
     action = (step.get("action_type") or "").strip().lower()
     condition = (step.get("condition") or "").strip()
 
-    if action == "create" and dep_ids:
+    if action in {"create", "update", "delete"} and dep_ids:
         for did in dep_ids:
             prev = step_results[did]
             if not prev.get("skipped") and prev.get("success") is False:
-                return False, f"의존 step {did} 실패로 create 불가"
+                return False, f"의존 step {did} 실패로 {action} 불가"
 
     if action == "create" and condition:
         cond_create = any(k in condition for k in ("존재하지 않", "없을 경우", "없으면", "없을 때"))
@@ -175,7 +194,12 @@ async def _execute_one_structured_step(
     data_path: Path,
     step_results: dict[int, dict],
 ) -> dict[str, Any]:
-    """단일 구조화 스텝 실행 후 changes_log 항목(dict) 반환. step_results 갱신."""
+    """단일 구조화 step 실행(4단계).
+
+    - 입력: Planner가 만든 한 step(=action_type + target_file + target_info)
+    - 처리: 해당 조합을 "매니저(Actor/Class/System)" 호출로 디스패치
+    - 출력: `changes_log`에 들어갈 step 결과 + `step_results` 누적
+    """
     sid = int(step["step_id"])
     action = (step.get("action_type") or "").strip().lower()
     target_file = (step.get("target_file") or "").strip()
@@ -183,6 +207,38 @@ async def _execute_one_structured_step(
     ts = datetime.now().isoformat()
 
     try:
+        # target_file/action_type 조합을 현재 MVP에서 지원하는 매니저 호출로 매핑한다.
+        if target_file == "Classes.json" and action == "query":
+            mgr = ClassManager(data_path, f"struct_{sid}")
+            r = await mgr.execute("query", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_classes_query",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "exists": r.get("exists"),
+                "class_id": r.get("class_id"),
+                "structured": True,
+                "timestamp": ts,
+            }
+
+        if target_file == "Classes.json" and action == "create":
+            mgr = ClassManager(data_path, f"struct_{sid}")
+            r = await mgr.execute("create", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_classes_create",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "class_id": r.get("class_id"),
+                "structured": True,
+                "timestamp": ts,
+            }
+
         if target_file == "Actors.json" and action == "query":
             mgr = ActorManager(data_path, f"struct_{sid}")
             r = await mgr.execute("query", target_info=target_info)
@@ -200,6 +256,7 @@ async def _execute_one_structured_step(
 
         if target_file == "Actors.json" and action == "create":
             mgr = ActorManager(data_path, f"struct_{sid}")
+            # Planner가 class_id를 생략할 수 있어서 기본값(=1)으로 안전 처리한다.
             class_id = target_info.get("class_id", 1)
             try:
                 class_id = int(class_id)
@@ -217,6 +274,37 @@ async def _execute_one_structured_step(
                 "timestamp": ts,
             }
 
+        if target_file == "Actors.json" and action == "update":
+            mgr = ActorManager(data_path, f"struct_{sid}")
+            # MVP update는 `classId` 변경만 지원한다(=class_name 또는 class_id로 resolve).
+            r = await mgr.execute("update_class", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_actors_update",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "structured": True,
+                "timestamp": ts,
+            }
+
+        if target_file == "System.json" and action == "update":
+            mgr = SystemManager(data_path, f"struct_{sid}")
+            # MVP update는 `partyMembers`에 actor를 추가하는 케이스만 지원한다.
+            r = await mgr.execute("add_party_member", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_system_update",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "structured": True,
+                "timestamp": ts,
+            }
+
+        # 위 조건에 없는 target/action 조합은 현재 MVP에서 아직 구현되지 않았다는 뜻이다.
         err = f"지원하지 않는 구조화 스텝: {target_file!r} + {action!r}"
         step_results[sid] = {"success": False, "error": err, "step_id": sid}
         return {
@@ -246,7 +334,11 @@ async def _executor_structured(
     game_id: str,
     retry_count: int,
 ) -> dict[str, Any]:
-    """3단계 구조화 execution_plan 전용 실행 경로."""
+    """3단계 구조화 execution_plan 전용 실행 경로(4단계 엔진).
+
+    이 경로의 역할은 "planner가 준 step들을 올바른 순서로 실행"하고,
+    수정 전/후 스냅샷 및 백업을 묶어서 결과(`changes_log`)로 반환하는 것이다.
+    """
     ordered = _topological_sort_steps(execution_plan)
     target_files = sorted(_collect_structured_target_files(execution_plan))
     if not target_files:
@@ -259,6 +351,7 @@ async def _executor_structured(
         target_files,
     )
 
+    # snapshot/backup은 "실패했을 때 롤백"과 "실행 전/후 비교"를 위한 MVP 장치다.
     current_game_state = _create_snapshot(data_path, target_files)
     backup_paths = _create_backup(data_path, target_files)
 
@@ -266,6 +359,7 @@ async def _executor_structured(
     step_results: dict[int, dict] = {}
 
     for step in ordered:
+        # Planner output이 깨진 경우에도 전체 실행이 터지지 않게 방어한다.
         if not isinstance(step, dict):
             continue
         try:
@@ -273,8 +367,10 @@ async def _executor_structured(
         except (TypeError, ValueError):
             continue
 
+        # 의존성/조건 기반으로 "실행할지 말지" 먼저 판정
         should_run, skip_reason = _should_execute_structured_step(step, step_results)
         if not should_run:
+            # 스킵은 "에러"가 아니라 "조건 만족(예: 이미 존재)"인 케이스로 취급한다.
             step_results[sid] = {
                 "skipped": True,
                 "success": True,
@@ -368,6 +464,7 @@ async def executor(state: AgentState) -> dict:
     logger.info("[Executor MVP] 데이터 경로: %s", data_path)
 
     # ── 3단계 구조화 플랜 (action_type / step_id / target_file) ──
+    # 이 포맷이면 LLM 번역 단계(레거시) 없이 곧바로 4단계 구조화 엔진으로 분기한다.
     if _is_structured_execution_plan(execution_plan):
         return await _executor_structured(data_path, execution_plan, game_id, retry_count)
 

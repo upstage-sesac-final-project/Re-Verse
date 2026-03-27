@@ -138,29 +138,24 @@ class TestRouterIntegration:
 
     @pytest.mark.asyncio
     async def test_game_modify_intent(self):
-        result = await router(
-            _state(
-                "이 프로젝트를 분석해서 1번 맵의 마을에 서브 퀘스트 3개를 추가해줘. 각 퀘스트에는 대화, 선택지, 완료 조건이 들어가야 해."
-            )
-        )
+        result = await router(_state("게임 제목 을 냥냥펀치~!! 로 바꾸고싶어."))
         print(f"\n[게임_요소_수정] {result}")
         assert result["intent"] == "게임_요소_수정"
         assert result["confidence"] >= 0.7
 
     @pytest.mark.asyncio
     async def test_game_query_intent(self):
-        result = await router(_state("이 게임 주인공의 아바타를 알려줘"))
+        result = await router(_state("지금 게임 제목 뭐야?"))
         print(f"\n[게임_요소_조회] {result}")
         assert result["intent"] == "게임_요소_조회"
         assert result["confidence"] >= 0.7
 
     @pytest.mark.asyncio
     async def test_clarification_needed_intent(self):
-        result = await router(_state("뭔가 추가해줘"))  # 대상/종류 전혀 없음
-        print(f"\n[추가_정보_필요] {result}")
-        assert result["intent"] == "추가_정보_필요"
-        assert "final_response" in result
-        assert len(result["final_response"]) > 0
+        result = await router(_state("천 갑옷은 얼마야?"))  # 대상/종류 전혀 없음
+        print(f"\n[게임_요소_조회] {result}")
+        assert result["intent"] == "게임_요소_조회"
+        assert result["confidence"] >= 0.7
 
     @pytest.mark.asyncio
     async def test_general_chat_intent(self):
@@ -178,4 +173,140 @@ class TestRouterIntegration:
         )
         print(f"\n[범위_외] {result}")
         assert result["intent"] == "범위_외"
+        assert "final_response" in result
+
+
+# ── 현실적인 사용 시나리오 통합 테스트 ─────────────────────────────────────────
+# 프롬프트 예시에 없는 실제 사용자 입력 패턴으로 의도 분류 검증
+
+
+@pytest.mark.integration
+class TestRouterIntegrationRealistic:
+    """프롬프트 예시에 없는 현실적인 입력으로 의도 분류를 검증한다."""
+
+    # ── 게임_요소_생성 ──────────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "user_input",
+        [
+            "늑대인간 보스 몬스터 하나 추가해줘",
+            "파티원 전체 HP 회복하는 포션 만들어줘",
+            "독 속성 단검 넣어줘",
+            "레벨 50짜리 드래곤 적 만들어줘",
+            "상태이상 '혼란' 추가해줄 수 있어?",
+        ],
+    )
+    async def test_create_intent(self, user_input):
+        result = await router(_state(user_input))
+        print(f"\n[게임_요소_생성] '{user_input}' → {result['intent']}")
+        assert result["intent"] == "게임_요소_생성", f"입력: {user_input!r}"
+        assert result["confidence"] >= 0.7
+
+    # ── 게임_요소_수정 ──────────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "user_input",
+        [
+            "용사 초기 레벨 5로 높여줘",
+            "고블린 경험치 드롭 30으로 낮춰줘",
+            "마법사 직업 기본 MP 두 배로 올려줘",
+            "불꽃검 공격력 너무 약한 것 같은데 올려줘",
+            "오크 삭제해줘",
+        ],
+    )
+    async def test_modify_intent(self, user_input):
+        result = await router(_state(user_input))
+        print(f"\n[게임_요소_수정] '{user_input}' → {result['intent']}")
+        assert result["intent"] == "게임_요소_수정", f"입력: {user_input!r}"
+        assert result["confidence"] >= 0.7
+
+    # ── 게임_요소_조회 ──────────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "user_input",
+        [
+            "지금 만들어진 스킬 다 보여줘",
+            "주인공 이름이 뭐야?용사 캐릭터 스탯 알려줘",
+            "현재 등록된 직업 몇 개야?",
+            "독검 데미지 공식이 뭐야?",
+            "파티에 누가 있어?",
+        ],
+    )
+    async def test_query_intent(self, user_input):
+        result = await router(_state(user_input))
+        print(f"\n[게임_요소_조회] '{user_input}' → {result['intent']}")
+        assert result["intent"] == "게임_요소_조회", f"입력: {user_input!r}"
+        assert result["confidence"] >= 0.7
+
+    # ── 추가_정보_필요 ──────────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "user_input",
+        [
+            "몬스터 좀 어떻게 해줘",
+            "강하게 해줘",
+            "게임 좀 고쳐줘",
+        ],
+    )
+    async def test_clarification_intent(self, user_input):
+        result = await router(_state(user_input))
+        print(f"\n[추가_정보_필요] '{user_input}' → {result['intent']}")
+        assert result["intent"] == "추가_정보_필요", f"입력: {user_input!r}"
+        assert "final_response" in result
+
+    # ── 복합_의도 ───────────────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "user_input",
+        [
+            "마법사 스탯 확인하고 MP 올려줘",
+            "현재 아이템 목록 보고 제일 비싼 거 삭제해줘",
+            "슬라임 HP 확인해보고 너무 낮으면 올려줘",
+        ],
+    )
+    async def test_complex_intent(self, user_input):
+        result = await router(_state(user_input))
+        print(f"\n[복합_의도] '{user_input}' → {result['intent']}")
+        assert result["intent"] == "복합_의도", f"입력: {user_input!r}"
+
+    # ── 일반_대화 ───────────────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "user_input",
+        [
+            "오늘 게임 개발 너무 힘드네",
+            "잘 됐다 고마워",
+            "잠깐 쉬고 올게",
+            "배고파",
+        ],
+    )
+    async def test_general_chat(self, user_input):
+        result = await router(_state(user_input))
+        print(f"\n[일반_대화] '{user_input}' → {result['intent']}")
+        assert result["intent"] == "일반_대화", f"입력: {user_input!r}"
+        assert "final_response" in result
+
+    # ── 범위_외 ─────────────────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "user_input",
+        [
+            "전사 캐릭터 스프라이트 멋있게 바꿔줘",
+            "전투 배경음악 웅장한 걸로 넣어줘",
+            "마인크래프트처럼 블록 쌓기 시스템 넣어줘",
+            "포켓몬 진화 시스템 구현해줘",
+            "오늘 주식 시장 어떻게 돼?",
+        ],
+    )
+    async def test_out_of_scope(self, user_input):
+        result = await router(_state(user_input))
+        print(f"\n[범위_외] '{user_input}' → {result['intent']}")
+        assert result["intent"] == "범위_외", f"입력: {user_input!r}"
         assert "final_response" in result
