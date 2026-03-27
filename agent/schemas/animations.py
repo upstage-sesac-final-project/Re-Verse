@@ -57,14 +57,25 @@ class Animation(BaseModel):
 
     flashTimings: list[FlashTiming] = Field(description="플래시 타이밍", default_factory=list)
 
+    #--------------- timings : 아마도? MV 호환용 레거시 필드로 추정
+    timings: list = Field(description="이놈 때문에 내가", default_factory=list)
 
 class AnimationsFile(RootModel[Annotated[list[Animation | None], Field(min_length=1)]]):
-    model_config = ConfigDict(extra="forbid")
-
+    
     @model_validator(mode="after")
     def validate_leading_null(self):
         if not self.root:
             raise ValueError("Animations.json은 비어 있을 수 없음")
         if self.root[0] is not None:
-            raise ValueError("Animations.json의 첫 원소는 반드시 null이어야 함")
+            raise ValueError("Animations.json 첫 원소는 반드시 null이어야 함")
+
+        for idx, animation in enumerate(self.root):
+            if animation is None:
+                continue
+
+            if "timings" in animation.model_fields_set and idx != 1:
+                raise ValueError(
+                    f"Animations.json[{idx}].timings는 허용되지 않음. timings는 첫 번째 실제 애니메이션(인덱스 1)에서만 허용됨"
+                )
+
         return self

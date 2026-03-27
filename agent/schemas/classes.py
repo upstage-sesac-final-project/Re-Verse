@@ -46,7 +46,7 @@ class Class(BaseModel):
 
 
 class ClassesFile(RootModel[Annotated[list[Class | None], Field(min_length=1)]]):
-    model_config = ConfigDict(extra="forbid")
+
 
     @model_validator(mode="after")
     def validate_leading_null(self):

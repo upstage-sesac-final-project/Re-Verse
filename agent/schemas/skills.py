@@ -15,24 +15,24 @@ class Damage(BaseModel):
     critical: bool = Field(description="피해 > 치명타 여부", default=True)
     variance: int = Field(description="피해 > 분산도", ge=0, le=100)
 
-    @field_validator("formula")
-    @classmethod
-    def validate_formula(cls, v: str) -> str:
-        if v == "0":
-            return v
+    # @field_validator("formula")
+    # @classmethod
+    # def validate_formula(cls, v: str) -> str:
+    #     if v == "0":
+    #         return v
 
-        allowed_tokens = re.compile(r"(a|b)\.(atk|def|mhp|mat)|\d+|[+\-*/()]|\s+")
-        tokens = allowed_tokens.findall(v)
-        consumed = "".join(
-            m.group(0)
-            for m in re.finditer(r"(a|b)\.(atk|def|mhp|mat)|\d+|[+\-*/()]|\s+", v)
-        )
+    #     allowed_tokens = re.compile(r"(a|b)\.(atk|def|mhp|mat)|\d+|[+\-*/()]|\s+")
+    #     tokens = allowed_tokens.findall(v)
+    #     consumed = "".join(
+    #         m.group(0)
+    #         for m in re.finditer(r"(a|b)\.(atk|def|mhp|mat)|\d+|[+\-*/()]|\s+", v)
+    #     )
 
-        if consumed != v:
-            raise ValueError(
-                "허용되지 않은 damage formula 형식입니다."
-            )
-        return v
+    #     if consumed != v:
+    #         raise ValueError(
+    #             "허용되지 않은 damage formula 형식입니다."
+    #         )
+    #     return v
 
 
 class Skill(BaseModel):
@@ -80,7 +80,6 @@ class Skill(BaseModel):
 
 
 class SkillsFile(RootModel[Annotated[list[Skill | None], Field(min_length=1)]]):
-    model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
     def validate_leading_null(self):

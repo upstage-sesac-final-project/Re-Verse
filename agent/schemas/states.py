@@ -73,7 +73,6 @@ class State(BaseModel):
 
 
 class StatesFile(RootModel[Annotated[list[State | None], Field(min_length=1)]]):
-    model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
     def validate_leading_null(self):

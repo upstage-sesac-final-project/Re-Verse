@@ -15,24 +15,24 @@ class Damage(BaseModel):
     variance: int = Field(description="피해 > 분산도", ge=0, le=100)
     critical: bool = Field(description="피해 > 치명타", default=True)
 
-    @field_validator("formula")
-    @classmethod
-    def validate_formula(cls, v: str) -> str:
-        if v == "0":
-            return v
+    # @field_validator("formula")
+    # @classmethod
+    # def validate_formula(cls, v: str) -> str:
+    #     if v == "0":
+    #         return v
 
-        allowed_tokens = re.compile(r"(a|b)\.(atk|def|mhp|mat)|\d+|[+\-*/()]|\s+")
-        tokens = allowed_tokens.findall(v)
-        consumed = "".join(
-            m.group(0)
-            for m in re.finditer(r"(a|b)\.(atk|def|mhp|mat)|\d+|[+\-*/()]|\s+", v)
-        )
+    #     allowed_tokens = re.compile(r"(a|b)\.(atk|def|mhp|mat)|\d+|[+\-*/()]|\s+")
+    #     tokens = allowed_tokens.findall(v)
+    #     consumed = "".join(
+    #         m.group(0)
+    #         for m in re.finditer(r"(a|b)\.(atk|def|mhp|mat)|\d+|[+\-*/()]|\s+", v)
+    #     )
 
-        if consumed != v:
-            raise ValueError(
-                "formula에는 허용된 스탯 토큰, 숫자, 연산자만 사용할 수 있습니다."
-            )
-        return v
+    #     if consumed != v:
+    #         raise ValueError(
+    #             "formula에는 허용된 스탯 토큰, 숫자, 연산자만 사용할 수 있습니다."
+    #         )
+    #     return v
 
 
 class Item(BaseModel):
@@ -69,7 +69,6 @@ class Item(BaseModel):
 
 
 class ItemsFile(RootModel[Annotated[list[Item | None], Field(min_length=1)]]):
-    model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
     def validate_leading_null(self):

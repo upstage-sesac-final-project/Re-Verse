@@ -32,7 +32,6 @@ class Weapons(BaseModel):
 
 
 class WeaponsFile(RootModel[Annotated[list[Weapons | None], Field(min_length=1)]]):
-    model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
     def validate_leading_null(self):

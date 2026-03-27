@@ -2,13 +2,17 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ALLOWED_TRAIT_CODES = {
     11,
+    12, # 내성 > 약화 유효율
     13,
+    14, # 내성 > 상태 무효화
     21,
     22,
+    23, # 능력치 > 특수 능력치
     31,
     32,
     33,
     34,
+    35, # 공격 스킬
     41,
     42,
     43,
@@ -30,7 +34,7 @@ class Trait(BaseModel):
 
     code: int = Field(description="특성 코드")
     dataId: int = Field(ge=0, description="특성 대상 데이터 ID")
-    value: float = Field(description="특성 값")
+    value: int | float = Field(description="특성 값")
 
     @model_validator(mode="after")
     def validate_code(self):
