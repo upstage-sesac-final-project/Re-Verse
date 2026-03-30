@@ -37,17 +37,62 @@ class DefinitionNodeResponse(BaseModel):
     thought_process: str = Field(..., description="이 특정 수정을 결정한 논리적 근거")
 
 
-class FinalDefinitionResponse(BaseModel):
-    """정의 노드(2단계)의 최종 출력 스키마 (복수 수정 및 연쇄 작업 지원)"""
+class ExtractionResult(BaseModel):
+    """1단계: 핵심 키워드 추출 결과"""
 
-    modifications: list[DefinitionNodeResponse] = Field(
-        ..., description="수행해야 할 모든 수정 작업 목록 (순서대로 수행됨)"
+    subject: str = Field(..., description="조작 대상 (예: 슬라임, 주인공, 게임 제목)")
+    property: str | None = Field(None, description="수정/조회하려는 속성 (예: 체력, 가격, 이름)")
+    value: str | None = Field(None, description="설정하려는 값 (예: 500, 냥냥펀치)")
+    action: str = Field(..., description="의도 유형 (READ, UPDATE, CREATE, DELETE)")
+
+
+class Step1ExtractionResponse(BaseModel):
+    """1단계 최종 응답 스키마"""
+
+    extractions: list[ExtractionResult] = Field(..., description="추출된 핵심 키워드 목록")
+    thought_process: str = Field(..., description="추출 근거 및 논리")
+
+
+class ClassificationResult(BaseModel):
+    """2단계: 카테고리 분류 결과"""
+
+    name: str = Field(..., description="분류 대상 이름 (예: 슬라임, 주인공, 포션, 강철검, 독)")
+    category: str = Field(
+        ...,
+        description="가장 높은 점수를 받은 최종 데이터 카테고리 (Actor, Enemy, Item, Skill, Weapon, Armor, Class, State, System, None)",
     )
+    category_scores: dict[str, float] = Field(
+        ...,
+        description="모든 카테고리에 대한 점수 매핑 (0.0 ~ 1.0). 합계가 1이 될 필요는 없으나 상대적 우위를 나타냄",
+    )
+    is_category_label: bool = Field(
+        False, description="단순히 카테고리를 지칭하는 단어(예: 템, 몹, 캐릭, 직업)인지 여부"
+    )
+    system_ref: str | None = Field(
+        None, description="시스템 예약어 참조 (hero, game_title, currency, start_pos)"
+    )
+    reason: str = Field(..., description="최종 카테고리 선택 이유 (점수 기반 설명 포함)")
+
+
+class Step2ClassificationResponse(BaseModel):
+    """2단계 최종 응답 스키마"""
+
+    classifications: list[ClassificationResult] = Field(
+        ..., description="키워드별 카테고리 분류 목록"
+    )
+    thought_process: str = Field(..., description="전체적인 분류 논리")
+
+
+class FinalDefinitionResponse(BaseModel):
+    """정의 노드(2단계)의 최종 출력 스키마 (PROGRESS.md 규격 준수)"""
+
+    target_files: list[str] = Field(..., description="수정/조회가 발생하는 JSON 파일 목록")
+    modifications: list[dict] = Field(
+        ...,
+        description="최종 작업 목록. 각 항목은 type, target, params(ID와 필드 포함)를 가져야 함",
+    )
+    extracted_ids: dict[str, Any] = Field(..., description="식별된 모든 ID 정보 요약")
     params_sufficient: bool = Field(True, description="요청 처리에 필요한 정보가 충분한지 여부")
     message_for_user: str | None = Field(
-        None, description="정보가 부족하거나 사용자에게 질문이 필요할 때 작성"
+        None, description="정보가 부족하거나 사용자에게 전달할 메시지"
     )
-    overall_thought_process: str = Field(
-        ..., description="전체적인 작업 계획 (예: 스킬 생성 후 캐릭터 traits에 연결)"
-    )
-    confidence: float = Field(..., description="결과에 대한 전체적인 확신도 (0.0 ~ 1.0)")
