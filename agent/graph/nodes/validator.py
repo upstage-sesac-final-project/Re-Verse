@@ -1079,7 +1079,9 @@ async def validator(state: AgentState) -> dict:
     )
 
     if not modified_game_state:
-        return build_state_error("modified_game_state is missing or empty.")
+        result = build_state_error("modified_game_state is missing or empty.")
+        result["retry_count"] = retry_count + 1
+        return result
 
     modified_files = detect_modified_files(current_game_state, modified_game_state)
     reference_snapshots = merge_reference_snapshots(current_game_state, modified_game_state)
@@ -1113,8 +1115,11 @@ async def validator(state: AgentState) -> dict:
         success,
     )
 
-    return build_output(
+    result = build_output(
         validation_results=validation_results,
         validation_summary=validation_summary,
         success=success,
     )
+    if not success:
+        result["retry_count"] = retry_count + 1
+    return result

@@ -38,7 +38,9 @@ class AgentState(TypedDict, total=False):
     modified_game_state: dict  # 수정 후 스냅샷
 
     # ── 5단계 Validator ─────────────────────────────────────
-    validation_result: dict  # {"passed": bool, "errors": [...], "error_count": int}
+    validation_results: list  # 파일별 검증 결과 리스트
+    validation_summary: str  # 검증 결과 요약 문자열
+    success: bool  # 전체 검증 통과 여부
     retry_count: int  # 검증 실패 후 재시도 횟수
 
     # ── 6단계 Synthesizer ───────────────────────────────────
