@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from agent.map_editor.tileset_catalog import format_catalog_for_prompt, get_tiles_for_images
+
 
 def _project_root() -> Path:
     # agent/map_editor/loader.py → agent/map_editor/ → agent/ → project root
@@ -58,6 +60,59 @@ def next_map_id(game_id: str) -> int:
     # 인덱스 = 맵 ID. 마지막 non-null 인덱스 + 1
     last = max((i for i, v in enumerate(infos) if v is not None), default=0)
     return last + 1
+
+
+def load_tilesets(game_id: str) -> list[Any]:
+    path = _data_dir(game_id) / "Tilesets.json"
+    if not path.exists():
+        raise FileNotFoundError("Tilesets.json 없음")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def get_tileset_context(game_id: str, tileset_id: int) -> dict[str, Any]:
+    """tilesetId에 해당하는 타일셋 정보와 사용 가능한 타일 카탈로그를 반환한다.
+
+    반환:
+        {
+            "tileset_id": int,
+            "name": str,
+            "image_names": list[str],    # tilesetNames (빈 문자열 제외)
+            "tiles": {"layer0": [...], "layer1": [...]},
+            "prompt_text": str,          # LLM 프롬프트용 요약 텍스트
+        }
+    """
+    try:
+        tilesets = load_tilesets(game_id)
+    except FileNotFoundError:
+        return {
+            "tileset_id": tileset_id,
+            "name": "unknown",
+            "image_names": [],
+            "tiles": {},
+            "prompt_text": "",
+        }
+
+    ts = next((t for t in tilesets if t and t.get("id") == tileset_id), None)
+    if ts is None:
+        return {
+            "tileset_id": tileset_id,
+            "name": "unknown",
+            "image_names": [],
+            "tiles": {},
+            "prompt_text": "",
+        }
+
+    image_names = [n for n in ts.get("tilesetNames", []) if n]
+    tiles = get_tiles_for_images(image_names)
+    prompt_text = format_catalog_for_prompt(image_names)
+
+    return {
+        "tileset_id": tileset_id,
+        "name": ts.get("name", ""),
+        "image_names": image_names,
+        "tiles": tiles,
+        "prompt_text": prompt_text,
+    }
 
 
 def find_free_event_id(events: list[Any]) -> int:
