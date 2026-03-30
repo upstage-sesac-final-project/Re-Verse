@@ -34,10 +34,10 @@ def route_after_validator(state: AgentState) -> str:
     - 검증 실패 + retry < MAX_RETRIES → executor (재시도)
     - 검증 실패 + retry >= MAX_RETRIES → synthesizer (에러 응답 포함)
     """
-    validation = state.get("validation_result", {})
+    success = state.get("success", False)
     retry_count = state.get("retry_count", 0)
 
-    if validation.get("passed", False):
+    if success:
         return "synthesizer"
 
     if retry_count < 2:
