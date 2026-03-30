@@ -32,11 +32,10 @@ def _state(
         "user_input": user_input,
         "game_id": "test_game",
         "intent": intent,  # type: ignore[typeddict-item]
-        "validation_result": {
-            "passed": passed,
-            "errors": errors or [],
-            "error_count": len(errors or []),
-        },
+        "success": passed,
+        "validation_results": (
+            [{"target": "test", "success": passed, "errors": errors or []}] if errors else []
+        ),
     }
     if current:
         s["current_game_state"] = current
@@ -76,6 +75,19 @@ class TestBuildPrompt:
         modified = {"Enemies": [{"id": 1, "name": "슬라임", "params": {"mhp": 200}}]}
         msgs = build_prompt(_state(modified=modified))
         assert "슬라임" in msgs[1].content
+
+    def test_full_json_dump_is_not_included(self):
+        current = {"Enemies.json": [{"id": 1, "name": "슬라임", "params": {"mhp": 100}}]}
+        modified = {"Enemies.json": [{"id": 1, "name": "슬라임", "params": {"mhp": 200}}]}
+
+        msgs = build_prompt(_state(current=current, modified=modified))
+        content = msgs[1].content
+
+        assert "## 수정 후 게임 데이터" not in content
+        assert "## 수정 전 게임 데이터 (비교용)" not in content
+        assert '"params": {' not in content
+        assert "Enemies.json" in content
+        assert "슬라임" in content
 
     def test_changes_log_included(self):
         changes = [{"file": "Enemies.json", "field": "mhp", "before": 100, "after": 200}]
