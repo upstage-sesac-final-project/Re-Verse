@@ -10,9 +10,10 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 import agent.schemas as schemas_pkg
+from agent.core.llm_client import invoke_llm
 from agent.graph.state import AgentState
 from agent.prompts.validator_prompt import build_prompt as build_validator_prompt
 
@@ -33,6 +34,15 @@ class ReferenceRule:
     target_kind: str
     target_name: str
     allow_values: frozenset[Any] = frozenset()
+
+
+class _ContentValidationOutput(BaseModel):
+    expected_changes: list[str] = Field(default_factory=list)
+    actual_changes: list[str] = Field(default_factory=list)
+    unexpected_changes: list[str] = Field(default_factory=list)
+    missing_expected_changes: list[str] = Field(default_factory=list)
+    is_consistent: bool = Field(description="Whether actual changes match intended changes.")
+    reasoning: str = Field(default="", description="Short explanation of the consistency judgment.")
 
 
 SCHEMA_REGISTRY: dict[str, SchemaSpec] = {
@@ -158,6 +168,7 @@ def build_output(
     success: bool,
 ) -> dict[str, Any]:
     return {
+        "validation_result": _build_validation_result_compat(validation_results, success),
         "validation_results": validation_results,
         "validation_summary": validation_summary,
         "success": success,
@@ -317,6 +328,182 @@ def merge_reference_snapshots(
     merged = dict(current_game_state)
     merged.update(modified_game_state)
     return merged
+
+
+def _format_diff_path(base_path: str, key: str | int) -> str:
+    if isinstance(key, int):
+        return f"{base_path}[{key}]"
+    if base_path == "$":
+        return f"$.{key}"
+    return f"{base_path}.{key}"
+
+
+def _extract_value_diff(
+    current_value: Any,
+    modified_value: Any,
+    path: str,
+) -> list[dict[str, Any]]:
+    if type(current_value) is not type(modified_value):
+        return [
+            {
+                "path": path,
+                "change_type": "replace",
+                "before": to_jsonable(current_value),
+                "after": to_jsonable(modified_value),
+            }
+        ]
+
+    if isinstance(current_value, dict):
+        changes: list[dict[str, Any]] = []
+        current_keys = set(current_value.keys())
+        modified_keys = set(modified_value.keys())
+
+        for key in sorted(current_keys - modified_keys):
+            key_path = _format_diff_path(path, key)
+            changes.append(
+                {
+                    "path": key_path,
+                    "change_type": "remove",
+                    "before": to_jsonable(current_value[key]),
+                    "after": None,
+                }
+            )
+
+        for key in sorted(modified_keys - current_keys):
+            key_path = _format_diff_path(path, key)
+            changes.append(
+                {
+                    "path": key_path,
+                    "change_type": "add",
+                    "before": None,
+                    "after": to_jsonable(modified_value[key]),
+                }
+            )
+
+        for key in sorted(current_keys & modified_keys):
+            changes.extend(
+                _extract_value_diff(
+                    current_value[key],
+                    modified_value[key],
+                    _format_diff_path(path, key),
+                )
+            )
+        return changes
+
+    if isinstance(current_value, list):
+        changes: list[dict[str, Any]] = []
+        shared_length = min(len(current_value), len(modified_value))
+
+        for index in range(shared_length):
+            changes.extend(
+                _extract_value_diff(
+                    current_value[index],
+                    modified_value[index],
+                    _format_diff_path(path, index),
+                )
+            )
+
+        for index in range(shared_length, len(current_value)):
+            item_path = _format_diff_path(path, index)
+            changes.append(
+                {
+                    "path": item_path,
+                    "change_type": "remove",
+                    "before": to_jsonable(current_value[index]),
+                    "after": None,
+                }
+            )
+
+        for index in range(shared_length, len(modified_value)):
+            item_path = _format_diff_path(path, index)
+            changes.append(
+                {
+                    "path": item_path,
+                    "change_type": "add",
+                    "before": None,
+                    "after": to_jsonable(modified_value[index]),
+                }
+            )
+
+        return changes
+
+    if current_value != modified_value:
+        return [
+            {
+                "path": path,
+                "change_type": "replace",
+                "before": to_jsonable(current_value),
+                "after": to_jsonable(modified_value),
+            }
+        ]
+
+    return []
+
+
+def _extract_state_diff(
+    current_game_state: dict[str, Any],
+    modified_game_state: dict[str, Any],
+) -> list[dict[str, Any]]:
+    diff_entries: list[dict[str, Any]] = []
+    file_names = sorted(set(current_game_state.keys()) | set(modified_game_state.keys()))
+
+    for file_name in file_names:
+        has_current = file_name in current_game_state
+        has_modified = file_name in modified_game_state
+
+        if not has_current:
+            diff_entries.append(
+                {
+                    "file_name": file_name,
+                    "path": "$",
+                    "change_type": "add",
+                    "before": None,
+                    "after": to_jsonable(modified_game_state[file_name]),
+                }
+            )
+            continue
+
+        if not has_modified:
+            diff_entries.append(
+                {
+                    "file_name": file_name,
+                    "path": "$",
+                    "change_type": "remove",
+                    "before": to_jsonable(current_game_state[file_name]),
+                    "after": None,
+                }
+            )
+            continue
+
+        if current_game_state[file_name] == modified_game_state[file_name]:
+            continue
+
+        for entry in _extract_value_diff(current_game_state[file_name], modified_game_state[file_name], "$"):
+            diff_entries.append({"file_name": file_name, **entry})
+
+    return diff_entries
+
+
+def _changed_snapshot_subset(
+    snapshot: dict[str, Any],
+    file_names: set[str],
+) -> dict[str, Any]:
+    return {file_name: snapshot[file_name] for file_name in sorted(file_names) if file_name in snapshot}
+
+
+def _flatten_errors(validation_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [error for item in validation_results for error in item.get("errors", [])]
+
+
+def _build_validation_result_compat(
+    validation_results: list[dict[str, Any]],
+    success: bool,
+) -> dict[str, Any]:
+    return {
+        "passed": success,
+        "errors": _flatten_errors(validation_results),
+        "error_count": sum(int(item.get("error_count", 0)) for item in validation_results),
+    }
 
 
 def collect_ids(snapshot: Any) -> set[int]:
@@ -665,6 +852,138 @@ def validate_single_file(
     )
 
 
+def _collect_all_step_ids(changes_log: list[dict[str, Any]]) -> list[int]:
+    step_ids: list[int] = []
+    for entry in changes_log:
+        if not isinstance(entry, dict):
+            continue
+
+        step_value = entry.get("step_id", entry.get("step"))
+        try:
+            step_id = int(step_value)
+        except (TypeError, ValueError):
+            continue
+
+        if step_id not in step_ids:
+            step_ids.append(step_id)
+    return step_ids
+
+
+async def _run_content_validation_llm(
+    *,
+    current_game_state: dict[str, Any],
+    modified_game_state: dict[str, Any],
+    changes_log: list[dict[str, Any]],
+    state_diff: list[dict[str, Any]],
+) -> _ContentValidationOutput:
+    changed_files = {entry["file_name"] for entry in state_diff if isinstance(entry.get("file_name"), str)}
+    prompt_state: AgentState = {
+        "_validator_prompt_mode": "content_validation",
+        "current_game_state": _changed_snapshot_subset(current_game_state, changed_files),
+        "modified_game_state": _changed_snapshot_subset(modified_game_state, changed_files),
+        "changes_log": changes_log,
+        "state_diff": state_diff,
+    }
+    messages = build_validator_prompt(prompt_state)
+    result = await invoke_llm(messages, structured_output=_ContentValidationOutput)
+    return result if isinstance(result, _ContentValidationOutput) else _ContentValidationOutput.model_validate(result)
+
+
+def _build_content_validation_result(
+    content_output: _ContentValidationOutput,
+    *,
+    state_diff: list[dict[str, Any]],
+    changes_log: list[dict[str, Any]],
+) -> dict[str, Any]:
+    errors: list[dict[str, Any]] = []
+    errors.extend(
+        {"loc": "unexpected_changes", "msg": message}
+        for message in content_output.unexpected_changes
+    )
+    errors.extend(
+        {"loc": "missing_expected_changes", "msg": message}
+        for message in content_output.missing_expected_changes
+    )
+
+    if not content_output.is_consistent and not errors:
+        errors.append(
+            {
+                "loc": "$",
+                "msg": content_output.reasoning or "Content validation reported an inconsistency.",
+            }
+        )
+
+    message = "Content validation passed"
+    if not content_output.is_consistent:
+        message = "Content validation detected unexpected or missing changes"
+
+    result = build_file_result(
+        target="content_consistency",
+        success=content_output.is_consistent,
+        message=message,
+        errors=errors,
+        related_steps=_collect_all_step_ids(changes_log),
+    )
+    result["expected_changes"] = content_output.expected_changes
+    result["actual_changes"] = content_output.actual_changes
+    result["unexpected_changes"] = content_output.unexpected_changes
+    result["missing_expected_changes"] = content_output.missing_expected_changes
+    result["reasoning"] = content_output.reasoning
+    result["diff_change_count"] = len(state_diff)
+    return result
+
+
+def _build_content_validation_error_result(
+    error: Exception,
+    *,
+    state_diff: list[dict[str, Any]],
+    changes_log: list[dict[str, Any]],
+) -> dict[str, Any]:
+    result = build_file_result(
+        target="content_consistency",
+        success=False,
+        message="Content validation failed",
+        errors=[{"loc": "$", "msg": f"content validation llm failed: {error}"}],
+        related_steps=_collect_all_step_ids(changes_log),
+    )
+    result["expected_changes"] = []
+    result["actual_changes"] = []
+    result["unexpected_changes"] = []
+    result["missing_expected_changes"] = []
+    result["reasoning"] = ""
+    result["diff_change_count"] = len(state_diff)
+    return result
+
+
+async def validate_content_consistency(
+    *,
+    current_game_state: dict[str, Any],
+    modified_game_state: dict[str, Any],
+    changes_log: list[dict[str, Any]],
+    state_diff: list[dict[str, Any]],
+) -> dict[str, Any]:
+    try:
+        content_output = await _run_content_validation_llm(
+            current_game_state=current_game_state,
+            modified_game_state=modified_game_state,
+            changes_log=changes_log,
+            state_diff=state_diff,
+        )
+    except Exception as error:
+        logger.warning("Validator content validation fallback due to LLM error: %s", error)
+        return _build_content_validation_error_result(
+            error,
+            state_diff=state_diff,
+            changes_log=changes_log,
+        )
+
+    return _build_content_validation_result(
+        content_output,
+        state_diff=state_diff,
+        changes_log=changes_log,
+    )
+
+
 def build_summary_payload(
     validation_results: list[dict[str, Any]],
     retry_count: int,
@@ -764,6 +1083,7 @@ async def validator(state: AgentState) -> dict:
 
     modified_files = detect_modified_files(current_game_state, modified_game_state)
     reference_snapshots = merge_reference_snapshots(current_game_state, modified_game_state)
+    state_diff = _extract_state_diff(current_game_state, modified_game_state)
 
     validation_results = [
         validate_single_file(
@@ -775,6 +1095,14 @@ async def validator(state: AgentState) -> dict:
         )
         for file_name in modified_files
     ]
+    validation_results.append(
+        await validate_content_consistency(
+            current_game_state=current_game_state,
+            modified_game_state=modified_game_state,
+            changes_log=changes_log,
+            state_diff=state_diff,
+        )
+    )
 
     success = all(item.get("success") for item in validation_results)
     validation_summary = await summarize_validation_results(validation_results, retry_count)

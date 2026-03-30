@@ -6,8 +6,12 @@ import importlib.util
 import json
 import sys
 import types
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -16,6 +20,8 @@ if str(PROJECT_ROOT) not in sys.path:
 AGENT_ROOT = PROJECT_ROOT / "agent"
 GRAPH_ROOT = AGENT_ROOT / "graph"
 NODES_ROOT = GRAPH_ROOT / "nodes"
+
+from agent.graph.nodes.validator import _ContentValidationOutput, validator
 
 
 def load_json_file(json_path: Path) -> Any:
@@ -230,6 +236,11 @@ async def run() -> int:
         result = await validator(state)
     except (FileNotFoundError, ValueError, json.JSONDecodeError, ImportError) as error:
         error_result = {
+            "validation_result": {
+                "passed": False,
+                "errors": [{"loc": "$", "msg": str(error)}],
+                "error_count": 1,
+            },
             "validation_results": [
                 {
                     "target": "driver",
@@ -251,6 +262,169 @@ async def run() -> int:
 
 def main() -> None:
     raise SystemExit(asyncio.run(run()))
+
+
+def _audio_file() -> dict[str, Any]:
+    return {"name": "", "pan": 0, "pitch": 100, "volume": 90}
+
+
+def _vehicle() -> dict[str, Any]:
+    return {"bgm": _audio_file()}
+
+
+def _actor(actor_id: int, name: str) -> dict[str, Any]:
+    return {
+        "id": actor_id,
+        "name": name,
+        "classId": 1,
+        "faceName": "Actor1",
+        "faceIndex": 0,
+        "characterName": "Actor1",
+        "characterIndex": 0,
+        "battlerName": "Actor1_1",
+    }
+
+
+def _system(party_members: list[int]) -> dict[str, Any]:
+    return {
+        "airship": _vehicle(),
+        "battleBgm": _audio_file(),
+        "boat": _vehicle(),
+        "defeatMe": _audio_file(),
+        "gameoverMe": _audio_file(),
+        "ship": _vehicle(),
+        "terms": {},
+        "titleBgm": _audio_file(),
+        "partyMembers": party_members,
+        "elements": [None, "Fire"],
+        "equipTypes": [None, "Weapon", "Shield"],
+        "weaponTypes": [None, "Sword"],
+        "armorTypes": [None, "Light"],
+        "skillTypes": [None, "Magic"],
+    }
+
+
+def _base_validator_state() -> dict[str, Any]:
+    current_game_state = {
+        "Actors.json": [None, _actor(1, "Hero")],
+        "Classes.json": [None, {"id": 1, "name": "Warrior"}],
+        "System.json": _system([1]),
+    }
+    modified_game_state = deepcopy(current_game_state)
+    modified_game_state["Actors.json"].append(_actor(2, "Sofia"))
+    modified_game_state["System.json"]["partyMembers"] = [1, 2]
+
+    return {
+        "current_game_state": current_game_state,
+        "modified_game_state": modified_game_state,
+        "changes_log": [
+            {
+                "step_id": 1,
+                "target_file": "Actors.json",
+                "tool_name": "structured_actors_create",
+                "success": True,
+                "description": "Create actor Sofia with classId 1",
+            },
+            {
+                "step_id": 2,
+                "target_file": "System.json",
+                "tool_name": "structured_system_update",
+                "success": True,
+                "description": "Add Sofia to partyMembers",
+            },
+        ],
+        "backup_paths": {},
+        "retry_count": 0,
+    }
+
+
+def _content_result(
+    *,
+    is_consistent: bool,
+    unexpected_changes: list[str] | None = None,
+    missing_expected_changes: list[str] | None = None,
+    actual_changes: list[str] | None = None,
+) -> _ContentValidationOutput:
+    return _ContentValidationOutput(
+        expected_changes=[
+            "Create actor Sofia with classId 1 in Actors.json",
+            "Add Sofia to System.partyMembers",
+        ],
+        actual_changes=actual_changes
+        or [
+            "Actors.json gains actor Sofia (id=2, classId=1)",
+            "System.json partyMembers gains actor id 2",
+        ],
+        unexpected_changes=unexpected_changes or [],
+        missing_expected_changes=missing_expected_changes or [],
+        is_consistent=is_consistent,
+        reasoning="mocked content validation result",
+    )
+
+
+@pytest.mark.asyncio
+async def test_validator_content_validation_success():
+    state = _base_validator_state()
+
+    with patch("agent.graph.nodes.validator.invoke_llm", new_callable=AsyncMock) as mock_llm:
+        mock_llm.return_value = _content_result(is_consistent=True)
+        result = await validator(state)
+
+    content_result = next(item for item in result["validation_results"] if item["target"] == "content_consistency")
+    assert content_result["success"] is True
+    assert result["success"] is True
+    assert content_result["unexpected_changes"] == []
+    assert content_result["missing_expected_changes"] == []
+
+
+@pytest.mark.asyncio
+async def test_validator_content_validation_detects_unexpected_change():
+    state = _base_validator_state()
+    state["modified_game_state"]["Actors.json"][1]["name"] = "Renamed Hero"
+
+    with patch("agent.graph.nodes.validator.invoke_llm", new_callable=AsyncMock) as mock_llm:
+        mock_llm.return_value = _content_result(
+            is_consistent=False,
+            unexpected_changes=["Actors.json actor 1 name changed from Hero to Renamed Hero"],
+            actual_changes=[
+                "Actors.json gains actor Sofia (id=2, classId=1)",
+                "System.json partyMembers gains actor id 2",
+                "Actors.json actor 1 name changed from Hero to Renamed Hero",
+            ],
+        )
+        result = await validator(state)
+
+    content_result = next(item for item in result["validation_results"] if item["target"] == "content_consistency")
+    assert content_result["success"] is False
+    assert result["success"] is False
+    assert content_result["unexpected_changes"] == [
+        "Actors.json actor 1 name changed from Hero to Renamed Hero"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_validator_content_validation_detects_missing_expected_change():
+    state = _base_validator_state()
+    state["modified_game_state"] = deepcopy(state["current_game_state"])
+
+    with patch("agent.graph.nodes.validator.invoke_llm", new_callable=AsyncMock) as mock_llm:
+        mock_llm.return_value = _content_result(
+            is_consistent=False,
+            missing_expected_changes=[
+                "Actor Sofia creation is missing from Actors.json",
+                "System.partyMembers update for Sofia is missing",
+            ],
+            actual_changes=[],
+        )
+        result = await validator(state)
+
+    content_result = next(item for item in result["validation_results"] if item["target"] == "content_consistency")
+    assert content_result["success"] is False
+    assert result["success"] is False
+    assert content_result["missing_expected_changes"] == [
+        "Actor Sofia creation is missing from Actors.json",
+        "System.partyMembers update for Sofia is missing",
+    ]
 
 
 if __name__ == "__main__":
