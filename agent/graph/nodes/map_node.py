@@ -1,14 +1,11 @@
-"""Map 노드 — 맵 이벤트/타일/메타정보 수정 전담 노드.
-
-담당: 세종님
-"""
+"""Map 노드 — 맵 이벤트/타일/메타정보 수정 전담 노드."""
 
 import logging
 
 from agent.core.llm_client import invoke_llm
 from agent.graph.state import AgentState
+from agent.map_editor.dispatcher import execute_map_operation
 from agent.prompts.map_prompt import MapEditParams, build_prompt
-from app.backend.services.map_editor.dispatcher import execute_map_operation
 
 logger = logging.getLogger(__name__)
 
@@ -50,14 +47,30 @@ async def map_node(state: AgentState) -> dict:
         result.get("error"),
     )
 
-    # 4. 결과를 state에 기록 (synthesizer가 final_response 생성)
+    # 4. 결과를 state에 기록
+    validation_errors = result.get("validation_errors", [])
+    error_msg = result.get("error")
+
+    errors_combined = []
+    if error_msg:
+        errors_combined.append(error_msg)
+    errors_combined.extend(validation_errors)
+
     update: dict = {
+        "success": result["success"],
+        "validation_results": [
+            {
+                "file": f"Map{parsed.map_id:03d}.json",
+                "passed": result["success"],
+                "errors": errors_combined,
+                "error_count": len(errors_combined),
+            }
+        ],
+        "validation_summary": (
+            f"맵 수정 {'성공' if result['success'] else '실패'}: {parsed.operation}"
+            + (f" — {error_msg}" if error_msg else "")
+        ),
         "tool_results": [result],
-        "validation_result": {
-            "passed": result["success"],
-            "errors": [result["error"]] if result.get("error") else [],
-            "error_count": 0 if result["success"] else 1,
-        },
     }
 
     if result["success"]:
