@@ -21,6 +21,7 @@ class MapEditParams(BaseModel):
         "update_meta",
         "update_tile",
         "update_tile_region",
+        "fill_map_layer",
     ] = Field(description="수행할 맵 수정 작업")
     params: dict[str, Any] = Field(description="operation별 파라미터")
     params_sufficient: bool = Field(description="파라미터가 충분한지 여부")
@@ -37,8 +38,14 @@ _SYSTEM = """\
 
 ### create_map — 새 맵 생성
 선택: name (str, 기본 "New Map"), width (int, 기본 17), height (int, 기본 13),
-      tileset_id (int, 기본 1), parent_id (int, 기본 0)
+      theme (str): "field"=초원/야외 | "town"=마을/건물 | "dungeon"=던전/동굴 | "indoor"=실내 | "desert"=사막
+        → theme 지정 시 레이어 0 전체를 해당 테마 타일로 채우고 tilesetId 자동 설정
+           field/town/desert → tilesetId=2(외부), indoor → tilesetId=3(내부), dungeon → tilesetId=4(던전)
+      tileset_id (int): theme 지정 없을 때 직접 설정 (기본 1)
+      base_tile_id (int): 레이어 0 채울 타일 ID 직접 지정 (theme보다 우선)
+      parent_id (int, 기본 0)
 ※ 항상 params_sufficient=true (기본값으로 생성 가능)
+※ "초원 맵", "풀밭 맵" → theme="field" / "마을 맵" → theme="town" / "던전 맵" → theme="dungeon"
 
 ### duplicate_map — 기존 맵 복제
 필수: source_map_id (int)
@@ -91,6 +98,16 @@ bgm/bgs 예시: {"name": "Town", "volume": 90, "pitch": 100, "pan": 0}
 ### update_tile_region — 직사각형 영역 타일 일괄 수정
 필수: x1, y1, x2, y2 (int), layer (int 0~5), tile_id (int)
 ※ 모두 있어야 params_sufficient=true
+
+### fill_map_layer — 레이어 전체를 테마 타일로 채우기
+선택: layer (int 0~5, 기본 0), theme (str) 또는 tile_id (int)
+theme: "field"(2432) | "town"(2816) | "dungeon"(3584) | "indoor"(3592) | "desert"(2576)
+tile_id 직접 지정 시 theme 무시
+※ theme 또는 tile_id 없으면 params_sufficient=false
+
+## 타일 ID 상수 (참고)
+TILE_A2_GRASS=2432(풀밭), TILE_A2_DIRT=2576(흙), TILE_A3_FLOOR=2816(건물바닥),
+TILE_A4_WALL=3200(벽), TILE_A5_STONE=3584(돌바닥), TILE_A5_WOOD=3592(나무바닥)
 
 ## 맵 번호 추출 규칙
 - "1번 맵", "Map001" → map_id=1

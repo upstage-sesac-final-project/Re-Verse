@@ -11,7 +11,7 @@ from agent.map_editor.event_ops import (
 from agent.map_editor.loader import load_map, save_map
 from agent.map_editor.map_ops import create_map, duplicate_map
 from agent.map_editor.meta_ops import update_meta
-from agent.map_editor.tile_ops import update_tile, update_tile_region
+from agent.map_editor.tile_ops import fill_map_layer, update_tile, update_tile_region
 from agent.map_editor.validator import validate_map
 
 MapOperation = Literal[
@@ -24,6 +24,7 @@ MapOperation = Literal[
     "update_meta",
     "update_tile",
     "update_tile_region",
+    "fill_map_layer",
 ]
 
 # 맵 파일을 직접 다루는 ops (load/save 내부 처리)
@@ -80,6 +81,7 @@ def execute_map_operation(
             "update_meta": update_meta,
             "update_tile": update_tile,
             "update_tile_region": update_tile_region,
+            "fill_map_layer": fill_map_layer,
         }
 
         handler = handlers.get(operation)

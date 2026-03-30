@@ -8,6 +8,33 @@ RPG Maker MZ 타일 인덱스 공식:
 
 from typing import Any
 
+# ── 타일 ID 상수 (RPG Maker MZ 기본 타일셋 기준) ─────────────────────────────
+TILE_A2_GRASS: int = 2432  # 풀밭 (A2 - 외부 바닥)
+TILE_A2_DIRT: int = 2576  # 흙 (A2 - 외부 바닥)
+TILE_A3_FLOOR: int = 2816  # 건물 바닥 (A3 - 실내)
+TILE_A4_WALL: int = 3200  # 벽 (A4)
+TILE_A5_STONE: int = 3584  # 돌 바닥 (A5)
+TILE_A5_WOOD: int = 3592  # 나무 바닥 (A5)
+
+# ── 테마 → 기본 tile_id 매핑 ─────────────────────────────────────────────────
+# tilesetId 2=외부, 3=내부, 4=던전
+THEME_TILE: dict[str, int] = {
+    "field": TILE_A2_GRASS,  # 2432 풀밭
+    "town": TILE_A3_FLOOR,  # 2816 건물 바닥
+    "dungeon": TILE_A5_STONE,  # 3584 돌 바닥
+    "indoor": TILE_A5_WOOD,  # 3592 나무 바닥
+    "desert": TILE_A2_DIRT,  # 2576 흙
+}
+
+# 테마 → 권장 tilesetId
+THEME_TILESET: dict[str, int] = {
+    "field": 2,
+    "town": 2,
+    "dungeon": 4,
+    "indoor": 3,
+    "desert": 2,
+}
+
 _MAX_LAYER = 5
 
 
@@ -57,5 +84,31 @@ def update_tile_region(map_data: dict[str, Any], params: dict[str, Any]) -> dict
         for x in range(lx, rx + 1):
             idx = _tile_index(w, h, x, y, layer)
             map_data["data"][idx] = tile_id
+
+    return map_data
+
+
+def fill_map_layer(map_data: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    """맵의 레이어 전체를 테마 타일로 채운다.
+
+    params:
+        layer (int 0~5): 채울 레이어 (기본: 0)
+        theme (str): "field" | "town" | "dungeon" | "indoor" | "desert"
+        tile_id (int, 선택): 직접 지정 시 theme 무시
+    """
+    layer = params.get("layer", 0)
+    if not (0 <= layer <= _MAX_LAYER):
+        raise ValueError(f"layer={layer}는 0~{_MAX_LAYER} 범위여야 합니다.")
+
+    tile_id = params.get("tile_id")
+    if tile_id is None:
+        theme = params.get("theme", "field")
+        tile_id = THEME_TILE.get(theme, TILE_A2_GRASS)
+
+    w, h = map_data["width"], map_data["height"]
+    start = layer * w * h
+    end = start + w * h
+    for i in range(start, end):
+        map_data["data"][i] = tile_id
 
     return map_data

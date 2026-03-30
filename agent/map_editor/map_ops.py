@@ -10,6 +10,7 @@ from agent.map_editor.loader import (
     save_map,
     save_map_infos,
 )
+from agent.map_editor.tile_ops import THEME_TILESET, fill_map_layer
 
 _DEFAULT_MAP_INFO: dict[str, Any] = {
     "expanded": False,
@@ -59,20 +60,32 @@ def create_map(game_id: str, params: dict[str, Any]) -> dict[str, Any]:
         name (str): 맵 이름 (기본: "New Map")
         width (int): 맵 너비 (기본: 17)
         height (int): 맵 높이 (기본: 13)
-        tileset_id (int): 타일셋 ID (기본: 1)
+        theme (str): "field"|"town"|"dungeon"|"indoor"|"desert" — 레이어 0을 테마 타일로 채움
+        tileset_id (int): 타일셋 ID (theme 지정 시 자동 설정, 기본: 1)
+        base_tile_id (int): 레이어 0 채울 타일 ID 직접 지정 (theme보다 우선)
         parent_id (int): 부모 맵 ID (기본: 0)
 
-    반환: {"map_id": int, "name": str}
+    반환: {"map_id": int, "name": str, "theme": str | None}
     """
     name = params.get("name", "New Map")
     width = params.get("width", 17)
     height = params.get("height", 13)
-    tileset_id = params.get("tileset_id", 1)
     parent_id = params.get("parent_id", 0)
+    theme = params.get("theme")
+
+    # tileset_id: 직접 지정 > theme 자동 > 기본값 1
+    tileset_id = params.get("tileset_id")
+    if tileset_id is None:
+        tileset_id = THEME_TILESET.get(theme, 1) if theme else 1
 
     map_id = next_map_id(game_id)
     map_data = _make_blank_map(width, height, tileset_id)
     map_data["displayName"] = name
+
+    # 레이어 0 채우기 (theme 또는 base_tile_id 지정 시)
+    base_tile_id = params.get("base_tile_id")
+    if theme or base_tile_id is not None:
+        fill_map_layer(map_data, {"layer": 0, "theme": theme, "tile_id": base_tile_id})
 
     save_map(game_id, map_id, map_data)
 
@@ -98,7 +111,7 @@ def create_map(game_id: str, params: dict[str, Any]) -> dict[str, Any]:
     infos[map_id] = entry
     save_map_infos(game_id, infos)
 
-    return {"map_id": map_id, "name": name}
+    return {"map_id": map_id, "name": name, "theme": theme}
 
 
 def duplicate_map(game_id: str, params: dict[str, Any]) -> dict[str, Any]:
