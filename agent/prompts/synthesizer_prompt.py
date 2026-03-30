@@ -55,9 +55,9 @@ _SYSTEM = """\
 def build_prompt(state: AgentState) -> list[BaseMessage]:
     intent = state.get("intent", "")
     user_input = state.get("user_input", "")
-    validation = state.get("validation_result") or {}
-    passed = validation.get("passed", True)
-    errors = validation.get("errors") or []
+    passed = state.get("success", True)
+    validation_results = state.get("validation_results") or []
+    validation_summary = state.get("validation_summary") or ""
     current = state.get("current_game_state") or {}
     modified = state.get("modified_game_state") or {}
     changes = state.get("changes_log") or []
@@ -69,6 +69,10 @@ def build_prompt(state: AgentState) -> list[BaseMessage]:
         f"## 실행 결과\n{'성공' if passed else '실패'}",
     ]
 
+    if validation_summary:
+        sections.append(f"## 검증 요약\n{validation_summary}")
+
+    errors = [e for r in validation_results for e in r.get("errors", [])]
     if errors:
         sections.append("## 오류 내용\n" + "\n".join(str(e) for e in errors))
 

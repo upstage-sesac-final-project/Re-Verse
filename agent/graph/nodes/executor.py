@@ -1,15 +1,867 @@
 """Executor 노드 — 4단계: 룰베이스 JSON 물리 수정.
 
-담당: 정철님
+MVP 버전: 기존 dispatcher 재활용 + 기본 LLM 번역 + 백업/롤백
+
+구현 단계:
+1. 수도코드 LLM 번역 (간단한 키워드 매칭)
+2. 기존 dispatcher 함수 호출
+3. 백업/롤백 기본 기능
+4. changes_log 생성
+
+흐름:
+    3단계 수도코드 → LLM 번역 → dispatcher 호출 → 결과 반환
 """
 
+import asyncio
+import json
 import logging
+import shutil
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
+from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
+
+from agent.core.llm_client import invoke_llm
 from agent.graph.state import AgentState
+from app.backend.core.game_paths import get_game_data_path
+from app.backend.services.json_modify_tools.dispatcher import (
+    run_enemies,
+    run_items,
+    run_levels,
+    run_map_villager,
+    run_skills,
+)
+from app.backend.services.json_modify_tools.managers.actor_manager import ActorManager
+from app.backend.services.json_modify_tools.managers.class_manager import ClassManager
+from app.backend.services.json_modify_tools.managers.skill_manager import SkillManager
+from app.backend.services.json_modify_tools.managers.system_manager import SystemManager
 
 logger = logging.getLogger(__name__)
 
+# ────────────────────────────────────────────────────────────
+# MVP 버전: 간단한 툴 매핑
+# ────────────────────────────────────────────────────────────
+
+TOOL_MAP = {
+    "edit_enemies": run_enemies,
+    "edit_items": run_items,
+    "edit_skills": run_skills,
+    "edit_levels": run_levels,
+    "edit_map_villager": run_map_villager,
+}
+
+# 대상 파일 매핑 (백업용)
+TARGET_FILE_MAP = {
+    "edit_enemies": ["Enemies.json"],
+    "edit_items": ["Items.json"],
+    "edit_skills": ["Skills.json", "Actors.json", "Classes.json", "System.json"],
+    "edit_levels": ["Actors.json", "System.json"],
+    "edit_map_villager": [],  # 맵 번호에 따라 동적 결정
+}
+
+
+def _is_structured_execution_plan(plan: list[dict]) -> bool:
+    """3단계 Planner가 만든 "구조화 실행 플랜"인지 판별한다.
+
+    기대 포맷(필수 키):
+      - `step_id`
+      - `action_type` (query/create/update 등)
+      - `target_file` (예: `Actors.json`, `Classes.json`, `System.json`)
+    """
+    if not plan or not isinstance(plan[0], dict):
+        return False
+    row = plan[0]
+    return "action_type" in row and "step_id" in row and "target_file" in row
+
+
+def _collect_structured_target_files(execution_plan: list[dict]) -> set[str]:
+    """구조화 플랜에 등장한 JSON 파일들을 추려서 snapshot/backup 범위를 결정한다."""
+    files: set[str] = set()
+    for step in execution_plan:
+        if not isinstance(step, dict):
+            continue
+        tf = step.get("target_file")
+        if isinstance(tf, str) and tf.endswith(".json"):
+            files.add(tf)
+    return files
+
+
+def _topological_sort_steps(execution_plan: list[dict]) -> list[dict]:
+    """depends_on(step_id) 기준 위상 정렬.
+
+    - 정상: 의존 step이 먼저 실행되게 순서를 만든다.
+    - 비정상(순환/누락): 완전 보장은 못하지만 step_id 오름차순으로 폴백한다.
+    """
+    by_id: dict[int, dict] = {}
+    for step in execution_plan:
+        if not isinstance(step, dict) or "step_id" not in step:
+            continue
+        try:
+            sid = int(step["step_id"])
+        except (TypeError, ValueError):
+            continue
+        by_id[sid] = step
+
+    if not by_id:
+        return list(execution_plan)
+
+    dependents: dict[int, list[int]] = {sid: [] for sid in by_id}
+    in_degree: dict[int, int] = {sid: 0 for sid in by_id}
+
+    for sid, step in by_id.items():
+        deps_raw = step.get("depends_on") or []
+        for d in deps_raw:
+            try:
+                did = int(d)
+            except (TypeError, ValueError):
+                continue
+            if did in by_id:
+                dependents[did].append(sid)
+                in_degree[sid] += 1
+
+    queue = sorted(sid for sid in by_id if in_degree[sid] == 0)
+    ordered: list[dict] = []
+    while queue:
+        sid = queue.pop(0)
+        ordered.append(by_id[sid])
+        for nxt in sorted(dependents[sid]):
+            in_degree[nxt] -= 1
+            if in_degree[nxt] == 0:
+                queue.append(nxt)
+        queue.sort()
+
+    if len(ordered) != len(by_id):
+        logger.warning(
+            "[Executor] execution_plan 위상 정렬 불완전(순환 또는 누락) → step_id 순으로 폴백"
+        )
+        return sorted(by_id.values(), key=lambda s: int(s.get("step_id", 0)))
+    return ordered
+
+
+def _should_execute_structured_step(step: dict, step_results: dict[int, dict]) -> tuple[bool, str]:
+    """조건부로 step 실행/스킵을 결정한다.
+
+    MVP에서는 아래 휴리스틱을 적용한다.
+    - `depends_on` 결과가 없거나(누락), 의존 step이 실패하면 현재 step은 실행하지 않는다.
+    - `action_type == "create"`이고 `condition`에 "존재하지 않/없을 경우..." 같은 문구가 있으면
+      이전 `query` 결과의 `exists`를 보고 create를 스킵한다.
+    """
+    try:
+        # step_id 파싱이 실패하면(형식 이상) 안전하게 실행 여부를 기본값으로 반환
+        int(step.get("step_id", -1))
+    except (TypeError, ValueError):
+        return True, ""
+
+    deps = step.get("depends_on") or []
+    dep_ids: list[int] = []
+    for d in deps:
+        try:
+            dep_ids.append(int(d))
+        except (TypeError, ValueError):
+            continue
+
+    for did in dep_ids:
+        if did not in step_results:
+            return False, f"의존 step {did} 결과 없음"
+
+    action = (step.get("action_type") or "").strip().lower()
+    condition = (step.get("condition") or "").strip()
+
+    if action in {"create", "update", "delete"} and dep_ids:
+        for did in dep_ids:
+            prev = step_results[did]
+            if not prev.get("skipped") and prev.get("success") is False:
+                return False, f"의존 step {did} 실패로 {action} 불가"
+
+    if action == "create" and condition:
+        cond_create = any(k in condition for k in ("존재하지 않", "없을 경우", "없으면", "없을 때"))
+        if cond_create and dep_ids:
+            for did in dep_ids:
+                prev = step_results[did]
+                if prev.get("skipped"):
+                    continue
+                if prev.get("exists") is True:
+                    return False, "조건: 이미 존재 → create 스킵"
+                if prev.get("action") == "query" and prev.get("exists") is True:
+                    return False, "조건: 이미 존재 → create 스킵"
+
+    return True, ""
+
+
+async def _execute_one_structured_step(
+    step: dict,
+    data_path: Path,
+    step_results: dict[int, dict],
+) -> dict[str, Any]:
+    """단일 구조화 step 실행(4단계).
+
+    - 입력: Planner가 만든 한 step(=action_type + target_file + target_info)
+    - 처리: 해당 조합을 "매니저(Actor/Class/System)" 호출로 디스패치
+    - 출력: `changes_log`에 들어갈 step 결과 + `step_results` 누적
+    """
+    sid = int(step["step_id"])
+    action = (step.get("action_type") or "").strip().lower()
+    target_file = (step.get("target_file") or "").strip()
+    target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
+    ts = datetime.now().isoformat()
+
+    try:
+        # target_file/action_type 조합을 현재 MVP에서 지원하는 매니저 호출로 매핑한다.
+        if target_file == "Classes.json" and action == "query":
+            mgr = ClassManager(data_path, f"struct_{sid}")
+            r = await mgr.execute("query", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_classes_query",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "exists": r.get("exists"),
+                "class_id": r.get("class_id"),
+                "structured": True,
+                "timestamp": ts,
+            }
+
+        if target_file == "Classes.json" and action == "create":
+            mgr = ClassManager(data_path, f"struct_{sid}")
+            r = await mgr.execute("create", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_classes_create",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "class_id": r.get("class_id"),
+                "structured": True,
+                "timestamp": ts,
+            }
+
+        if target_file == "Actors.json" and action == "query":
+            mgr = ActorManager(data_path, f"struct_{sid}")
+            r = await mgr.execute("query", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_actors_query",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "exists": r.get("exists"),
+                "structured": True,
+                "timestamp": ts,
+            }
+
+        if target_file == "Actors.json" and action == "create":
+            mgr = ActorManager(data_path, f"struct_{sid}")
+            # Planner가 class_id를 생략할 수 있어서 기본값(=1)으로 안전 처리한다.
+            class_id = target_info.get("class_id", 1)
+            try:
+                class_id = int(class_id)
+            except (TypeError, ValueError):
+                class_id = 1
+            r = await mgr.execute("create", target_info=target_info, class_id=class_id)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_actors_create",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "structured": True,
+                "timestamp": ts,
+            }
+
+        if target_file == "Actors.json" and action == "update":
+            mgr = ActorManager(data_path, f"struct_{sid}")
+            # MVP update는 `classId` 변경만 지원한다(=class_name 또는 class_id로 resolve).
+            r = await mgr.execute("update_class", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_actors_update",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "structured": True,
+                "timestamp": ts,
+            }
+
+        if target_file == "System.json" and action == "update":
+            mgr = SystemManager(data_path, f"struct_{sid}")
+            # MVP update는 `partyMembers`에 actor를 추가하는 케이스만 지원한다.
+            r = await mgr.execute("add_party_member", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_system_update",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "structured": True,
+                "timestamp": ts,
+            }
+
+        # 위 조건에 없는 target/action 조합은 현재 MVP에서 아직 구현되지 않았다는 뜻이다.
+        err = f"지원하지 않는 구조화 스텝: {target_file!r} + {action!r}"
+        step_results[sid] = {"success": False, "error": err, "step_id": sid}
+        return {
+            "step_id": sid,
+            "tool_name": f"structured_{target_file}_{action}",
+            "success": False,
+            "stderr": err,
+            "structured": True,
+            "timestamp": ts,
+        }
+    except Exception as e:
+        logger.exception("[Executor] 구조화 스텝 실행 실패 step_id=%s", sid)
+        step_results[sid] = {"success": False, "error": str(e), "step_id": sid}
+        return {
+            "step_id": sid,
+            "tool_name": "structured_error",
+            "success": False,
+            "stderr": str(e),
+            "structured": True,
+            "timestamp": ts,
+        }
+
+
+async def _executor_structured(
+    data_path: Path,
+    execution_plan: list[dict],
+    game_id: str,
+    retry_count: int,
+) -> dict[str, Any]:
+    """3단계 구조화 execution_plan 전용 실행 경로(4단계 엔진).
+
+    이 경로의 역할은 "planner가 준 step들을 올바른 순서로 실행"하고,
+    수정 전/후 스냅샷 및 백업을 묶어서 결과(`changes_log`)로 반환하는 것이다.
+    """
+    ordered = _topological_sort_steps(execution_plan)
+    target_files = sorted(_collect_structured_target_files(execution_plan))
+    if not target_files:
+        target_files = ["Actors.json"]
+
+    logger.info(
+        "[Executor structured] game_id=%s steps=%d files=%s",
+        game_id,
+        len(ordered),
+        target_files,
+    )
+
+    # snapshot/backup은 "실패했을 때 롤백"과 "실행 전/후 비교"를 위한 MVP 장치다.
+    current_game_state = _create_snapshot(data_path, target_files)
+    backup_paths = _create_backup(data_path, target_files)
+
+    changes_log: list[dict[str, Any]] = []
+    step_results: dict[int, dict] = {}
+
+    for step in ordered:
+        # Planner output이 깨진 경우에도 전체 실행이 터지지 않게 방어한다.
+        if not isinstance(step, dict):
+            continue
+        try:
+            sid = int(step.get("step_id", -1))
+        except (TypeError, ValueError):
+            continue
+
+        # 의존성/조건 기반으로 "실행할지 말지" 먼저 판정
+        should_run, skip_reason = _should_execute_structured_step(step, step_results)
+        if not should_run:
+            # 스킵은 "에러"가 아니라 "조건 만족(예: 이미 존재)"인 케이스로 취급한다.
+            step_results[sid] = {
+                "skipped": True,
+                "success": True,
+                "reason": skip_reason,
+                "step_id": sid,
+            }
+            changes_log.append(
+                {
+                    "step_id": sid,
+                    "tool_name": f"structured_skip_{step.get('action_type', '')}",
+                    "success": True,
+                    "skipped": True,
+                    "skip_reason": skip_reason,
+                    "structured": True,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
+            continue
+
+        entry = await _execute_one_structured_step(step, data_path, step_results)
+        changes_log.append(entry)
+
+    modified_game_state = _create_snapshot(data_path, target_files)
+    return {
+        "current_game_state": current_game_state,
+        "modified_game_state": modified_game_state,
+        "changes_log": changes_log,
+        "backup_paths": backup_paths,
+        "retry_count": retry_count,
+    }
+
+
+# ────────────────────────────────────────────────────────────
+# MVP 버전: 간단한 LLM 번역 스키마
+# ────────────────────────────────────────────────────────────
+
+
+class SimpleToolCall(BaseModel):
+    """MVP: 간단한 툴 호출 구조"""
+
+    tool_name: str = Field(
+        description="edit_enemies, edit_items, edit_skills, edit_levels, edit_map_villager 중 하나"
+    )
+    user_input: str = Field(description="해당 툴에 넘길 자연어 입력")
+    reasoning: str = Field(default="", description="선택 이유")
+
+
+class SimplePlan(BaseModel):
+    """MVP: LLM이 수도코드를 해석한 결과"""
+
+    tools: list[SimpleToolCall] = Field(description="실행할 툴 목록")
+    note: str = Field(default="", description="해석 메모")
+
 
 async def executor(state: AgentState) -> dict:
-    # TODO: 구현 필요
-    raise NotImplementedError
+    """MVP 버전 Executor"""
+
+    execution_plan = state.get("execution_plan", [])
+    game_id = state.get("game_id", "game_001")
+    retry_count = state.get("retry_count", 0)
+
+    logger.info("[Executor MVP] 시작: game_id=%s, retry=%d", game_id, retry_count)
+
+    # ── Step 1: 입력 검증 ─────────────────────────────────────
+    if retry_count >= 2:
+        logger.warning("최대 재시도 초과")
+        return {
+            "changes_log": [
+                {
+                    "success": False,
+                    "error": "최대 재시도(2) 초과. 수행 불가.",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            ]
+        }
+
+    if not execution_plan:
+        logger.warning("execution_plan이 비어있음")
+        return {
+            "changes_log": [
+                {
+                    "error": "execution_plan이 비어있습니다.",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            ]
+        }
+
+    # ── Step 2: 경로 설정 ─────────────────────────────────────
+    data_path = _get_data_path(game_id)
+
+    logger.info("[Executor MVP] 데이터 경로: %s", data_path)
+
+    # ── 3단계 구조화 플랜 (action_type / step_id / target_file) ──
+    # 이 포맷이면 LLM 번역 단계(레거시) 없이 곧바로 4단계 구조화 엔진으로 분기한다.
+    if _is_structured_execution_plan(execution_plan):
+        return await _executor_structured(data_path, execution_plan, game_id, retry_count)
+
+    # ── Step 3: LLM 번역 (MVP: 간단한 키워드 기반) ──────────
+    try:
+        translated_plan = await _translate_execution_plan_mvp(execution_plan)
+        logger.info("[Executor MVP] 번역 완료: %d개 툴", len(translated_plan.tools))
+    except Exception as e:
+        logger.error("[Executor MVP] 번역 실패: %s", e)
+        return {
+            "changes_log": [
+                {
+                    "success": False,
+                    "error": f"LLM 번역 실패: {e}",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            ]
+        }
+
+    # ── Step 4: 대상 파일 수집 및 백업 ────────────────────────
+    target_files = set()
+    for tool_call in translated_plan.tools:
+        target_files.update(TARGET_FILE_MAP.get(tool_call.tool_name, []))
+
+        # 맵 파일 동적 결정
+        if tool_call.tool_name == "edit_map_villager":
+            import re
+
+            match = re.search(r"(\d+)", tool_call.user_input)
+            map_num = int(match.group(1)) if match else 1
+            target_files.add(f"Map{map_num:03d}.json")
+
+    # 수정 전 스냅샷 생성
+    current_game_state = _create_snapshot(data_path, list(target_files))
+
+    # 백업 생성
+    backup_paths = _create_backup(data_path, list(target_files))
+
+    logger.info("[Executor MVP] 백업 생성: %d개 파일", len(backup_paths))
+
+    # ── Step 5: 툴 순차 실행 ──────────────────────────────────
+    changes_log = []
+
+    for i, tool_call in enumerate(translated_plan.tools):
+        tool_function = TOOL_MAP.get(tool_call.tool_name)
+
+        if tool_function is None:
+            changes_log.append(
+                {
+                    "step": i + 1,
+                    "tool_name": tool_call.tool_name,
+                    "success": False,
+                    "error": f"지원하지 않는 툴: {tool_call.tool_name}",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
+            continue
+
+        logger.info(
+            "[Executor MVP] 툴 실행: %s('%s')", tool_call.tool_name, tool_call.user_input[:50]
+        )
+
+        try:
+            # MVP: 스킬은 매니저 사용, 나머지는 기존 dispatcher
+            if tool_call.tool_name == "edit_skills":
+                # 새로운 스킬 매니저 사용
+                skill_manager = SkillManager(data_path, f"mvp_{i}")
+
+                # user_input에서 기본 파라미터 추출
+                action = (
+                    "add"
+                    if any(
+                        word in tool_call.user_input.lower() for word in ["추가", "만들", "생성"]
+                    )
+                    else "update"
+                )
+
+                # 스킬 이름 추출 (간단한 매칭)
+                skill_names = ["최후의일격", "전체공격", "회복마법", "버프"]
+                skill_name = next(
+                    (name for name in skill_names if name in tool_call.user_input), "새스킬"
+                )
+
+                result = await skill_manager.execute(
+                    action=action,
+                    target_name=skill_name,
+                    mpCost=50,  # MVP: 기본값
+                    description=f"{skill_name} 설명",
+                )
+            else:
+                # 기존 dispatcher 함수 호출
+                result = await asyncio.to_thread(tool_function, tool_call.user_input)
+
+            changes_log.append(
+                {
+                    "step": i + 1,
+                    "tool_name": tool_call.tool_name,
+                    "user_input": tool_call.user_input,
+                    "success": result.get("success", False),
+                    "stdout": result.get("stdout", ""),
+                    "stderr": result.get("stderr", ""),
+                    "command": result.get("command", ""),
+                    "timestamp": result.get("timestamp", datetime.now().isoformat()),
+                }
+            )
+
+            if result.get("success"):
+                logger.info("[Executor MVP] ✅ 성공: %s", result.get("stdout", ""))
+            else:
+                logger.warning("[Executor MVP] ❌ 실패: %s", result.get("stderr", ""))
+                # MVP: 실패해도 다음 툴 계속 실행 (best-effort)
+
+        except Exception as e:
+            logger.error("[Executor MVP] 툴 실행 에러: %s", e)
+            changes_log.append(
+                {
+                    "step": i + 1,
+                    "tool_name": tool_call.tool_name,
+                    "success": False,
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
+
+    # ── Step 6: 수정 후 스냅샷 ────────────────────────────────
+    modified_game_state = _create_snapshot(data_path, list(target_files))
+
+    logger.info(
+        "[Executor MVP] 완료: %d개 툴 실행, %d개 파일 수정",
+        len(translated_plan.tools),
+        len(target_files),
+    )
+
+    return {
+        "current_game_state": current_game_state,
+        "modified_game_state": modified_game_state,
+        "changes_log": changes_log,
+        "backup_paths": backup_paths,
+        "retry_count": retry_count,
+    }
+
+
+# ────────────────────────────────────────────────────────────
+# MVP 헬퍼 함수들
+# ────────────────────────────────────────────────────────────
+
+
+def _get_data_path(game_id: str) -> Path:
+    """게임 `data/` 경로. `STORAGE_PATH` 설정과 동일(로컬 개발 vs EC2+S3 동기화 경로)."""
+    return get_game_data_path(game_id)
+
+
+def _create_snapshot(data_path: Path, target_files: list[str]) -> dict[str, Any]:
+    """수정 전/후 스냅샷 생성 (MVP: 메모리 방식)"""
+    snapshot = {}
+
+    for file_name in target_files:
+        file_path = data_path / file_name
+        if file_path.exists():
+            try:
+                with open(file_path, encoding="utf-8") as f:
+                    snapshot[file_name] = json.load(f)
+                logger.debug("스냅샷 생성: %s", file_name)
+            except Exception as e:
+                logger.warning("스냅샷 실패: %s - %s", file_name, e)
+                snapshot[file_name] = {"_snapshot_error": str(e)}
+        else:
+            logger.debug("파일 없음: %s", file_name)
+
+    return snapshot
+
+
+def _create_backup(data_path: Path, target_files: list[str]) -> dict[str, str]:
+    """백업 파일 생성 (MVP: 동기 방식)"""
+    backup_dir = data_path.parent / "backup"
+    backup_dir.mkdir(exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_paths = {}
+
+    for file_name in target_files:
+        src_path = data_path / file_name
+        if src_path.exists():
+            backup_name = f"{file_name}.{timestamp}.bak"
+            backup_path = backup_dir / backup_name
+
+            try:
+                shutil.copy2(src_path, backup_path)
+                backup_paths[file_name] = str(backup_path)
+                logger.debug("백업 생성: %s → %s", file_name, backup_name)
+            except Exception as e:
+                logger.warning("백업 실패: %s - %s", file_name, e)
+
+    return backup_paths
+
+
+async def _translate_execution_plan_mvp(execution_plan: list[dict]) -> SimplePlan:
+    """MVP: 수도코드를 간단하게 번역"""
+
+    # 수도코드를 문자열로 변환
+    plan_text = json.dumps(execution_plan, ensure_ascii=False, indent=2)
+
+    # MVP용 간단한 프롬프트
+    system_prompt = """당신은 RPG 게임 수정 명령어 번역기입니다.
+
+## 사용 가능한 툴
+
+| tool_name | 용도 | user_input 예시 |
+|-----------|------|-----------------|
+| edit_enemies | 몬스터 추가/수정 | "까마귀", "데몬", "슬라임" |
+| edit_items | 아이템 추가/수정 | "독약", "회복물약", "마나물약" |
+| edit_skills | 스킬 추가/수정 | "최후의일격", "전체공격", "회복마법" |
+| edit_levels | 레벨 설정 | "레벨 50으로", "25" |
+| edit_map_villager | 맵에 NPC 추가 | "맵 1번에 빌리저", "3번 맵" |
+
+## 규칙
+1. 수도코드를 분석해서 위 5개 툴 중 적절한 것 선택
+2. user_input은 기존 툴이 이해할 수 있는 한국어 형태로 변환
+3. 복수 명령은 tools 배열에 순서대로 나열
+
+## 번역 예시
+수도코드: "파이어볼 스킬 추가하고 마나소모 50으로"
+→ {"tools": [{"tool_name": "edit_skills", "user_input": "최후의일격"}]}
+
+수도코드: "까마귀 몬스터 추가해줘"
+→ {"tools": [{"tool_name": "edit_enemies", "user_input": "까마귀"}]}"""
+
+    user_content = f"다음 수도코드를 번역해주세요:\n\n{plan_text}"
+
+    messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_content)]
+
+    try:
+        result = await invoke_llm(messages, structured_output=SimplePlan)
+        logger.info("LLM 번역 성공: %d개 툴", len(result.tools))
+        return result
+    except Exception as e:
+        logger.error("LLM 번역 실패: %s", e)
+        # MVP: Fallback으로 키워드 기반 번역
+        return _fallback_translate(execution_plan)
+
+
+def _fallback_translate(execution_plan: list[dict]) -> SimplePlan:
+    """MVP: LLM 실패시 키워드 기반 번역"""
+
+    logger.warning("Fallback 번역 모드 실행")
+
+    tools = []
+    content = json.dumps(execution_plan, ensure_ascii=False).lower()
+
+    # 간단한 키워드 매칭
+    if any(word in content for word in ["스킬", "마법", "skill"]):
+        tools.append(
+            SimpleToolCall(
+                tool_name="edit_skills",
+                user_input="최후의일격",  # 기본값
+                reasoning="스킬 관련 키워드 감지",
+            )
+        )
+
+    if any(word in content for word in ["몬스터", "적", "enemy", "보스"]):
+        tools.append(
+            SimpleToolCall(
+                tool_name="edit_enemies",
+                user_input="슬라임",  # 기본값
+                reasoning="몬스터 관련 키워드 감지",
+            )
+        )
+
+    if any(word in content for word in ["아이템", "템", "item", "포션"]):
+        tools.append(
+            SimpleToolCall(
+                tool_name="edit_items",
+                user_input="회복물약",  # 기본값
+                reasoning="아이템 관련 키워드 감지",
+            )
+        )
+
+    if any(word in content for word in ["레벨", "level", "경험치"]):
+        # 숫자 추출 시도
+        import re
+
+        numbers = re.findall(r"\d+", content)
+        level = numbers[0] if numbers else "25"
+
+        tools.append(
+            SimpleToolCall(
+                tool_name="edit_levels",
+                user_input=f"레벨 {level}으로",
+                reasoning=f"레벨 관련 키워드 감지, 추출된 숫자: {level}",
+            )
+        )
+
+    if any(word in content for word in ["맵", "마을", "map", "npc", "빌리저"]):
+        # 맵 번호 추출 시도
+        import re
+
+        numbers = re.findall(r"\d+", content)
+        map_id = numbers[0] if numbers else "1"
+
+        tools.append(
+            SimpleToolCall(
+                tool_name="edit_map_villager",
+                user_input=f"맵 {map_id}번에 빌리저",
+                reasoning=f"맵 관련 키워드 감지, 추출된 맵 ID: {map_id}",
+            )
+        )
+
+    # 아무것도 못 찾으면 기본값
+    if not tools:
+        tools.append(
+            SimpleToolCall(
+                tool_name="edit_skills",
+                user_input="최후의일격",
+                reasoning="키워드 매칭 실패 - 기본 스킬 추가",
+            )
+        )
+
+    return SimplePlan(tools=tools, note="Fallback 키워드 번역 사용됨")
+
+
+# ────────────────────────────────────────────────────────────
+# MVP 백업/롤백 시스템
+# ────────────────────────────────────────────────────────────
+
+
+def execute_rollback(backup_paths: dict[str, str], data_path: Path) -> list[str]:
+    """MVP: 백업 파일로 원상복구"""
+
+    rollback_results = []
+
+    for file_name, backup_path in backup_paths.items():
+        target_path = data_path / file_name
+
+        if not Path(backup_path).exists():
+            rollback_results.append(f"❌ {file_name}: 백업 파일 없음")
+            continue
+
+        try:
+            shutil.copy2(backup_path, target_path)
+            rollback_results.append(f"✅ {file_name}: 롤백 완료")
+            logger.info("롤백 성공: %s ← %s", file_name, backup_path)
+
+        except Exception as e:
+            rollback_results.append(f"❌ {file_name}: 롤백 실패 - {e}")
+            logger.error("롤백 실패: %s - %s", file_name, e)
+
+    return rollback_results
+
+
+def cleanup_old_backups(data_path: Path, days_to_keep: int = 3) -> int:
+    """MVP: 오래된 백업 파일 정리"""
+
+    backup_dir = data_path.parent / "backup"
+    if not backup_dir.exists():
+        return 0
+
+    cutoff_time = datetime.now().timestamp() - (days_to_keep * 24 * 60 * 60)
+    cleaned_count = 0
+
+    for backup_file in backup_dir.glob("*.bak"):
+        if backup_file.stat().st_mtime < cutoff_time:
+            try:
+                backup_file.unlink()
+                cleaned_count += 1
+                logger.debug("오래된 백업 삭제: %s", backup_file.name)
+            except Exception as e:
+                logger.warning("백업 삭제 실패: %s - %s", backup_file.name, e)
+
+    return cleaned_count
+
+
+# ────────────────────────────────────────────────────────────
+# MVP 에러 복구 훅 (Validator 실패시 사용)
+# ────────────────────────────────────────────────────────────
+
+
+async def handle_validation_failure(state: AgentState) -> dict:
+    """검증 실패시 롤백 처리 (5단계에서 호출용)"""
+
+    backup_paths = state.get("backup_paths", {})
+    game_id = state.get("game_id", "game_001")
+    data_path = _get_data_path(game_id)
+
+    if backup_paths:
+        logger.warning("검증 실패 감지 - 롤백 실행")
+        rollback_results = execute_rollback(backup_paths, data_path)
+
+        return {
+            "rollback_executed": True,
+            "rollback_results": rollback_results,
+            "timestamp": datetime.now().isoformat(),
+        }
+    else:
+        logger.error("롤백 필요하지만 백업 경로 없음")
+        return {
+            "rollback_executed": False,
+            "error": "백업 경로 없음",
+            "timestamp": datetime.now().isoformat(),
+        }

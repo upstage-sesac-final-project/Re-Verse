@@ -13,8 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 async def synthesizer(state: AgentState) -> dict:
-    validation = state.get("validation_result") or {}
-    passed = validation.get("passed", True)
+    passed = state.get("success", True)
 
     logger.info(
         "Synthesizer 시작: intent=%s, passed=%s",
