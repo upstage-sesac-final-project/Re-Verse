@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Provider, useDispatch, useSelector } from 'react-redux'
 import { Analytics } from '@vercel/analytics/react'
 import { store } from './store'
-import { initAuth } from './store/userSlice'
+import { initAuth, logoutUser } from './store/userSlice'
 import ProtectedRoute from './components/common/ProtectedRoute'
 import AdminRoute from './components/common/AdminRoute'
 import Home from './pages/Home'
@@ -20,6 +20,14 @@ function AppRoutes() {
 
   useEffect(() => {
     dispatch(initAuth())
+  }, [dispatch])
+
+  useEffect(() => {
+    function handleSessionExpired() {
+      dispatch(logoutUser())
+    }
+    window.addEventListener('auth:session-expired', handleSessionExpired)
+    return () => window.removeEventListener('auth:session-expired', handleSessionExpired)
   }, [dispatch])
 
   return (

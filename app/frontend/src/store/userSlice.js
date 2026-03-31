@@ -36,6 +36,9 @@ export const registerUser = createAsyncThunk(
 
 export const logoutUser = createAsyncThunk('user/logout', async () => {
   const refreshToken = localStorage.getItem('refresh_token')
+  // Clear tokens immediately — server revocation is best-effort
+  localStorage.removeItem('refresh_token')
+  sessionStorage.removeItem('access_token')
   if (refreshToken) {
     try {
       await authApi.logout(refreshToken)
@@ -43,13 +46,10 @@ export const logoutUser = createAsyncThunk('user/logout', async () => {
       // ignore logout errors
     }
   }
-  localStorage.removeItem('refresh_token')
-  sessionStorage.removeItem('access_token')
 })
 
 function applyTokenResponse(state, data) {
-  state.user = { id: data.user_id, username: data.username, email: data.email ?? null, isAdmin: data.is_admin ?? false }
-  state.accessToken = data.access_token
+  state.user = { id: data.user_id, username: data.username, isAdmin: data.is_admin ?? false }
   state.isAuthenticated = true
   state.isLoading = false
   sessionStorage.setItem('access_token', data.access_token)
@@ -62,21 +62,10 @@ const userSlice = createSlice({
   name: 'user',
   initialState: {
     user: null,
-    accessToken: sessionStorage.getItem('access_token') || null,
     isAuthenticated: false,
     isLoading: true,
   },
-  reducers: {
-    setAccessToken(state, action) {
-      state.accessToken = action.payload
-      sessionStorage.setItem('access_token', action.payload)
-    },
-    clearAuth(state) {
-      state.user = null
-      state.accessToken = null
-      state.isAuthenticated = false
-    },
-  },
+  reducers: {},
   extraReducers: (builder) => {
     builder
       .addCase(initAuth.pending, (state) => {
@@ -103,12 +92,10 @@ const userSlice = createSlice({
       })
       .addCase(logoutUser.fulfilled, (state) => {
         state.user = null
-        state.accessToken = null
         state.isAuthenticated = false
         state.isLoading = false
       })
   },
 })
 
-export const { setAccessToken, clearAuth } = userSlice.actions
 export default userSlice.reducer

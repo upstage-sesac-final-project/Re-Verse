@@ -14,11 +14,14 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  function getSafeRedirect() {
+    const raw = searchParams.get('redirect') || '/dashboard'
+    return raw.startsWith('/') && !raw.startsWith('//') ? raw : '/dashboard'
+  }
+
   // 이미 로그인 상태면 대시보드로
   if (isAuthenticated) {
-    const raw = searchParams.get('redirect') || '/dashboard'
-    const redirect = raw.startsWith('/') ? raw : '/dashboard'
-    return <Navigate to={redirect} replace />
+    return <Navigate to={getSafeRedirect()} replace />
   }
 
   async function handleSubmit(e) {
@@ -30,8 +33,7 @@ export default function Login() {
     if (loginUser.rejected.match(result)) {
       setError(result.payload || '로그인에 실패했습니다.')
     } else {
-      const raw = searchParams.get('redirect') || '/dashboard'
-      navigate(raw.startsWith('/') ? raw : '/dashboard', { replace: true })
+      navigate(getSafeRedirect(), { replace: true })
     }
   }
 
@@ -65,14 +67,17 @@ export default function Login() {
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+            <label htmlFor="email" className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
               이메일
             </label>
             <input
+              id="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              autoFocus
+              autoComplete="email"
               className="w-full px-3 py-2 rounded-lg text-sm outline-none"
               style={{
                 background: 'var(--bg-primary)',
@@ -82,14 +87,16 @@ export default function Login() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+            <label htmlFor="password" className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
               비밀번호
             </label>
             <input
+              id="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              autoComplete="current-password"
               className="w-full px-3 py-2 rounded-lg text-sm outline-none"
               style={{
                 background: 'var(--bg-primary)',

@@ -41,22 +41,17 @@ export async function sendPrompt(message, projectId) {
     return mockSendPrompt()
   }
 
-  try {
-    const data = await authFetch('/v1/llm/process', {
-      method: 'POST',
-      body: JSON.stringify({ project_id: projectId, message }),
-    })
-    return {
-      role: 'assistant',
-      content: data.message,
-      intent: data.intent,
-      modifications: data.modifications,
-      affected_files: data.affected_files,
-      result: data.result,
-      changes_log: data.changes_log ?? [],
-    }
-  } catch (error) {
-    console.error('LLM API 호출 실패:', error.message)
-    return { role: 'assistant', content: `오류가 발생했습니다: ${error.message}` }
+  const data = await authFetch('/v1/llm/process', {
+    method: 'POST',
+    body: JSON.stringify({ project_id: projectId, message }),
+  })
+  return {
+    role: 'assistant',
+    content: data.message,
+    intent: data.intent,
+    modifications: data.modifications,
+    affected_files: data.affected_files,
+    result: data.result,
+    changes_log: data.changes_log ?? [],
   }
 }

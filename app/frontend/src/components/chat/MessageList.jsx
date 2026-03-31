@@ -22,9 +22,9 @@ export default function MessageList({ messages }) {
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-4">
-      {messages.map((msg, i) => (
+      {messages.map((msg) => (
         <div
-          key={i}
+          key={msg.id}
           className={`flex items-end gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
         >
           <div

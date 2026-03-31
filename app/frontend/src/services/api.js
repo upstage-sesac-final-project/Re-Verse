@@ -2,32 +2,6 @@ import { refresh } from './authApi'
 
 const BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
-export async function post(path, body) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-
-  if (!res.ok) {
-    const errorBody = await res.json().catch(() => ({}))
-    throw new Error(errorBody.detail || `API error: ${res.status}`)
-  }
-
-  return res.json()
-}
-
-export async function get(path) {
-  const res = await fetch(`${BASE_URL}${path}`)
-
-  if (!res.ok) {
-    const errorBody = await res.json().catch(() => ({}))
-    throw new Error(errorBody.detail || `API error: ${res.status}`)
-  }
-
-  return res.json()
-}
-
 // 동시에 여러 401이 발생해도 refresh 한 번만 실행
 let _refreshPromise = null
 
@@ -40,7 +14,6 @@ async function _doRefresh() {
   if (data.refresh_token) {
     localStorage.setItem('refresh_token', data.refresh_token)
   }
-  window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: { accessToken: data.access_token } }))
   return data.access_token
 }
 
@@ -69,7 +42,7 @@ export async function authFetch(path, options = {}) {
       localStorage.removeItem('refresh_token')
       sessionStorage.removeItem('access_token')
       window.dispatchEvent(new CustomEvent('auth:session-expired'))
-      window.location.href = '/login'
+      window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`
       throw new Error('Session expired')
     }
   }

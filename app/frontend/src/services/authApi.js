@@ -31,20 +31,8 @@ export async function logout(refreshToken) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: refreshToken }),
   })
-  // 204 No Content — nothing to return
-  if (!res.ok && res.status !== 204) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.detail || `API error: ${res.status}`)
-  }
-}
-
-export async function getMe(accessToken) {
-  const res = await fetch(`${BASE_URL}/v1/auth/me`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(err.detail || `API error: ${res.status}`)
   }
-  return res.json()
 }

@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -64,37 +63,49 @@ const chartStyle = { fontSize: 11, fill: '#999' }
 
 export default function Admin() {
   const navigate = useNavigate()
-  const { user } = useSelector((s) => s.user)
   const [tab, setTab] = useState(0)
 
   const [overview, setOverview] = useState(null)
+  const [overviewLoading, setOverviewLoading] = useState(true)
   const [signups, setSignups] = useState([])
   const [logins, setLogins] = useState([])
   const [usage, setUsage] = useState([])
   const [intents, setIntents] = useState([])
   const [health, setHealth] = useState(null)
+  const [healthLoading, setHealthLoading] = useState(false)
 
   const [signupPeriod, setSignupPeriod] = useState('daily')
   const [usagePeriod, setUsagePeriod] = useState('daily')
 
   useEffect(() => {
-    adminApi.fetchOverview().then(setOverview).catch(() => {})
+    adminApi.fetchOverview()
+      .then(setOverview)
+      .catch((e) => console.error('[Admin]', e))
+      .finally(() => setOverviewLoading(false))
   }, [])
 
   useEffect(() => {
     const days = signupPeriod === 'monthly' ? 365 : 30
-    adminApi.fetchSignups(signupPeriod, days).then(setSignups).catch(() => {})
-    adminApi.fetchLogins(signupPeriod, days).then(setLogins).catch(() => {})
+    adminApi.fetchSignups(signupPeriod, days).then(setSignups).catch((e) => console.error('[Admin]', e))
+    adminApi.fetchLogins(signupPeriod, days).then(setLogins).catch((e) => console.error('[Admin]', e))
   }, [signupPeriod])
 
   useEffect(() => {
     const days = usagePeriod === 'monthly' ? 365 : 30
-    adminApi.fetchUsage(usagePeriod, days).then(setUsage).catch(() => {})
-    adminApi.fetchIntents().then(setIntents).catch(() => {})
+    adminApi.fetchUsage(usagePeriod, days).then(setUsage).catch((e) => console.error('[Admin]', e))
   }, [usagePeriod])
 
   useEffect(() => {
-    if (tab === 3) adminApi.fetchHealth().then(setHealth).catch(() => {})
+    adminApi.fetchIntents().then(setIntents).catch((e) => console.error('[Admin]', e))
+  }, [])
+
+  useEffect(() => {
+    if (tab !== 3) return
+    setHealthLoading(true)
+    adminApi.fetchHealth()
+      .then(setHealth)
+      .catch((e) => console.error('[Admin]', e))
+      .finally(() => setHealthLoading(false))
   }, [tab])
 
   return (
@@ -149,14 +160,20 @@ export default function Admin() {
         </div>
 
         {/* 개요 탭 */}
-        {tab === 0 && overview && (
-          <div className="flex flex-wrap gap-4">
-            <StatCard label="총 유저" value={overview.total_users} />
-            <StatCard label="총 프로젝트" value={overview.total_projects} />
-            <StatCard label="총 대화" value={overview.total_conversations} />
-            <StatCard label="성공률" value={`${(overview.success_rate * 100).toFixed(1)}%`} />
-            <StatCard label="평균 응답시간" value={`${overview.avg_processing_time}s`} />
-          </div>
+        {tab === 0 && (
+          overviewLoading ? (
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>불러오는 중...</p>
+          ) : overview ? (
+            <div className="flex flex-wrap gap-4">
+              <StatCard label="총 유저" value={overview.total_users} />
+              <StatCard label="총 프로젝트" value={overview.total_projects} />
+              <StatCard label="총 대화" value={overview.total_conversations} />
+              <StatCard label="성공률" value={`${(overview.success_rate * 100).toFixed(1)}%`} />
+              <StatCard label="평균 응답시간" value={`${overview.avg_processing_time}s`} />
+            </div>
+          ) : (
+            <p className="text-sm" style={{ color: '#f87171' }}>통계를 불러올 수 없습니다.</p>
+          )
         )}
 
         {/* 유저 트렌드 탭 */}
@@ -241,24 +258,30 @@ export default function Admin() {
         )}
 
         {/* 헬스 탭 */}
-        {tab === 3 && health && (
-          <div className="flex flex-col gap-4">
-            <HealthBadge label="Database" ok={health.db.ok} detail={health.db.detail} />
-            <HealthBadge label="S3 Storage" ok={health.s3.ok} detail={health.s3.detail} />
-            {overview && (
-              <div
-                className="rounded-xl p-5"
-                style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}
-              >
-                <p className="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
-                  성능 지표
-                </p>
-                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  평균 응답시간: {overview.avg_processing_time}s / 성공률: {(overview.success_rate * 100).toFixed(1)}%
-                </p>
-              </div>
-            )}
-          </div>
+        {tab === 3 && (
+          healthLoading ? (
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>헬스 체크 중...</p>
+          ) : health ? (
+            <div className="flex flex-col gap-4">
+              <HealthBadge label="Database" ok={health.db.ok} detail={health.db.detail} />
+              <HealthBadge label="S3 Storage" ok={health.s3.ok} detail={health.s3.detail} />
+              {overview && (
+                <div
+                  className="rounded-xl p-5"
+                  style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}
+                >
+                  <p className="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                    성능 지표
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    평균 응답시간: {overview.avg_processing_time}s / 성공률: {(overview.success_rate * 100).toFixed(1)}%
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm" style={{ color: '#f87171' }}>헬스 체크에 실패했습니다.</p>
+          )
         )}
       </main>
     </div>

@@ -9,15 +9,22 @@ export default function ChatInterface({ projectId, onGameUpdate, isCollapsed, on
   const [isLoading, setIsLoading] = useState(false)
 
   async function handleSubmit(text) {
-    const userMessage = { role: 'user', content: text }
-    setMessages((prev) => [...prev, userMessage])
+    const id = Date.now()
+    setMessages((prev) => [...prev, { id, role: 'user', content: text }])
     setIsLoading(true)
 
-    const response = await sendPrompt(text, projectId)
-    setMessages((prev) => [...prev, response])
-    setIsLoading(false)
-
-    onGameUpdate?.()
+    try {
+      const response = await sendPrompt(text, projectId)
+      setMessages((prev) => [...prev, { id: id + 1, ...response }])
+      onGameUpdate?.()
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        { id: id + 1, role: 'assistant', content: `오류: ${err.message || '요청 처리 중 오류가 발생했습니다.'}` },
+      ])
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -41,6 +48,7 @@ export default function ChatInterface({ projectId, onGameUpdate, isCollapsed, on
         )}
         <button
           onClick={onToggleCollapse}
+          aria-label={isCollapsed ? '패널 펼치기' : '패널 접기'}
           className="ml-auto w-7 h-7 flex items-center justify-center rounded text-sm hover:opacity-70"
           style={{ color: 'var(--text-secondary)' }}
         >

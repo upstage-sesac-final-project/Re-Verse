@@ -61,14 +61,17 @@ export default function Register() {
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+            <label htmlFor="username" className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
               사용자 이름
             </label>
             <input
+              id="username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
+              autoFocus
+              autoComplete="username"
               className="w-full px-3 py-2 rounded-lg text-sm outline-none"
               style={{
                 background: 'var(--bg-primary)',
@@ -78,14 +81,16 @@ export default function Register() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+            <label htmlFor="reg-email" className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
               이메일
             </label>
             <input
+              id="reg-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              autoComplete="email"
               className="w-full px-3 py-2 rounded-lg text-sm outline-none"
               style={{
                 background: 'var(--bg-primary)',
@@ -95,14 +100,16 @@ export default function Register() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+            <label htmlFor="reg-password" className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
               비밀번호
             </label>
             <input
+              id="reg-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              autoComplete="new-password"
               className="w-full px-3 py-2 rounded-lg text-sm outline-none"
               style={{
                 background: 'var(--bg-primary)',

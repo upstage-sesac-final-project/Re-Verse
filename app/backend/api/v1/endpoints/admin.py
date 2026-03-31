@@ -1,5 +1,6 @@
 """Admin 모니터링 & 통계 엔드포인트."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
@@ -158,8 +159,6 @@ async def admin_health(db: AsyncSession = Depends(get_db)):
 
     s3_result = {"ok": False, "detail": "S3 체크 미실행"}
     try:
-        import asyncio
-
         from app.backend.services.s3_game_storage import check_s3_bucket_access
 
         s3_ok, s3_detail = await asyncio.to_thread(check_s3_bucket_access)

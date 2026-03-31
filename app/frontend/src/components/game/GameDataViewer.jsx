@@ -259,7 +259,8 @@ export default function GameDataViewer({ gameId }) {
       .then((data) => setCache((prev) => ({ ...prev, [selectedFile]: data })))
       .catch((e) => setError(e.message))
       .finally(() => setIsLoading(false))
-  }, [gameId, selectedFile, cache])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameId, selectedFile])
 
   const data = cache[selectedFile]
   const isArray = Array.isArray(data)

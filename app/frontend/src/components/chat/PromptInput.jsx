@@ -17,6 +17,7 @@ export default function PromptInput({ onSubmit, disabled }) {
     onSubmit(trimmed)
     textareaRef.current.value = ''
     textareaRef.current.style.height = 'auto'
+    textareaRef.current.focus()
   }
 
   function handleKeyDown(e) {

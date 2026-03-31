@@ -1,22 +1,23 @@
 import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
-import { fetchProjects, createProject, deleteProject } from '../store/gameSlice'
-import { setCurrentProject } from '../store/gameSlice'
+import { fetchProjects, createProject, deleteProject, setCurrentProject } from '../store/gameSlice'
 import Header from '../components/layout/Header'
 import Modal from '../components/common/Modal'
 
 export default function Dashboard() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
-  const { user } = useSelector((s) => s.user)
   const { projects, isLoading } = useSelector((s) => s.game)
 
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
   const [createError, setCreateError] = useState('')
+  const [createLoading, setCreateLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   useEffect(() => {
     dispatch(fetchProjects())
@@ -26,7 +27,9 @@ export default function Dashboard() {
     e.preventDefault()
     if (!newName.trim()) return
     setCreateError('')
+    setCreateLoading(true)
     const result = await dispatch(createProject({ name: newName.trim(), description: newDesc.trim() }))
+    setCreateLoading(false)
     if (createProject.rejected.match(result)) {
       setCreateError(result.payload || '프로젝트 생성에 실패했습니다.')
     } else {
@@ -43,8 +46,16 @@ export default function Dashboard() {
 
   async function handleDeleteConfirm() {
     if (!deleteTarget) return
-    await dispatch(deleteProject(deleteTarget.id))
-    setDeleteTarget(null)
+    setDeleteLoading(true)
+    setDeleteError('')
+    const result = await dispatch(deleteProject(deleteTarget.id))
+    setDeleteLoading(false)
+    if (deleteProject.rejected.match(result)) {
+      setDeleteError(result.payload || '삭제에 실패했습니다.')
+    } else {
+      setDeleteTarget(null)
+      setDeleteError('')
+    }
   }
 
   return (
@@ -58,7 +69,7 @@ export default function Dashboard() {
           </h1>
           <button
             onClick={() => setCreating(true)}
-            disabled={projects.length >= 3}
+            disabled={projects.length >= 3 || creating}
             className="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40"
             style={{ background: 'var(--accent)', color: '#fff' }}
           >
@@ -88,6 +99,7 @@ export default function Dashboard() {
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               required
+              autoFocus
               className="w-full px-3 py-2 rounded-lg text-sm outline-none mb-2"
               style={{
                 background: 'var(--bg-primary)',
@@ -115,7 +127,7 @@ export default function Dashboard() {
             <div className="flex gap-2 justify-end">
               <button
                 type="button"
-                onClick={() => { setCreating(false); setCreateError('') }}
+                onClick={() => { setCreating(false); setCreateError(''); setNewName(''); setNewDesc('') }}
                 className="px-3 py-1.5 text-sm rounded-lg"
                 style={{ background: 'var(--border)', color: 'var(--text-secondary)' }}
               >
@@ -123,10 +135,11 @@ export default function Dashboard() {
               </button>
               <button
                 type="submit"
-                className="px-3 py-1.5 text-sm rounded-lg font-medium"
+                disabled={createLoading}
+                className="px-3 py-1.5 text-sm rounded-lg font-medium disabled:opacity-50"
                 style={{ background: 'var(--accent)', color: '#fff' }}
               >
-                만들기
+                {createLoading ? '생성 중...' : '만들기'}
               </button>
             </div>
           </form>
@@ -193,9 +206,11 @@ export default function Dashboard() {
         <Modal
           title="프로젝트 삭제"
           message={`"${deleteTarget.name}" 프로젝트를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`}
+          errorMessage={deleteError}
           confirmLabel="삭제"
           onConfirm={handleDeleteConfirm}
-          onCancel={() => setDeleteTarget(null)}
+          onCancel={() => { setDeleteTarget(null); setDeleteError('') }}
+          loading={deleteLoading}
         />
       )}
     </div>
