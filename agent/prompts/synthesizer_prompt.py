@@ -58,7 +58,7 @@ def build_prompt(state: AgentState) -> list[BaseMessage]:
     passed = state.get("success", True)
     validation_results = state.get("validation_results") or []
     validation_summary = state.get("validation_summary") or ""
-    current = state.get("current_game_state") or {}
+    # current = state.get("current_game_state") or {}
     modified = state.get("modified_game_state") or {}
     changes = state.get("changes_log") or []
 
@@ -79,19 +79,56 @@ def build_prompt(state: AgentState) -> list[BaseMessage]:
     if changes:
         sections.append("## 변경 이력\n" + json.dumps(changes, ensure_ascii=False, indent=2))
 
-    if modified:
-        sections.append(
-            "## 수정 후 게임 데이터\n" + json.dumps(modified, ensure_ascii=False, indent=2)
-        )
-    elif current:
-        # 조회 시나리오: current_game_state에 조회 결과가 담길 수 있음
-        sections.append(
-            "## 조회된 게임 데이터\n" + json.dumps(current, ensure_ascii=False, indent=2)
-        )
+    # [중요] 토큰 절감을 위해 전체 파일이 아닌 관련 엔티티만 추출하여 전달
+    relevant_data = {}
 
-    if current and modified:
+    # 이번 작업과 관련된 이름 및 ID 수집
+    target_names = []
+    relevant_ids = []
+
+    # state에서 extracted_ids 안전하게 가져오기
+    ids_info = state.get("extracted_ids") or {}
+
+    for key, val in ids_info.items():
+        if isinstance(val, int):
+            relevant_ids.append(val)
+        elif isinstance(val, dict):
+            if "mapped_id" in val and isinstance(val["mapped_id"], int):
+                relevant_ids.append(val["mapped_id"])
+            if "name" in val:
+                target_names.append(val["name"])
+
+    # 수정된 엔티티들 중 '신규 생성' 또는 '매칭된 ID'에 해당하는 데이터만 골라내기
+    for file_name, entities in modified.items():
+        if not isinstance(entities, list):
+            continue
+
+        filtered = []
+        for e in entities:
+            if not isinstance(e, dict):
+                continue
+
+            # 1. ID로 매칭 (기존 데이터 수정)
+            if e.get("id") in relevant_ids:
+                filtered.append(e)
+            # 2. 이름으로 매칭 (신규 생성 시 ID를 모를 경우 대비)
+            elif e.get("name") in target_names:
+                filtered.append(e)
+
+        # 3. 만약 '생성' 의도인데 위 조건으로 안 잡혔다면, 가장 마지막 데이터(방금 추가된 것)를 포함
+        if not filtered and intent == "게임_요소_생성" and entities:
+            # null이 아닌 마지막 실제 데이터
+            for e in reversed(entities):
+                if e is not None:
+                    filtered.append(e)
+                    break
+
+        if filtered:
+            relevant_data[f"{file_name} (수정 결과)"] = filtered
+
+    if relevant_data:
         sections.append(
-            "## 수정 전 게임 데이터 (비교용)\n" + json.dumps(current, ensure_ascii=False, indent=2)
+            "## 관련 엔티티 상세 데이터\n" + json.dumps(relevant_data, ensure_ascii=False, indent=2)
         )
 
     human_content = "\n\n".join(sections)

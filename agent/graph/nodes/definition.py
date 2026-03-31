@@ -21,20 +21,63 @@ from agent.rag.retriever import RPGRetriever
 
 logger = logging.getLogger(__name__)
 
+# --- 공통 매핑 상수 ---
+CATEGORY_TO_PLURAL = {
+    "actor": "Actors",
+    "enemy": "Enemies",
+    "item": "Items",
+    "skill": "Skills",
+    "weapon": "Weapons",
+    "armor": "Armors",
+    "class": "Classes",
+    "state": "States",
+    "element": "System",  # 속성은 System.json 내에 포함됨
+    "system": "System",
+}
+
+CATEGORY_TO_ID_FIELD = {
+    "actor": "actor_id",
+    "enemy": "enemy_id",
+    "item": "item_id",
+    "skill": "skill_id",
+    "weapon": "weapon_id",
+    "armor": "armor_id",
+    "class": "class_id",
+    "state": "state_id",
+    "element": "element_id",
+    "system": "system_id",
+}
+
+# 복수형(파일명/폴더명) -> 단수형(내부 타겟명) 변환용
+PLURAL_TO_SINGULAR = {v.lower(): k for k, v in CATEGORY_TO_PLURAL.items()}
+# 특수 케이스 추가
+PLURAL_TO_SINGULAR.update({"enemies": "enemy", "actors": "actor"})
+
 
 def _normalize_category_to_plural(cat: str) -> str:
     """단수형 카테고리를 RPG Maker MZ 파일용 복수형으로 변환 (예: Enemy -> Enemies)"""
-    mapping = {
-        "Actor": "Actors",
-        "Enemy": "Enemies",
-        "Item": "Items",
-        "Skill": "Skills",
-        "Weapon": "Weapons",
-        "Armor": "Armors",
-        "Class": "Classes",
-        "State": "States",
-    }
-    return mapping.get(cat, cat)
+    return CATEGORY_TO_PLURAL.get(cat.lower(), cat.capitalize())
+
+
+def _get_next_id(game_id: str, category: str) -> int:
+    """특정 카테고리의 다음 가용한 ID(마지막 ID + 1)를 가져온다."""
+    data_dir = os.path.join("storage", "games", game_id, "data")
+    plural_cat = _normalize_category_to_plural(category)
+    file_path = os.path.join(data_dir, f"{plural_cat}.json")
+
+    if not os.path.exists(file_path):
+        return 1
+
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            data = json.load(f)
+            if not isinstance(data, list):
+                return 1
+            # RPG Maker 데이터는 보통 [null, {id:1}, {id:2}, ...] 구조임
+            ids = [item["id"] for item in data if isinstance(item, dict) and "id" in item]
+            return max(ids) + 1 if ids else 1
+    except Exception:
+        return 1
 
 
 def _get_system_info(game_id: str) -> dict:
@@ -90,69 +133,66 @@ def _format_to_progress_spec(modifications: list[dict], classifications: list[di
     """LLM의 출력을 PROGRESS.md 규격에 맞게 강제로 교정한다."""
     formatted_mods = []
 
-    # 카테고리별 ID 필드명 매핑
-    id_field_map = {
-        "actor": "actor_id",
-        "enemy": "enemy_id",
-        "item": "item_id",
-        "skill": "skill_id",
-        "weapon": "weapon_id",
-        "armor": "armor_id",
-        "class": "class_id",
-        "state": "state_id",
-        "element": "element_id",
-        "system": "system_id",
-    }
+    # 허용된 액션 목록
+    valid_actions = ["read", "update", "create", "delete"]
 
     for mod in modifications:
-        # 1. 타겟 정규화 (소문자화 및 복수형 처리)
-        raw_target = mod.get("target", "unknown").lower()
+        # 1. 타입과 타겟 추출 및 교정
+        raw_type = str(mod.get("type", "update")).lower()
+        raw_target = str(mod.get("target", "unknown")).lower()
 
-        # 복수형 -> 단수형 예외 처리
-        plural_to_singular = {
-            "enemies": "enemy",
-            "actors": "actor",
-            "items": "item",
-            "skills": "skill",
-            "weapons": "weapon",
-            "armors": "armor",
-            "classes": "class",
-            "states": "state",
-            "elements": "element",
-            "system": "system",
-        }
+        # 만약 type에 카테고리가 들어오고 target에 이름이 들어왔을 경우 교정 시도
+        if raw_type not in valid_actions:
+            if raw_target in valid_actions:
+                action_type = raw_target
+                target_cat = raw_type
+            else:
+                action_type = "update"
+                target_cat = raw_type
+        else:
+            action_type = raw_type
+            target_cat = raw_target
 
-        target = plural_to_singular.get(raw_target, raw_target)
-        # 만약 S로 끝나는 일반적인 경우 처리
-        if target == raw_target and target.endswith("s") and len(target) > 1:
+        # 2. 타겟 카테고리 정규화
+        target = PLURAL_TO_SINGULAR.get(target_cat, target_cat)
+        if target == target_cat and target.endswith("s") and len(target) > 1:
             target = target[:-1]
 
-        action_type = mod.get("type", "update").lower()
+        # 3. 해당 타겟의 ID 필드명 결정
+        id_field = CATEGORY_TO_ID_FIELD.get(target, f"{target}_id")
 
-        # 2. 해당 타겟의 ID 필드명 결정
-        id_field = id_field_map.get(target, f"{target}_id")
-
-        # 3. 파라미터 정제
+        # 4. 파라미터 정제
         raw_params = mod.get("params", {})
         clean_params = {}
-
-        # 기존에 있던 모든 필드 복사 (단, id 관련 필드는 제외)
         for k, v in raw_params.items():
             if k not in ["id", "target_id", id_field]:
                 clean_params[k] = v
 
-        # 4. ID 값 확정 (분류 단계의 mapped_id 사용)
+        # 5. ID 값 확정
+        llm_provided_id = raw_params.get(id_field) or raw_params.get("id")
+        if llm_provided_id == "NEW":
+            llm_provided_id = None
+
         target_name = clean_params.get("name")
-        mapped_id = "NEW"
+        mapped_id = None
+
         for cls in classifications:
-            if cls["name"] == target_name or (target_name and target_name in cls["name"]):
-                mapped_id = cls.get("mapped_id", "NEW")
+            if target_name and (cls["name"] == target_name or target_name in cls["name"]):
+                mapped_id = cls.get("mapped_id")
                 break
 
-        # 생성 작업이면 무조건 NEW, 아니면 매핑된 ID 사용
-        final_id = "NEW" if action_type == "create" else mapped_id
-        clean_params[id_field] = final_id
+        if mapped_id is None:
+            category_matches = [
+                cls for cls in classifications if cls["category"].lower() == target.lower()
+            ]
+            if len(category_matches) == 1:
+                mapped_id = category_matches[0].get("mapped_id")
 
+        final_id = mapped_id or llm_provided_id or "NEW"
+        if action_type == "create" and not mapped_id:
+            final_id = "NEW"
+
+        clean_params[id_field] = final_id
         formatted_mods.append({"type": action_type, "target": target, "params": clean_params})
 
     return formatted_mods
@@ -330,6 +370,22 @@ async def definition(state: AgentState) -> dict:
     #     "params_sufficient": params_sufficient,
     # }
 
+    # --- [4.5단계: 중복 및 지칭어 필터링] ---
+    # 동일 카테고리에 구체적인 이름이 있는 엔티티와 '지칭어'가 섞여있으면 지칭어 제거
+    final_classifications = []
+    categories_with_real_names = {
+        cls["category"] for cls in classifications if not cls.get("is_category_label")
+    }
+
+    for cls in classifications:
+        # 지칭어인데 해당 카테고리에 이미 구체적인 이름의 엔티티가 있다면 제외
+        if cls.get("is_category_label") and cls["category"] in categories_with_real_names:
+            print(
+                f"  - [중복 지칭어 제거] {cls['name']} (카테고리 {cls['category']}에 구체적 대상 존재)"
+            )
+            continue
+        final_classifications.append(cls)
+
     # --- [5단계: 최종 조립 (Specification)] ---
     print("[*] 5단계: 최종 수정 명세 생성 중...")
 
@@ -348,7 +404,7 @@ async def definition(state: AgentState) -> dict:
             schema2_content = f.read()
 
     messages_5 = build_step5_prompt(
-        state, extractions, classifications, sys_info, schema1_content, schema2_content
+        state, extractions, final_classifications, sys_info, schema1_content, schema2_content
     )
 
     final_response = cast(
@@ -362,11 +418,55 @@ async def definition(state: AgentState) -> dict:
         final_response.modifications, classifications
     )
 
+    # --- [상태 전이용 ID 맵핑 강화 및 중복 제거] ---
+    final_extracted_ids = {}
+
+    # 1. LLM이 명시적으로 반환한 ID들 먼저 수집
+    if final_response.extracted_ids:
+        for k, v in final_response.extracted_ids.items():
+            if v and v != "NEW":
+                final_extracted_ids[k] = v
+
+    # 2. 분류 단계에서 확정된 ID들 병합 (system_ref 우선)
+    for cls in classifications:
+        m_id = cls.get("mapped_id")
+        if m_id and m_id != "NEW":
+            # system_ref가 있으면 그것을 키로 사용 (중복 방지용 메인 키)
+            if cls.get("system_ref"):
+                final_extracted_ids[cls["system_ref"]] = m_id
+
+            # 원문 이름 추가 (해당 ID가 이미 다른 키로 저장되어 있더라도 검색 편의를 위해 추가)
+            if cls["name"] not in final_extracted_ids:
+                final_extracted_ids[cls["name"]] = m_id
+
+    # --- [7단계: 신규 ID 실제 할당 (NEW -> Last ID + 1)] ---
+    print("[*] 7단계: 신규 생성 대상 ID 할당 중...")
+    next_id_cache = {}
+
+    for mod in strictly_formatted_mods:
+        target = mod["target"]
+        id_field = CATEGORY_TO_ID_FIELD.get(target, f"{target}_id")
+
+        params = mod.get("params", {})
+        if params.get(id_field) == "NEW":
+            if target not in next_id_cache:
+                next_id_cache[target] = _get_next_id(game_id, target)
+
+            assigned_id = next_id_cache[target]
+            params[id_field] = assigned_id
+
+            # extracted_ids에도 반영
+            name = params.get("name", target)
+            final_extracted_ids[name] = assigned_id
+
+            # 다음 생성을 위해 ID 증가 (한 번에 여러 개 생성 대비)
+            next_id_cache[target] += 1
+
     # 최종 결과 반환
     return {
         "target_files": final_response.target_files,
         "modifications": strictly_formatted_mods,
-        "extracted_ids": final_response.extracted_ids,
+        "extracted_ids": final_extracted_ids,
         "params_sufficient": final_response.params_sufficient,
         "final_response": final_response.message_for_user,
     }

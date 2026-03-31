@@ -34,8 +34,10 @@ STEP2_SYSTEM_PROMPT = """당신은 주어진 단어들이 RPG Maker MZ의 어떤
 
 ### [분류 가이드라인]
 1. **정확한 분류**: "총", "검"은 Weapon입니다. "얼음", "불"은 Element입니다.
-2. **맵 분류 금지**: 어떠한 경우에도 Map으로 분류하지 마십시오.
-3. **주인공 처리**: "주인공", "쥔공" 등은 category: Actor, system_ref: hero로 고정하십시오.
+2. **카테고리 지칭어 판별 (is_category_label)**:
+   - "아이템", "템", "적", "몬스터", "몹", "캐릭터", "캐릭", "스킬", "기술" 등과 같이 **구체적인 이름이 아닌 카테고리 자체를 지칭하는 단어**는 반드시 `is_category_label: true`로 설정하십시오.
+   - "슬라임", "포션"과 같이 구체적인 고유 명칭은 `false`입니다.
+3. **주인공 처리**: "주인공", "쥔공" 등은 category: Actor, system_ref: hero, is_category_label: false로 고정하십시오.
 4. 이 단계에서는 분류 정보만 제공하며, 어떠한 실행 계획도 세우지 마십시오.
 """
 
@@ -45,12 +47,13 @@ def build_step2_prompt(extractions: list[dict]) -> list[BaseMessage]:
     for ext in extractions:
         if ext.get("subject"):
             targets.add(ext["subject"])
-        if ext.get("value"):
-            targets.add(ext["value"])
+        # value가 숫자가 아닌 경우에만(엔티티 이름일 가능성) 분류 대상에 추가
+        val = ext.get("value")
+        if val and not (isinstance(val, (int, float)) or (isinstance(val, str) and val.isdigit())):
+            targets.add(val)
+
     targets_str = ", ".join(list(targets))
-    human_message = (
-        f"대상 목록: {targets_str}\n\n위 대상들의 카테고리를 분류하고 system_ref를 확인하십시오."
-    )
+    human_message = f"대상 목록: {targets_str}\n\n위 대상들의 카테고리를 분류하고 지칭어 여부 및 system_ref를 확인하십시오."
     return [SystemMessage(content=STEP2_SYSTEM_PROMPT), HumanMessage(content=human_message)]
 
 
@@ -61,12 +64,18 @@ STEP5_SYSTEM_PROMPT = """당신은 수집된 정보를 바탕으로 RPG Maker MZ
 {schema2}
 
 ### [최종 조립 지침 - 필수 준수]
-1. **과잉 생성 금지**:
-   - **"얼음 속성", "독 상태" 등은 별개의 Skill이나 State로 새로 생성하지 마십시오.**
-   - 대신, 주체 엔티티(예: 무기, 적)의 `traits` 필드에 해당 속성/상태의 ID를 연결하는 방식을 사용하십시오.
-2. **의도 중심 처리**: 사용자가 말한 주체(예: 총)에 대해서만 작업을 생성하십시오. 문장에 없는 대상을 지어내지 마십시오.
-3. **지능적 필드 매핑**: 사용자가 요청한 성질을 데이터로 변환할 때 스키마의 **Trait** 코드를 직접 찾아 적용하십시오. (예: 공격 속성 부여는 `code: 31`)
-4. **ID 필드 규격**: `modifications` 내 `params`에는 반드시 `대상카테고리_id` 필드를 포함하십시오.
+1. **필드 매핑 및 추론**:
+   - 사용자가 요청한 `property`(속성)는 반드시 `params` 내의 적절한 필드명으로 변환하여 포함하십시오.
+   - **생성(CREATE) 요청 시, 대상의 이름(예: '체력 회복 포션')에서 기능을 추론하여 필수 데이터를 채우십시오.**
+   - 예: '회복 포션' -> `effects` 리스트에 HP 회복(code: 11) 데이터 추가.
+   - 예: '불 드래곤' -> `traits`에 화염 속성(code: 31, dataId: 2) 추가.
+2. **액션 타입**: `type`은 반드시 "read", "update", "create", "delete" 중 하나여야 합니다.
+3. **타겟 카테고리**: `target`은 "actor", "enemy", "item" 등 데이터 카테고리여야 합니다.
+4. **과잉 생성 금지**: 지칭어(is_category_label: true)인 대상은 별도의 생성 작업을 만들지 마십시오. 구체적인 이름이 있는 항목에 대해서만 작업을 생성하십시오.
+5. **ID 필드 및 요약 규격**:
+   - `modifications` 내 `params`에는 반드시 `대상카테고리_id` 필드를 포함하십시오.
+   - 신규 생성(CREATE)인 경우, ID는 반드시 **"NEW"**여야 합니다. (임의의 숫자를 지어내지 마십시오.)
+   - 조회/수정(READ/UPDATE)인 경우, 식별된 **실제 숫자 ID**를 사용하십시오.
 """
 
 
