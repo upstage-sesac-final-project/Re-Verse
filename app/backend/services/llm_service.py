@@ -154,7 +154,7 @@ class LLMService:
         from agent.graph.workflow import graph
 
         final_state = await asyncio.wait_for(
-            graph.ainvoke({"user_input": message, "game_id": game_id}),
+            graph.ainvoke({"user_input": message, "game_id": game_id}),  # type: ignore[attr-defined]
             timeout=self.timeout,
         )
 
