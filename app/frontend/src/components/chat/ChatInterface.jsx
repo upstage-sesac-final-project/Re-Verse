@@ -13,7 +13,7 @@ export default function ChatInterface({ projectId, onGameUpdate, isCollapsed, on
     setMessages((prev) => [...prev, userMessage])
     setIsLoading(true)
 
-    const response = await sendPrompt(text, projectId, messages)
+    const response = await sendPrompt(text, projectId)
     setMessages((prev) => [...prev, response])
     setIsLoading(false)
 

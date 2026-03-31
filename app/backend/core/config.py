@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     # ── Agent 모드 ─────────────────────────────────────────────
     AGENT_MODE: str = "keyword"  # "keyword" | "graph"
 
+    # ── 관리자 ──────────────────────────────────────────────
+    ADMIN_EMAIL: str = ""  # 해당 이메일로 가입하면 자동 관리자
+
     @field_validator("JWT_SECRET_KEY", mode="after")
     @classmethod
     def validate_jwt_secret(cls, v: str, info) -> str:

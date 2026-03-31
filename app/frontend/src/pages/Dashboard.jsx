@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
 import { fetchProjects, createProject, deleteProject } from '../store/gameSlice'
 import { setCurrentProject } from '../store/gameSlice'
-import { logoutUser } from '../store/userSlice'
+import Header from '../components/layout/Header'
 import Modal from '../components/common/Modal'
 
 export default function Dashboard() {
@@ -47,42 +47,9 @@ export default function Dashboard() {
     setDeleteTarget(null)
   }
 
-  async function handleLogout() {
-    await dispatch(logoutUser())
-    navigate('/login', { replace: true })
-  }
-
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
-      {/* Header */}
-      <header
-        className="h-14 flex items-center justify-between px-6"
-        style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}
-      >
-        <div className="flex items-center gap-3">
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm"
-            style={{ background: 'var(--accent)' }}
-          >
-            R
-          </div>
-          <span className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>
-            Re:Verse
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            {user?.username}
-          </span>
-          <button
-            onClick={handleLogout}
-            className="text-xs px-3 py-1.5 rounded-lg"
-            style={{ background: 'var(--border)', color: 'var(--text-secondary)' }}
-          >
-            로그아웃
-          </button>
-        </div>
-      </header>
+      <Header />
 
       <main className="max-w-3xl mx-auto px-6 py-10">
         <div className="flex items-center justify-between mb-6">

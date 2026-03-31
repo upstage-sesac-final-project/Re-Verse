@@ -48,7 +48,7 @@ export const logoutUser = createAsyncThunk('user/logout', async () => {
 })
 
 function applyTokenResponse(state, data) {
-  state.user = { id: data.user_id, username: data.username, email: data.email ?? null }
+  state.user = { id: data.user_id, username: data.username, email: data.email ?? null, isAdmin: data.is_admin ?? false }
   state.accessToken = data.access_token
   state.isAuthenticated = true
   state.isLoading = false
@@ -92,8 +92,14 @@ const userSlice = createSlice({
       .addCase(loginUser.fulfilled, (state, { payload }) => {
         applyTokenResponse(state, payload)
       })
+      .addCase(loginUser.rejected, (state) => {
+        state.isLoading = false
+      })
       .addCase(registerUser.fulfilled, (state, { payload }) => {
         applyTokenResponse(state, payload)
+      })
+      .addCase(registerUser.rejected, (state) => {
+        state.isLoading = false
       })
       .addCase(logoutUser.fulfilled, (state) => {
         state.user = null

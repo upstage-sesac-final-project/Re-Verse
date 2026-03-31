@@ -6,6 +6,7 @@ Executor는 이 서비스를 호출하지 않는다.
 
 import logging
 import shutil
+import uuid
 from pathlib import Path
 
 import boto3
@@ -39,10 +40,8 @@ class GameService:
                 detail=f"프로젝트는 최대 {settings.MAX_PROJECTS_PER_USER}개까지 생성 가능합니다.",
             )
 
-        # ② game_id 채번
-        max_result = await db.execute(select(func.max(Project.id)))
-        max_id = max_result.scalar() or 0
-        game_id = f"game_{max_id + 1:03d}"
+        # ② game_id 채번 (UUID 기반 — 동시 요청 충돌 방지)
+        game_id = f"game_{uuid.uuid4().hex[:8]}"
 
         # ③ 트랜잭션 + 롤백
         project = Project(

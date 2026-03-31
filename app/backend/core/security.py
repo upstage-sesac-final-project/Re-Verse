@@ -116,3 +116,15 @@ async def get_current_user(
             detail="사용자를 찾을 수 없습니다.",
         )
     return user
+
+
+async def get_admin_user(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """관리자 전용 의존성 — is_admin=False면 403."""
+    if not getattr(current_user, "is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="관리자 권한이 필요합니다.",
+        )
+    return current_user

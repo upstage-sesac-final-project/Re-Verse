@@ -5,11 +5,13 @@ import { Analytics } from '@vercel/analytics/react'
 import { store } from './store'
 import { initAuth } from './store/userSlice'
 import ProtectedRoute from './components/common/ProtectedRoute'
+import AdminRoute from './components/common/AdminRoute'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import GameEditor from './pages/GameEditor'
+import Admin from './pages/Admin'
 import NotFound from './pages/NotFound'
 
 function AppRoutes() {
@@ -48,6 +50,14 @@ function AppRoutes() {
           <ProtectedRoute>
             <GameEditor />
           </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <AdminRoute>
+            <Admin />
+          </AdminRoute>
         }
       />
       <Route path="*" element={<NotFound />} />

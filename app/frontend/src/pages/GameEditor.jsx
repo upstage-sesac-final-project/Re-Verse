@@ -17,6 +17,7 @@ export default function GameEditor() {
   const [verified, setVerified] = useState(false)
 
   useEffect(() => {
+    setVerified(false)
     // 프로젝트 목록이 없으면 먼저 로드
     if (projects.length === 0 && !isLoading) {
       dispatch(fetchProjects())

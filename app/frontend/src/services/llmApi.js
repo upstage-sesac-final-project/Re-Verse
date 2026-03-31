@@ -36,7 +36,7 @@ async function mockSendPrompt() {
  * Backend: POST /api/v1/llm/process
  * Request: { project_id: string, message: string }
  */
-export async function sendPrompt(message, projectId, history) {
+export async function sendPrompt(message, projectId) {
   if (USE_MOCK) {
     return mockSendPrompt()
   }

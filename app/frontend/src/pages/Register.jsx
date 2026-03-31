@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { registerUser } from '../store/userSlice'
 
 export default function Register() {
@@ -15,8 +15,7 @@ export default function Register() {
   const [loading, setLoading] = useState(false)
 
   if (isAuthenticated) {
-    navigate('/dashboard', { replace: true })
-    return null
+    return <Navigate to="/dashboard" replace />
   }
 
   async function handleSubmit(e) {

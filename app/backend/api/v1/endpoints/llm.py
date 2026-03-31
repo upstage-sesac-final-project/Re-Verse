@@ -1,5 +1,7 @@
 """LLM API Endpoints — 인증 적용 + 대화 이력 조회."""
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,10 +37,11 @@ async def process_user_input(
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
+        logging.getLogger(__name__).exception("LLM 처리 오류")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"서버 내부 오류: {e!s}",
+            detail="요청 처리 중 오류가 발생했습니다.",
         )
 
 

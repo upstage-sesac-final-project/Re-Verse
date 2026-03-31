@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { loginUser } from '../store/userSlice'
 
 export default function Login() {
@@ -14,10 +14,11 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  // 이미 로그인 상태면 대시보드로
   if (isAuthenticated) {
-    const redirect = searchParams.get('redirect') || '/dashboard'
-    navigate(redirect, { replace: true })
-    return null
+    const raw = searchParams.get('redirect') || '/dashboard'
+    const redirect = raw.startsWith('/') ? raw : '/dashboard'
+    return <Navigate to={redirect} replace />
   }
 
   async function handleSubmit(e) {
@@ -29,8 +30,8 @@ export default function Login() {
     if (loginUser.rejected.match(result)) {
       setError(result.payload || '로그인에 실패했습니다.')
     } else {
-      const redirect = searchParams.get('redirect') || '/dashboard'
-      navigate(redirect, { replace: true })
+      const raw = searchParams.get('redirect') || '/dashboard'
+      navigate(raw.startsWith('/') ? raw : '/dashboard', { replace: true })
     }
   }
 

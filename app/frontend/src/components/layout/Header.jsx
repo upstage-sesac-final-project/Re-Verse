@@ -32,6 +32,15 @@ export default function Header() {
       <div className="flex items-center gap-3">
         {isAuthenticated ? (
           <>
+            {user?.isAdmin && (
+              <Link
+                to="/admin"
+                className="text-xs px-2 py-1 rounded-full font-medium"
+                style={{ background: 'var(--accent)', color: '#fff' }}
+              >
+                관리자
+              </Link>
+            )}
             <Link
               to="/dashboard"
               className="text-xs px-3 py-1.5 rounded-lg"
