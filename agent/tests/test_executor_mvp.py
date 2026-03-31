@@ -4,9 +4,12 @@
 """
 
 import asyncio
+import importlib
 import logging
 import uuid
 from pathlib import Path
+
+import pytest
 
 from agent.graph.nodes.executor import executor
 from agent.graph.state import AgentState
@@ -129,8 +132,14 @@ async def test_structured_execution_plan_actors():
     result = await executor(state)
     logs = result.get("changes_log", [])
     assert len(logs) >= 2
-    q = next((x for x in logs if x.get("tool_name") == "structured_actors_query"), None)
-    c = next((x for x in logs if x.get("tool_name") == "structured_actors_create"), None)
+    # MCP가 꺼져있을 때의 이름과 켜져있을 때의 이름을 모두 찾도록 변경합니다.
+    q = next(
+        (x for x in logs if x.get("tool_name") in ("structured_actors_query", "get_actor")), None
+    )
+    c = next(
+        (x for x in logs if x.get("tool_name") in ("structured_actors_create", "create_actor")),
+        None,
+    )
     assert q is not None and q.get("success") is True
     assert q.get("exists") is False
     assert c is not None and c.get("success") is True
@@ -294,6 +303,341 @@ def check_game_files():
             print(f"✅ {file_name}: {size} bytes")
         else:
             print(f"❌ {file_name}: 파일 없음")
+
+
+@pytest.mark.asyncio
+async def test_structured_mcp_alias_actor_update_routes_update_actor(monkeypatch):
+    """4단계에서 Actors update + updates를 MCP update_actor로 정규화한다."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+
+    called: dict[str, object] = {}
+
+    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+        called["tool_name"] = tool_name
+        called["arguments"] = arguments
+        called["path_arg_name"] = path_arg_name
+        return {"success": True, "data": {"ok": True}, "modified_files": ["Actors.json"]}
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
+
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "액터 기본 속성 업데이트",
+                "action_type": "update",
+                "target_file": "Actors.json",
+                "target_info": {
+                    "actor_id": 1,
+                    "updates": {"nickname": "용사", "initialLevel": 5},
+                },
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+    log = result["changes_log"][0]
+    assert log["tool_name"] == "update_actor"
+    assert called["tool_name"] == "update_actor"
+    assert called["arguments"] == {"actorId": 1, "updates": {"nickname": "용사", "initialLevel": 5}}
+
+
+@pytest.mark.asyncio
+async def test_structured_mcp_alias_system_update_game_title(monkeypatch):
+    """System update + game_title이 MCP update_game_title로 정규화되는지 검증."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+
+    called: dict[str, object] = {}
+
+    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+        called["tool_name"] = tool_name
+        called["arguments"] = arguments
+        return {"success": True, "data": {"ok": True}, "modified_files": ["System.json"]}
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
+
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "게임 타이틀 수정",
+                "action_type": "update",
+                "target_file": "System.json",
+                "target_info": {"game_title": "MCP TEST TITLE"},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+    log = result["changes_log"][0]
+    assert log["tool_name"] == "update_game_title"
+    assert called["tool_name"] == "update_game_title"
+    assert called["arguments"] == {"title": "MCP TEST TITLE"}
+
+
+@pytest.mark.asyncio
+async def test_structured_mcp_alias_system_update_starting_position(monkeypatch):
+    """System update(map_id/x/y)가 MCP update_starting_position으로 정규화되는지 검증."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+
+    called: dict[str, object] = {}
+
+    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+        called["tool_name"] = tool_name
+        called["arguments"] = arguments
+        return {"success": True, "data": {"ok": True}, "modified_files": ["System.json"]}
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
+
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "시작 위치 수정",
+                "action_type": "update",
+                "target_file": "System.json",
+                "target_info": {"map_id": "2", "x": "10", "y": 11},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+    log = result["changes_log"][0]
+    assert log["tool_name"] == "update_starting_position"
+    assert called["tool_name"] == "update_starting_position"
+    assert called["arguments"] == {"mapId": 2, "x": 10, "y": 11}
+
+
+@pytest.mark.asyncio
+async def test_structured_mcp_alias_actor_query_by_id(monkeypatch):
+    """Actors query + actor_id가 MCP get_actor(query_by_id)로 정규화되는지 검증."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    called: dict[str, object] = {}
+
+    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+        called["tool_name"] = tool_name
+        called["arguments"] = arguments
+        return {"success": True, "data": {"id": 3, "name": "Harold"}, "modified_files": []}
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
+
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "액터 ID 조회",
+                "action_type": "query",
+                "target_file": "Actors.json",
+                "target_info": {"actor_id": "3"},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+    log = result["changes_log"][0]
+    assert log["tool_name"] == "get_actor"
+    assert called["tool_name"] == "get_actor"
+    assert called["arguments"] == {"actorId": 3}
+
+
+@pytest.mark.asyncio
+async def test_structured_mcp_alias_system_update_set_variable_name(monkeypatch):
+    """System update(variable_id + name)가 MCP set_variable_name으로 정규화되는지 검증."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    called: dict[str, object] = {}
+
+    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+        called["tool_name"] = tool_name
+        called["arguments"] = arguments
+        return {"success": True, "data": {"ok": True}, "modified_files": ["System.json"]}
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
+
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "변수 이름 설정",
+                "action_type": "update",
+                "target_file": "System.json",
+                "target_info": {"variable_id": "7", "name": "quest_progress"},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+    log = result["changes_log"][0]
+    assert log["tool_name"] == "set_variable_name"
+    assert called["tool_name"] == "set_variable_name"
+    assert called["arguments"] == {"variableId": 7, "name": "quest_progress"}
+
+
+@pytest.mark.asyncio
+async def test_structured_mcp_alias_system_update_set_switch_name(monkeypatch):
+    """System update(switch_id + name)가 MCP set_switch_name으로 정규화되는지 검증."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    called: dict[str, object] = {}
+
+    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+        called["tool_name"] = tool_name
+        called["arguments"] = arguments
+        return {"success": True, "data": {"ok": True}, "modified_files": ["System.json"]}
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
+
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "스위치 이름 설정",
+                "action_type": "update",
+                "target_file": "System.json",
+                "target_info": {"switch_id": 9, "name": "door_opened"},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+    log = result["changes_log"][0]
+    assert log["tool_name"] == "set_switch_name"
+    assert called["tool_name"] == "set_switch_name"
+    assert called["arguments"] == {"switchId": 9, "name": "door_opened"}
+
+
+@pytest.mark.asyncio
+async def test_mcp_failure_fallback_policy_actors_create(monkeypatch):
+    """MCP 실패 시 레거시 분기가 있는 액션은 폴백되어 성공할 수 있어야 한다."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    unique_name = f"ZZZ_MCP_FALLBACK_{uuid.uuid4().hex[:8]}"
+
+    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+        # MCP가 실패하도록 강제: executor가 정책에 따라 레거시로 폴백하는지 확인한다.
+        return {"success": False, "error": "simulated mcp failure"}
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
+
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "액터 생성(MCP 실패 후 폴백)",
+                "action_type": "create",
+                "target_file": "Actors.json",
+                "target_info": {"actor_name": unique_name},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+    log = result["changes_log"][0]
+    assert log["tool_name"] == "structured_actors_create"
+    assert log["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_mcp_failure_abort_policy_system_update_game_title(monkeypatch):
+    """MCP 실패 시 레거시 분기가 없는 액션은 중단(Abort)되어야 한다."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+
+    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+        # MCP 실패 강제: System의 update_game_title은 레거시 핸들러가 없으므로 abort로 떨어져야 한다.
+        return {"success": False, "error": "simulated mcp failure"}
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
+
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "게임 타이틀 변경(MCP 전용 경로)",
+                "action_type": "update",
+                "target_file": "System.json",
+                "target_info": {"game_title": "ABORT_POLICY_TEST"},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+    log = result["changes_log"][0]
+    assert log["tool_name"] == "update_game_title"
+    assert log["success"] is False
+    assert "[MCP_ABORT_NO_FALLBACK]" in (log.get("stderr") or "")
+
+
+@pytest.mark.asyncio
+async def test_unsupported_structured_step_error_is_standardized():
+    """미지원 액션 에러 메시지는 표준 포맷을 따라야 한다."""
+    # action_type=delete는 Skills.json에 대해 structured step이 없으므로,
+    # executor가 [UNSUPPORTED_STRUCTURED_STEP]을 표준 포맷으로 반환하는지 확인한다.
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "미지원 액션 테스트",
+                "action_type": "delete",
+                "target_file": "Skills.json",
+                "target_info": {"skill_id": 1},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+    log = result["changes_log"][0]
+    assert log["success"] is False
+    assert "[UNSUPPORTED_STRUCTURED_STEP]" in (log.get("stderr") or "")
+    assert "target_file=Skills.json" in (log.get("stderr") or "")
 
 
 if __name__ == "__main__":

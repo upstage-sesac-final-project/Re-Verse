@@ -15,7 +15,9 @@ MVP 버전: 기존 dispatcher 재활용 + 기본 LLM 번역 + 백업/롤백
 import asyncio
 import json
 import logging
+import os
 import shutil
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -25,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from agent.core.llm_client import invoke_llm
 from agent.graph.state import AgentState
+from agent.mcp_toolbox import build_stdio_server_parameters, call_mcp_tool, is_mcp_enabled
 from app.backend.core.game_paths import get_game_data_path
 from app.backend.services.json_modify_tools.dispatcher import (
     run_enemies,
@@ -39,6 +42,280 @@ from app.backend.services.json_modify_tools.managers.skill_manager import SkillM
 from app.backend.services.json_modify_tools.managers.system_manager import SystemManager
 
 logger = logging.getLogger(__name__)
+
+# 동일 game_id에 대한 구조화 스텝이 겹치지 않도록 (단일 프로세스 내)
+game_locks: defaultdict[str, asyncio.Lock] = defaultdict(lambda: asyncio.Lock())
+
+# ────────────────────────────────────────────────────────────
+# MCP (k4zuki RPG Maker MZ Node 서버) — 구조화 스텝만 인터셉트
+# (target_file, action_type) → list_tools() 이름과 동일. 맵 전용 툴(get_map*, *map_event*, add_event_command)은 제외.
+#
+# 없는 것: Classes.json / Enemies.json 등 — 이 MCP 리포에 해당 툴이 없음(액터·아이템·스킬·시스템 일부만).
+# Actors.json `update`는 레거시(ActorManager 클래스 변경)용이므로 MCP `update_actor`는 action `update_actor`로 구분.
+# ────────────────────────────────────────────────────────────
+MCP_TOOL_MAP: dict[tuple[str, str], dict[str, Any]] = {
+    # Actors.json
+    ("Actors.json", "list"): {"tool": "get_actors", "backup_files": []},
+    ("Actors.json", "search"): {"tool": "search_actors", "backup_files": []},
+    ("Actors.json", "query_by_id"): {"tool": "get_actor", "backup_files": []},
+    ("Actors.json", "create"): {"tool": "create_actor", "backup_files": ["Actors.json"]},
+    ("Actors.json", "update_actor"): {"tool": "update_actor", "backup_files": ["Actors.json"]},
+    # Skills.json
+    ("Skills.json", "list"): {"tool": "get_skills", "backup_files": []},
+    ("Skills.json", "query"): {"tool": "get_skill", "backup_files": []},
+    ("Skills.json", "search"): {"tool": "search_skills", "backup_files": []},
+    ("Skills.json", "create"): {"tool": "create_skill", "backup_files": ["Skills.json"]},
+    ("Skills.json", "create_damage"): {
+        "tool": "create_damage_skill",
+        "backup_files": ["Skills.json"],
+    },
+    ("Skills.json", "create_healing"): {
+        "tool": "create_healing_skill",
+        "backup_files": ["Skills.json"],
+    },
+    ("Skills.json", "create_buff"): {"tool": "create_buff_skill", "backup_files": ["Skills.json"]},
+    ("Skills.json", "create_state"): {
+        "tool": "create_state_skill",
+        "backup_files": ["Skills.json"],
+    },
+    ("Skills.json", "update"): {"tool": "update_skill", "backup_files": ["Skills.json"]},
+    # Items.json
+    ("Items.json", "list"): {"tool": "get_items", "backup_files": []},
+    ("Items.json", "search"): {"tool": "search_items", "backup_files": []},
+    ("Items.json", "update"): {"tool": "update_item", "backup_files": ["Items.json"]},
+    # Weapons.json / Armors.json (MCP는 조회만 제공)
+    ("Weapons.json", "list"): {"tool": "get_weapons", "backup_files": []},
+    ("Armors.json", "list"): {"tool": "get_armors", "backup_files": []},
+    # System.json (맵 편집 툴 제외, 시작 위치·타이틀·변수·스위치 이름 등)
+    ("System.json", "query"): {"tool": "get_system", "backup_files": []},
+    ("System.json", "list_variables"): {"tool": "get_variables", "backup_files": []},
+    ("System.json", "set_variable_name"): {
+        "tool": "set_variable_name",
+        "backup_files": ["System.json"],
+    },
+    ("System.json", "list_switches"): {"tool": "get_switches", "backup_files": []},
+    ("System.json", "set_switch_name"): {
+        "tool": "set_switch_name",
+        "backup_files": ["System.json"],
+    },
+    ("System.json", "get_game_title"): {"tool": "get_game_title", "backup_files": []},
+    ("System.json", "update_game_title"): {
+        "tool": "update_game_title",
+        "backup_files": ["System.json"],
+    },
+    ("System.json", "update_starting_position"): {
+        "tool": "update_starting_position",
+        "backup_files": ["System.json"],
+    },
+}
+
+
+def _as_int(v: Any) -> Any:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return v
+
+
+def _normalize_mcp_arguments(
+    target_file: str, action: str, target_info: dict[str, Any]
+) -> dict[str, Any]:
+    """플래너 dict를 복사한 뒤 MCP 툴 스키마에 맞게 키를 맞춘다 (원본 오염 방지)."""
+    out = dict(target_info)
+
+    def _search_term() -> str:
+        return str(out.get("searchTerm") or out.get("search_term") or out.get("query") or "")
+
+    # ── Actors.json ──
+    if target_file == "Actors.json" and action == "create":
+        if "name" not in out and "actor_name" in out:
+            out["name"] = out.pop("actor_name")
+        return out
+
+    if target_file == "Actors.json" and action == "search":
+        return {"searchTerm": _search_term()}
+
+    if target_file == "Actors.json" and action == "query_by_id":
+        aid = out.get("actorId", out.get("actor_id"))
+        if aid is None:
+            return {}
+        return {"actorId": _as_int(aid)}
+
+    if target_file == "Actors.json" and action == "update_actor":
+        aid = out.get("actorId", out.get("actor_id"))
+        updates = out.get("updates")
+        built: dict[str, Any] = {}
+        if aid is not None:
+            built["actorId"] = _as_int(aid)
+        if isinstance(updates, dict):
+            built["updates"] = updates
+        return built
+
+    # ── Skills.json ──
+    if target_file == "Skills.json" and action == "create":
+        if "name" not in out and "skill_name" in out:
+            out["name"] = out.pop("skill_name")
+        return out
+
+    if target_file == "Skills.json" and action == "query":
+        sid = out.get("skillId", out.get("skill_id"))
+        if sid is None:
+            return {}
+        return {"skillId": _as_int(sid)}
+
+    if target_file == "Skills.json" and action == "search":
+        return {"searchTerm": _search_term()}
+
+    if target_file == "Skills.json" and action == "update":
+        sid = out.get("skillId", out.get("skill_id"))
+        updates = out.get("updates")
+        built = {}
+        if sid is not None:
+            built["skillId"] = _as_int(sid)
+        if isinstance(updates, dict):
+            built["updates"] = updates
+        return built
+
+    # create_damage / healing / buff / state — MCP 스키마 필드명 그대로 전달(플래너가 snake_case 쓰면 보정)
+    if target_file == "Skills.json" and action in (
+        "create_damage",
+        "create_healing",
+        "create_buff",
+        "create_state",
+    ):
+        if "name" not in out and "skill_name" in out:
+            out["name"] = out.pop("skill_name")
+        if action == "create_damage" and "damageFormula" not in out and "damage_formula" in out:
+            out["damageFormula"] = out.pop("damage_formula")
+        if action == "create_healing" and "healFormula" not in out and "heal_formula" in out:
+            out["healFormula"] = out.pop("heal_formula")
+        return out
+
+    # ── Items.json ──
+    if target_file == "Items.json" and action == "search":
+        return {"searchTerm": _search_term()}
+
+    if target_file == "Items.json" and action == "update":
+        iid = out.get("itemId", out.get("item_id"))
+        updates = out.get("updates")
+        built = {}
+        if iid is not None:
+            built["itemId"] = _as_int(iid)
+        if isinstance(updates, dict):
+            built["updates"] = updates
+        return built
+
+    # ── System.json ──
+    if target_file == "System.json" and action == "set_variable_name":
+        vid = out.get("variableId", out.get("variable_id"))
+        name = out.get("name")
+        b: dict[str, Any] = {}
+        if vid is not None:
+            b["variableId"] = _as_int(vid)
+        if name is not None:
+            b["name"] = str(name)
+        return b
+
+    if target_file == "System.json" and action == "set_switch_name":
+        sid = out.get("switchId", out.get("switch_id"))
+        name = out.get("name")
+        b = {}
+        if sid is not None:
+            b["switchId"] = _as_int(sid)
+        if name is not None:
+            b["name"] = str(name)
+        return b
+
+    if target_file == "System.json" and action == "update_game_title":
+        title = out.get("title") or out.get("game_title")
+        return {"title": str(title)} if title is not None else {}
+
+    if target_file == "System.json" and action == "update_starting_position":
+        mid = out.get("mapId", out.get("map_id"))
+        x = out.get("x")
+        y = out.get("y")
+        b = {}
+        if mid is not None:
+            b["mapId"] = _as_int(mid)
+        if x is not None:
+            b["x"] = _as_int(x)
+        if y is not None:
+            b["y"] = _as_int(y)
+        return b
+
+    # list / query(get_system 등 인자 없음) / get_game_title / get_variables / get_switches
+    if action in ("list", "query", "get_game_title", "list_variables", "list_switches"):
+        return {}
+
+    return out
+
+
+def _normalize_structured_action(target_file: str, action: str, target_info: dict[str, Any]) -> str:
+    """3단계 플래너 action_type 편차를 4단계(MCP/레거시) 기준으로 정규화한다."""
+    a = (action or "").strip().lower()
+
+    if target_file == "Actors.json":
+        # 레거시 query는 이름 기반 존재 확인, MCP get_actor는 ID 기반.
+        if a == "query" and ("actor_id" in target_info or "actorId" in target_info):
+            return "query_by_id"
+        # 기존 update(클래스 변경)과 MCP update_actor(일반 속성 수정)를 분리.
+        if (
+            a == "update"
+            and "updates" in target_info
+            and ("actor_id" in target_info or "actorId" in target_info)
+        ):
+            return "update_actor"
+        return a
+
+    if target_file == "System.json" and a == "update":
+        # 플래너가 광의의 update로 주더라도 MCP 세부 액션으로 자동 분기.
+        if "title" in target_info or "game_title" in target_info:
+            return "update_game_title"
+        if ("variable_id" in target_info or "variableId" in target_info) and "name" in target_info:
+            return "set_variable_name"
+        if ("switch_id" in target_info or "switchId" in target_info) and "name" in target_info:
+            return "set_switch_name"
+        if (
+            "x" in target_info
+            and "y" in target_info
+            and ("map_id" in target_info or "mapId" in target_info)
+        ):
+            return "update_starting_position"
+        return a
+
+    return a
+
+
+def _structured_error(
+    code: str,
+    target_file: str,
+    action: str,
+    message: str,
+    *,
+    hint: str = "",
+) -> str:
+    """구조화 실행 경로의 에러 메시지 포맷을 표준화한다."""
+    suffix = f" hint={hint}" if hint else ""
+    # 외부(LLM/플래너/집계기)가 파싱할 수 있게 고정 포맷으로 반환한다.
+    return f"[{code}] target_file={target_file} action={action} message={message}{suffix}"
+
+
+def _supports_legacy_fallback(target_file: str, action: str) -> bool:
+    """해당 (target_file, action)이 MCP 실패 시 레거시 매니저로 폴백 가능한지."""
+    # 이 세트는 "MCP가 실패하더라도 같은 의미의 Python 레거시 처리가 가능한지"를
+    # 액션별로 딱 잘라서 정의한다. (자동 추정 금지)
+    # 현재 _execute_one_structured_step 내 레거시 분기와 1:1로 맞춘다.
+    legacy_supported = {
+        ("Classes.json", "query"),
+        ("Classes.json", "create"),
+        ("Actors.json", "query"),
+        ("Actors.json", "create"),
+        ("Actors.json", "update"),
+        ("System.json", "update"),
+        ("Skills.json", "create"),
+    }
+    return (target_file, action) in legacy_supported
+
 
 # ────────────────────────────────────────────────────────────
 # MVP 버전: 간단한 툴 매핑
@@ -194,20 +471,76 @@ async def _execute_one_structured_step(
     step: dict,
     data_path: Path,
     step_results: dict[int, dict],
+    game_id: str,
 ) -> dict[str, Any]:
     """단일 구조화 step 실행(4단계).
 
     - 입력: Planner가 만든 한 step(=action_type + target_file + target_info)
-    - 처리: 해당 조합을 "매니저(Actor/Class/System)" 호출로 디스패치
+    - 처리: (선택) MCP_ENABLED + MCP_TOOL_MAP 이면 Node MCP `call_tool` → 실패 시 매니저 폴백
     - 출력: `changes_log`에 들어갈 step 결과 + `step_results` 누적
     """
     sid = int(step["step_id"])
-    action = (step.get("action_type") or "").strip().lower()
     target_file = (step.get("target_file") or "").strip()
     target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
+    # raw_action은 디버그/에러 메시지에 남기고, 실제 실행 분기는 정규화된 action으로 통일한다.
+    raw_action = (step.get("action_type") or "").strip().lower()
+    action = _normalize_structured_action(target_file, raw_action, target_info)
     ts = datetime.now().isoformat()
 
     try:
+        # ── MCP 인터셉터: 켜져 있고 (파일, 액션) 매핑이 있으면 stdio MCP 우선 ──
+        # 성공 시 즉시 반환. 실패·미설정 시 아래 Class/Actor/System 매니저로 폴백한다.
+        if is_mcp_enabled():
+            mcp_entry = MCP_TOOL_MAP.get((target_file, action))
+            if mcp_entry and build_stdio_server_parameters() is not None:
+                # MCP 툴은 구조화 step의 target_info를 툴 inputSchema에 맞게 정규화한 뒤 호출한다.
+                # 결과 성공 여부는 call_mcp_tool이 {success,data,error,modified_files}로 정리한 값을 사용한다.
+                norm = _normalize_mcp_arguments(target_file, action, target_info)
+                path_key = os.environ.get("MCP_PATH_ARG_NAME", "targetDir")
+                async with game_locks[game_id]:
+                    r = await call_mcp_tool(
+                        mcp_entry["tool"],
+                        norm,
+                        data_path,
+                        path_arg_name=path_key,
+                    )
+                if r.get("success"):
+                    step_results[sid] = {**r, "step_id": sid}
+                    return {
+                        "step_id": sid,
+                        "tool_name": mcp_entry["tool"],
+                        "success": True,
+                        "stdout": str(r.get("data", "")),
+                        "stderr": r.get("error") or "",
+                        "modified_files": r.get("modified_files")
+                        or mcp_entry.get("backup_files", [target_file]),
+                        "structured": True,
+                        "timestamp": ts,
+                    }
+                logger.warning(
+                    "[Executor] MCP 실패, 레거시 매니저로 폴백 step_id=%s err=%s",
+                    sid,
+                    r.get("error"),
+                )
+                if not _supports_legacy_fallback(target_file, action):
+                    # MCP는 실패했지만, 동일 작업을 레거시로 복구할 수 없는 케이스이므로 중단(Abort).
+                    err = _structured_error(
+                        "MCP_ABORT_NO_FALLBACK",
+                        target_file,
+                        action,
+                        str(r.get("error") or "unknown mcp error"),
+                        hint=f"tool={mcp_entry['tool']}",
+                    )
+                    step_results[sid] = {"success": False, "error": err, "step_id": sid}
+                    return {
+                        "step_id": sid,
+                        "tool_name": mcp_entry["tool"],
+                        "success": False,
+                        "stderr": err,
+                        "structured": True,
+                        "timestamp": ts,
+                    }
+
         # target_file/action_type 조합을 현재 MVP에서 지원하는 매니저 호출로 매핑한다.
         if target_file == "Classes.json" and action == "query":
             mgr = ClassManager(data_path, f"struct_{sid}")
@@ -305,8 +638,43 @@ async def _execute_one_structured_step(
                 "timestamp": ts,
             }
 
+        if target_file == "Skills.json" and action == "create":
+            mgr = SkillManager(data_path, f"struct_{sid}")
+            name = (target_info.get("name") or target_info.get("skill_name") or "").strip()
+            if not name:
+                err = "Skills 스텝 create: name 또는 skill_name 필요"
+                step_results[sid] = {"success": False, "error": err, "step_id": sid}
+                return {
+                    "step_id": sid,
+                    "tool_name": "structured_skills_create",
+                    "success": False,
+                    "stderr": err,
+                    "structured": True,
+                    "timestamp": ts,
+                }
+            extra = {k: target_info[k] for k in ("mpCost", "description") if k in target_info}
+            r = await mgr.execute("add", name, **extra)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_skills_create",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "modified_files": r.get("modified_files"),
+                "structured": True,
+                "timestamp": ts,
+            }
+
         # 위 조건에 없는 target/action 조합은 현재 MVP에서 아직 구현되지 않았다는 뜻이다.
-        err = f"지원하지 않는 구조화 스텝: {target_file!r} + {action!r}"
+        # (MCP 핸들러 없음 + 레거시 매니저 핸들러 없음)인 "정의되지 않은 액션"이다.
+        err = _structured_error(
+            "UNSUPPORTED_STRUCTURED_STEP",
+            target_file,
+            action,
+            "no mcp/legacy handler",
+            hint=f"raw_action={raw_action}",
+        )
         step_results[sid] = {"success": False, "error": err, "step_id": sid}
         return {
             "step_id": sid,
@@ -391,7 +759,7 @@ async def _executor_structured(
             )
             continue
 
-        entry = await _execute_one_structured_step(step, data_path, step_results)
+        entry = await _execute_one_structured_step(step, data_path, step_results, game_id)
         changes_log.append(entry)
 
     modified_game_state = _create_snapshot(data_path, target_files)
