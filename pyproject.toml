@@ -27,6 +27,7 @@ dependencies = [
     "sqlalchemy>=2.0.48",
     "psycopg[binary]>=3.3.3",
     "psycopg2>=2.9.11",
+    "mcp>=1.26.0",
 ]
 
 [project.optional-dependencies]
@@ -67,6 +68,7 @@ follow_imports = "skip"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["app/backend/tests", "agent/tests"]
+markers = ["integration: 실제 LLM API 호출이 필요한 통합 테스트 (API 키 필요)"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["agent", "app/backend", "shared"]
