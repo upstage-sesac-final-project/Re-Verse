@@ -12,6 +12,8 @@ from typing import Any
 
 import pytest
 
+from agent.graph.nodes.validator import validator
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -19,8 +21,6 @@ if str(PROJECT_ROOT) not in sys.path:
 AGENT_ROOT = PROJECT_ROOT / "agent"
 GRAPH_ROOT = AGENT_ROOT / "graph"
 NODES_ROOT = GRAPH_ROOT / "nodes"
-
-from agent.graph.nodes.validator import validator
 
 
 def load_json_file(json_path: Path) -> Any:
@@ -363,7 +363,9 @@ async def test_validator_schema_failure_increments_retry_count():
     assert result["success"] is False
     assert result["retry_count"] == 1
     assert result["validation_summary"] == "총 3개 파일 중 1개 파일 검증에 실패했습니다."
-    actor_result = next(item for item in result["validation_results"] if item["target"] == "Actors.json")
+    actor_result = next(
+        item for item in result["validation_results"] if item["target"] == "Actors.json"
+    )
     assert actor_result["success"] is False
     assert actor_result["error_count"] > 0
     assert result["validation_result"]["passed"] is False
@@ -378,7 +380,9 @@ async def test_validator_unsupported_schema_returns_compatible_shape():
     state["modified_game_state"]["Unknown.json"] = {"foo": "bar"}
     result = await validator(state)
 
-    unknown_result = next(item for item in result["validation_results"] if item["target"] == "Unknown.json")
+    unknown_result = next(
+        item for item in result["validation_results"] if item["target"] == "Unknown.json"
+    )
     assert unknown_result["success"] is False
     assert unknown_result["message"] == "Unknown.json validation failed"
     assert unknown_result["errors"][0]["msg"] == "unsupported schema for Unknown.json"

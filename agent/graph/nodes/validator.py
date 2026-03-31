@@ -94,6 +94,7 @@ def build_output(
         "success": success,
     }
 
+
 def build_validation_summary(validation_results: list[dict[str, Any]]) -> str:
     if not validation_results:
         return "검증할 파일이 없어 validator를 종료했습니다."
@@ -163,8 +164,7 @@ async def validator(state: AgentState) -> dict[str, Any]:
         return result
 
     validation_results = [
-        validate_single_file(file_name, data)
-        for file_name, data in modified_game_state.items()
+        validate_single_file(file_name, data) for file_name, data in modified_game_state.items()
     ]
     success = all(item.get("success") for item in validation_results)
     validation_summary = build_validation_summary(validation_results)
