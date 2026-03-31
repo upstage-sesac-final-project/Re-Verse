@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 import agent.schemas as schemas_pkg
 from agent.graph.state import AgentState
+from agent.graph.utils.game_state_json import load_snapshot_payload
 from agent.prompts.validator_prompt import build_prompt as build_validator_prompt
 
 logger = logging.getLogger(__name__)
@@ -305,7 +306,11 @@ def detect_modified_files(
 ) -> list[str]:
     modified_files: list[str] = []
     for file_name, modified_value in modified_game_state.items():
-        if file_name not in current_game_state or current_game_state[file_name] != modified_value:
+        if file_name not in current_game_state:
+            modified_files.append(file_name)
+            continue
+        current_value = current_game_state[file_name]
+        if load_snapshot_payload(current_value) != load_snapshot_payload(modified_value):
             modified_files.append(file_name)
     return sorted(modified_files)
 
@@ -314,8 +319,11 @@ def merge_reference_snapshots(
     current_game_state: dict[str, Any],
     modified_game_state: dict[str, Any],
 ) -> dict[str, Any]:
-    merged = dict(current_game_state)
-    merged.update(modified_game_state)
+    merged: dict[str, Any] = {}
+    for k, v in current_game_state.items():
+        merged[k] = load_snapshot_payload(v)
+    for k, v in modified_game_state.items():
+        merged[k] = load_snapshot_payload(v)
     return merged
 
 
@@ -770,7 +778,7 @@ async def validator(state: AgentState) -> dict:
     validation_results = [
         validate_single_file(
             file_name=file_name,
-            data=modified_game_state[file_name],
+            data=load_snapshot_payload(modified_game_state[file_name]),
             reference_snapshots=reference_snapshots,
             backup_paths=backup_paths,
             changes_log=changes_log,

@@ -34,8 +34,9 @@ class AgentState(TypedDict, total=False):
     execution_plan: list[dict]
 
     # ── 4단계 Executor ──────────────────────────────────────
-    current_game_state: dict  # 수정 전 스냅샷 (파일명 → 데이터)
-    modified_game_state: dict  # 수정 후 스냅샷
+    # 파일명 → 스냅샷 JSON **파일 절대 경로(str)** (내용 dict는 graph/utils/game_state_json 로드)
+    current_game_state: dict
+    modified_game_state: dict
 
     # ── 5단계 Validator ─────────────────────────────────────
     validation_results: list  # 파일별 검증 결과 리스트
