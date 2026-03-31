@@ -2,7 +2,7 @@
 language: "ko-KR"
 
 reviews:
-  profile: "software_engineer"
+  profile: "chill"
 
   # 봇이 깐깐하게 'Request Changes' 상태를 만들어 PR 병합(Merge)을 막는 것을 방지합니다. (팀 프로젝트 시 권장)
   request_changes_workflow: false
