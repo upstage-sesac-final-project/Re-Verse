@@ -9,33 +9,16 @@ from .events import EventCommand
 
 class TroopMember(BaseModel):
     enemyId: int = Field(description="적 그룹 멤버 > 적 ID", default=1, ge=0)
-    hidden: bool = Field(
-        description="적 그룹 멤버 > 출현 시 숨김 여부(투명화)",
-        default=False,
-    )
-    x: int = Field(
-        description="적 그룹 멤버 > X 좌표",
-        default=0,
-    )
-    y: int = Field(
-        description="적 그룹 멤버 > Y 좌표",
-        default=0,
-    )
+    hidden: bool = Field(description="적 그룹 멤버 > 출현 시 숨김 여부(투명화)", default=False)
+    x: int = Field(description="적 그룹 멤버 > X 좌표", default=0)
+    y: int = Field(description="적 그룹 멤버 > Y 좌표", default=0)
 
 
 class TroopPageCondition(BaseModel):
-    turnEnding: bool = Field(
-        description="페이지 조건 > 액터 HP 비율",
-        default=False,
-    )
-
-    turnValid: bool = Field(
-        description="페이지 조건 > 턴 조건 사용 여부",
-        default=False,
-    )
+    turnEnding: bool = Field(description="페이지 조건 > 액터 HP 비율", default=False)
+    turnValid: bool = Field(description="페이지 조건 > 턴 조건 사용 여부", default=False)
     turnA: int = Field(description="페이지 조건 > 턴 A", default=0, ge=0)
     turnB: int = Field(description="페이지 조건 > 턴 B", default=0, ge=0)
-
     enemyValid: bool = Field(
         description="페이지 조건 > 적 조건 사용 여부",
         default=False,
@@ -58,7 +41,7 @@ class TroopPageCondition(BaseModel):
 
 
 class TroopPage(BaseModel):
-    conditions: TroopPageCondition = Field(description="전투 이벤트 > 발동 조건")
+    conditions: TroopPageCondition = Field(description="전투 이벤트 > 조건")
     list: list[EventCommand] = Field(
         description="전투 이벤트 > 이벤트 명령 목록", default_factory=list
     )
