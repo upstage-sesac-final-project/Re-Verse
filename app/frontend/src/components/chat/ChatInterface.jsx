@@ -4,7 +4,7 @@ import PromptInput from './PromptInput'
 import TypingIndicator from './TypingIndicator'
 import { sendPrompt } from '../../services/llmApi'
 
-export default function ChatInterface({ onGameUpdate, isCollapsed, onToggleCollapse }) {
+export default function ChatInterface({ projectId, onGameUpdate, isCollapsed, onToggleCollapse }) {
   const [messages, setMessages] = useState([])
   const [isLoading, setIsLoading] = useState(false)
 
@@ -13,7 +13,7 @@ export default function ChatInterface({ onGameUpdate, isCollapsed, onToggleColla
     setMessages((prev) => [...prev, userMessage])
     setIsLoading(true)
 
-    const response = await sendPrompt(text, messages)
+    const response = await sendPrompt(text, projectId, messages)
     setMessages((prev) => [...prev, response])
     setIsLoading(false)
 

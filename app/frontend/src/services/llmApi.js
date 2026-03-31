@@ -1,4 +1,4 @@
-import { post } from './api'
+import { authFetch } from './api'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 
@@ -34,16 +34,18 @@ async function mockSendPrompt() {
 /**
  * 사용자 프롬프트를 백엔드 LLM 엔드포인트로 전송
  * Backend: POST /api/v1/llm/process
- * Request: { request: string, game_id?: string, session_id?: string }
- * Response: { code, message, result, intent, modifications, affected_files }
+ * Request: { project_id: string, message: string }
  */
-export async function sendPrompt(message, history) {
+export async function sendPrompt(message, projectId, history) {
   if (USE_MOCK) {
     return mockSendPrompt()
   }
 
   try {
-    const data = await post('/v1/llm/process', { request: message })
+    const data = await authFetch('/v1/llm/process', {
+      method: 'POST',
+      body: JSON.stringify({ project_id: projectId, message }),
+    })
     return {
       role: 'assistant',
       content: data.message,
