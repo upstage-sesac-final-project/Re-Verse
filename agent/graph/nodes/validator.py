@@ -27,8 +27,6 @@ from agent.schemas.weapons import WeaponsFile
 
 logger = logging.getLogger(__name__)
 
-# input 받는 부분이 날라감... 확인
-
 SCHEMA_MAP: dict[str, type[Any]] = {
     "Actors.json": ActorsFile,
     "Animations.json": AnimationsFile,

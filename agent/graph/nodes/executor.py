@@ -763,9 +763,13 @@ async def _executor_structured(
         changes_log.append(entry)
 
     modified_game_state = _create_snapshot(data_path, target_files)
+    modified_file_paths = _collect_modified_file_paths(
+        data_path, current_game_state, modified_game_state, changes_log
+    )
     return {
         "current_game_state": current_game_state,
         "modified_game_state": modified_game_state,
+        "modified_file_paths": modified_file_paths,
         "changes_log": changes_log,
         "backup_paths": backup_paths,
         "retry_count": retry_count,
@@ -960,6 +964,9 @@ async def executor(state: AgentState) -> dict:
 
     # ── Step 6: 수정 후 스냅샷 ────────────────────────────────
     modified_game_state = _create_snapshot(data_path, list(target_files))
+    modified_file_paths = _collect_modified_file_paths(
+        data_path, current_game_state, modified_game_state, changes_log
+    )
 
     logger.info(
         "[Executor MVP] 완료: %d개 툴 실행, %d개 파일 수정",
@@ -970,6 +977,7 @@ async def executor(state: AgentState) -> dict:
     return {
         "current_game_state": current_game_state,
         "modified_game_state": modified_game_state,
+        "modified_file_paths": modified_file_paths,
         "changes_log": changes_log,
         "backup_paths": backup_paths,
         "retry_count": retry_count,
@@ -1028,6 +1036,42 @@ def _create_backup(data_path: Path, target_files: list[str]) -> dict[str, str]:
                 logger.warning("백업 실패: %s - %s", file_name, e)
 
     return backup_paths
+
+
+def _collect_modified_file_paths(
+    data_path: Path,
+    current_game_state: dict[str, Any],
+    modified_game_state: dict[str, Any],
+    changes_log: list[dict[str, Any]],
+) -> list[str]:
+    """Collect absolute paths for files reported or detected as modified."""
+    paths: list[str] = []
+    seen: set[str] = set()
+
+    def _append_path(file_ref: Any) -> None:
+        if not isinstance(file_ref, str) or not file_ref.strip():
+            return
+        candidate = Path(file_ref)
+        resolved = candidate if candidate.is_absolute() else (data_path / file_ref)
+        key = str(resolved)
+        if key in seen:
+            return
+        seen.add(key)
+        paths.append(key)
+
+    for log in changes_log:
+        modified_files = log.get("modified_files")
+        if not isinstance(modified_files, list):
+            continue
+        for file_ref in modified_files:
+            _append_path(file_ref)
+
+    snapshot_keys = set(current_game_state) | set(modified_game_state)
+    for file_name in sorted(snapshot_keys):
+        if current_game_state.get(file_name) != modified_game_state.get(file_name):
+            _append_path(file_name)
+
+    return paths
 
 
 async def _translate_execution_plan_mvp(execution_plan: list[dict]) -> SimplePlan:

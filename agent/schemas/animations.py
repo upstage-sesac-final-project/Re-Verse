@@ -38,7 +38,8 @@ class Animation(BaseModel):
     # --------------- 일반 설정
 
     name: str = Field(description="일반 설정 > 이름", default="")
-    displayType: int = Field(description="일반 설정 > 디스플레이 유형", default=0)
+    displayType: int = Field(description="일반 설정 > 디스플레이 유형", default=0, ge=0, le=2)
+    alignBottom: bool | None = Field(description="일반 설정 > 아래로 정렬", default=None)
 
     # --------------- 파티클 효과
 
@@ -57,8 +58,8 @@ class Animation(BaseModel):
 
     flashTimings: list[FlashTiming] = Field(description="플래시 타이밍", default_factory=list)
 
-    # --------------- timings : 아마도? MV 호환용 레거시 필드로 추정
-    timings: list = Field(description="이놈 때문에 내가", default_factory=list)
+    # --------------- timings
+    timings: list = Field(description="MV 호환용 레거시 필드로 추정", default_factory=list)
 
 
 class AnimationsFile(RootModel[Annotated[list[Animation | None], Field(min_length=1)]]):

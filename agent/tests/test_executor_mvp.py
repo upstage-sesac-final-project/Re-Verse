@@ -640,6 +640,71 @@ async def test_unsupported_structured_step_error_is_standardized():
     assert "target_file=Skills.json" in (log.get("stderr") or "")
 
 
+@pytest.mark.asyncio
+async def test_executor_returns_modified_file_paths_for_reported_changes(monkeypatch):
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+
+    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+        return {"success": True, "data": {"ok": True}, "modified_files": ["Actors.json"]}
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
+
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "update actor",
+                "action_type": "update",
+                "target_file": "Actors.json",
+                "target_info": {"actor_id": 1, "updates": {"nickname": "Hero"}},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+
+    expected_path = str(executor_module._get_data_path("game_001") / "Actors.json")
+    assert result["modified_file_paths"] == [expected_path]
+
+
+@pytest.mark.asyncio
+async def test_executor_returns_empty_modified_file_paths_for_read_only_query(monkeypatch):
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+
+    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+        return {"success": True, "data": {"id": 3, "name": "Harold"}, "modified_files": []}
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
+
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "get actor",
+                "action_type": "query",
+                "target_file": "Actors.json",
+                "target_info": {"actor_id": "3"},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+
+    assert result["modified_file_paths"] == []
+
+
 if __name__ == "__main__":
     # 단독 실행시 테스트
     print("=" * 60)
