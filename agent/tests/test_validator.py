@@ -9,7 +9,6 @@ import types
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -21,7 +20,7 @@ AGENT_ROOT = PROJECT_ROOT / "agent"
 GRAPH_ROOT = AGENT_ROOT / "graph"
 NODES_ROOT = GRAPH_ROOT / "nodes"
 
-from agent.graph.nodes.validator import _ContentValidationOutput, validator
+from agent.graph.nodes.validator import validator
 
 
 def load_json_file(json_path: Path) -> Any:
@@ -295,6 +294,7 @@ def _system(party_members: list[int]) -> dict[str, Any]:
         "ship": _vehicle(),
         "terms": {},
         "titleBgm": _audio_file(),
+        "victoryMe": _audio_file(),
         "partyMembers": party_members,
         "elements": [None, "Fire"],
         "equipTypes": [None, "Weapon", "Shield"],
@@ -338,93 +338,53 @@ def _base_validator_state() -> dict[str, Any]:
     }
 
 
-def _content_result(
-    *,
-    is_consistent: bool,
-    unexpected_changes: list[str] | None = None,
-    missing_expected_changes: list[str] | None = None,
-    actual_changes: list[str] | None = None,
-) -> _ContentValidationOutput:
-    return _ContentValidationOutput(
-        expected_changes=[
-            "Create actor Sofia with classId 1 in Actors.json",
-            "Add Sofia to System.partyMembers",
-        ],
-        actual_changes=actual_changes
-        or [
-            "Actors.json gains actor Sofia (id=2, classId=1)",
-            "System.json partyMembers gains actor id 2",
-        ],
-        unexpected_changes=unexpected_changes or [],
-        missing_expected_changes=missing_expected_changes or [],
-        is_consistent=is_consistent,
-        reasoning="mocked content validation result",
+@pytest.mark.asyncio
+async def test_validator_validates_all_modified_game_state_files():
+    state = _base_validator_state()
+    result = await validator(state)
+
+    assert result["success"] is True
+    assert [item["target"] for item in result["validation_results"]] == [
+        "Actors.json",
+        "Classes.json",
+        "System.json",
+    ]
+    assert result["validation_summary"] == "총 3개 파일이 모두 스키마 검증을 통과했습니다."
+    assert result["validation_result"]["passed"] is True
+    assert result["validation_result"]["error_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_validator_schema_failure_increments_retry_count():
+    state = _base_validator_state()
+    state["modified_game_state"]["Actors.json"][1]["classId"] = "invalid"
+    result = await validator(state)
+
+    assert result["success"] is False
+    assert result["retry_count"] == 1
+    assert result["validation_summary"] == "총 3개 파일 중 1개 파일 검증에 실패했습니다."
+    actor_result = next(item for item in result["validation_results"] if item["target"] == "Actors.json")
+    assert actor_result["success"] is False
+    assert actor_result["error_count"] > 0
+    assert result["validation_result"]["passed"] is False
+    assert result["validation_result"]["error_count"] == sum(
+        item["error_count"] for item in result["validation_results"]
     )
 
 
 @pytest.mark.asyncio
-async def test_validator_content_validation_success():
+async def test_validator_unsupported_schema_returns_compatible_shape():
     state = _base_validator_state()
+    state["modified_game_state"]["Unknown.json"] = {"foo": "bar"}
+    result = await validator(state)
 
-    with patch("agent.graph.nodes.validator.invoke_llm", new_callable=AsyncMock) as mock_llm:
-        mock_llm.return_value = _content_result(is_consistent=True)
-        result = await validator(state)
-
-    content_result = next(item for item in result["validation_results"] if item["target"] == "content_consistency")
-    assert content_result["success"] is True
-    assert result["success"] is True
-    assert content_result["unexpected_changes"] == []
-    assert content_result["missing_expected_changes"] == []
-
-
-@pytest.mark.asyncio
-async def test_validator_content_validation_detects_unexpected_change():
-    state = _base_validator_state()
-    state["modified_game_state"]["Actors.json"][1]["name"] = "Renamed Hero"
-
-    with patch("agent.graph.nodes.validator.invoke_llm", new_callable=AsyncMock) as mock_llm:
-        mock_llm.return_value = _content_result(
-            is_consistent=False,
-            unexpected_changes=["Actors.json actor 1 name changed from Hero to Renamed Hero"],
-            actual_changes=[
-                "Actors.json gains actor Sofia (id=2, classId=1)",
-                "System.json partyMembers gains actor id 2",
-                "Actors.json actor 1 name changed from Hero to Renamed Hero",
-            ],
-        )
-        result = await validator(state)
-
-    content_result = next(item for item in result["validation_results"] if item["target"] == "content_consistency")
-    assert content_result["success"] is False
+    unknown_result = next(item for item in result["validation_results"] if item["target"] == "Unknown.json")
+    assert unknown_result["success"] is False
+    assert unknown_result["message"] == "Unknown.json validation failed"
+    assert unknown_result["errors"][0]["msg"] == "unsupported schema for Unknown.json"
     assert result["success"] is False
-    assert content_result["unexpected_changes"] == [
-        "Actors.json actor 1 name changed from Hero to Renamed Hero"
-    ]
-
-
-@pytest.mark.asyncio
-async def test_validator_content_validation_detects_missing_expected_change():
-    state = _base_validator_state()
-    state["modified_game_state"] = deepcopy(state["current_game_state"])
-
-    with patch("agent.graph.nodes.validator.invoke_llm", new_callable=AsyncMock) as mock_llm:
-        mock_llm.return_value = _content_result(
-            is_consistent=False,
-            missing_expected_changes=[
-                "Actor Sofia creation is missing from Actors.json",
-                "System.partyMembers update for Sofia is missing",
-            ],
-            actual_changes=[],
-        )
-        result = await validator(state)
-
-    content_result = next(item for item in result["validation_results"] if item["target"] == "content_consistency")
-    assert content_result["success"] is False
-    assert result["success"] is False
-    assert content_result["missing_expected_changes"] == [
-        "Actor Sofia creation is missing from Actors.json",
-        "System.partyMembers update for Sofia is missing",
-    ]
+    assert result["retry_count"] == 1
+    assert result["validation_summary"] == "총 4개 파일 중 1개 파일 검증에 실패했습니다."
 
 
 if __name__ == "__main__":
