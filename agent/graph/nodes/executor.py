@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import shutil
+import uuid
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -707,6 +708,10 @@ async def _executor_structured(
 
     이 경로의 역할은 "planner가 준 step들을 올바른 순서로 실행"하고,
     수정 전/후 스냅샷 및 백업을 묶어서 결과(`changes_log`)로 반환하는 것이다.
+
+    **상태 전달**
+    - `current_game_state` / `modified_game_state`는 논리 파일명 → **스냅샷 JSON 파일 절대 경로(str)**.
+      내용은 `agent.graph.utils.game_state_json.load_snapshot_payload`로 연다 (2·5단계 공용).
     """
     ordered = _topological_sort_steps(execution_plan)
     target_files = sorted(_collect_structured_target_files(execution_plan))
@@ -721,7 +726,9 @@ async def _executor_structured(
     )
 
     # snapshot/backup은 "실패했을 때 롤백"과 "실행 전/후 비교"를 위한 MVP 장치다.
-    current_game_state = _create_snapshot(data_path, target_files)
+    run_id = uuid.uuid4().hex
+    snap_dir = _executor_snapshot_dir(data_path, run_id)
+    current_game_state = _copy_snapshot_files_to_disk(data_path, target_files, snap_dir, "before")
     backup_paths = _create_backup(data_path, target_files)
 
     changes_log: list[dict[str, Any]] = []
@@ -762,7 +769,7 @@ async def _executor_structured(
         entry = await _execute_one_structured_step(step, data_path, step_results, game_id)
         changes_log.append(entry)
 
-    modified_game_state = _create_snapshot(data_path, target_files)
+    modified_game_state = _copy_snapshot_files_to_disk(data_path, target_files, snap_dir, "after")
     return {
         "current_game_state": current_game_state,
         "modified_game_state": modified_game_state,
@@ -866,11 +873,13 @@ async def executor(state: AgentState) -> dict:
             map_num = int(match.group(1)) if match else 1
             target_files.add(f"Map{map_num:03d}.json")
 
-    # 수정 전 스냅샷 생성
-    current_game_state = _create_snapshot(data_path, list(target_files))
+    tf_list = sorted(target_files)
+    run_id = uuid.uuid4().hex
+    snap_dir = _executor_snapshot_dir(data_path, run_id)
+    current_game_state = _copy_snapshot_files_to_disk(data_path, tf_list, snap_dir, "before")
 
     # 백업 생성
-    backup_paths = _create_backup(data_path, list(target_files))
+    backup_paths = _create_backup(data_path, tf_list)
 
     logger.info("[Executor MVP] 백업 생성: %d개 파일", len(backup_paths))
 
@@ -958,8 +967,8 @@ async def executor(state: AgentState) -> dict:
                 }
             )
 
-    # ── Step 6: 수정 후 스냅샷 ────────────────────────────────
-    modified_game_state = _create_snapshot(data_path, list(target_files))
+    # ── Step 6: 수정 후 스냅샷 (경로만 state에 반영) ─────────────
+    modified_game_state = _copy_snapshot_files_to_disk(data_path, tf_list, snap_dir, "after")
 
     logger.info(
         "[Executor MVP] 완료: %d개 툴 실행, %d개 파일 수정",
@@ -986,24 +995,29 @@ def _get_data_path(game_id: str) -> Path:
     return get_game_data_path(game_id)
 
 
-def _create_snapshot(data_path: Path, target_files: list[str]) -> dict[str, Any]:
-    """수정 전/후 스냅샷 생성 (MVP: 메모리 방식)"""
-    snapshot = {}
+def _executor_snapshot_dir(data_path: Path, run_id: str) -> Path:
+    """실행 전/후 JSON 사본을 두는 디렉터리 (`data/.executor_snapshots/<run_id>/`)."""
+    d = data_path / ".executor_snapshots" / run_id
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
+
+def _copy_snapshot_files_to_disk(
+    data_path: Path, target_files: list[str], dest_dir: Path, prefix: str
+) -> dict[str, str]:
+    """각 대상 파일을 `dest_dir`에 `prefix_<파일명>`으로 복사. 반환: 논리 파일명 → 절대 경로."""
+    out: dict[str, str] = {}
     for file_name in target_files:
-        file_path = data_path / file_name
-        if file_path.exists():
-            try:
-                with open(file_path, encoding="utf-8") as f:
-                    snapshot[file_name] = json.load(f)
-                logger.debug("스냅샷 생성: %s", file_name)
-            except Exception as e:
-                logger.warning("스냅샷 실패: %s - %s", file_name, e)
-                snapshot[file_name] = {"_snapshot_error": str(e)}
-        else:
-            logger.debug("파일 없음: %s", file_name)
-
-    return snapshot
+        src = data_path / file_name
+        if not src.exists():
+            continue
+        dst = dest_dir / f"{prefix}_{file_name}"
+        try:
+            shutil.copy2(src, dst)
+            out[file_name] = str(dst.resolve())
+        except OSError as e:
+            logger.warning("스냅샷 파일 복사 실패: %s - %s", file_name, e)
+    return out
 
 
 def _create_backup(data_path: Path, target_files: list[str]) -> dict[str, str]:
