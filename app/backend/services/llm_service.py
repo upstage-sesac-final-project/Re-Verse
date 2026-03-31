@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.core.config import agent_config
 from app.backend.core.config import settings
-from app.backend.models.game import ConversationLog
+from app.backend.repositories.project_repository import project_repository
 from app.backend.schemas.llm import ChangeLog, ProcessResponse
 from app.backend.services.game_service import game_service
 from app.backend.services.json_modify_tools.dispatcher import (
@@ -277,7 +277,8 @@ class LLMService:
         processing_time: float,
         error_message: str | None = None,
     ) -> None:
-        log = ConversationLog(
+        await project_repository.save_conversation_log(
+            db=db,
             project_id=project_id,
             user_input=user_input,
             agent_response=agent_response,
@@ -286,8 +287,6 @@ class LLMService:
             processing_time=processing_time,
             error_message=error_message,
         )
-        db.add(log)
-        await db.commit()
 
 
 # 싱글톤 인스턴스

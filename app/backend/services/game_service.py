@@ -11,11 +11,11 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.backend.core.config import settings
 from app.backend.models.game import Project
+from app.backend.repositories.project_repository import project_repository
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +29,7 @@ class GameService:
         db: AsyncSession,
     ) -> Project:
         # ① 프로젝트 수 제한
-        count_result = await db.execute(
-            select(func.count()).select_from(Project).where(Project.user_id == user_id)
-        )
-        count = count_result.scalar() or 0
+        count = await project_repository.count_by_user(user_id, db)
         if count >= settings.MAX_PROJECTS_PER_USER:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -40,8 +37,7 @@ class GameService:
             )
 
         # ② game_id 채번
-        max_result = await db.execute(select(func.max(Project.id)))
-        max_id = max_result.scalar() or 0
+        max_id = await project_repository.get_max_id(db)
         game_id = f"game_{max_id + 1:03d}"
 
         # ③ 트랜잭션 + 롤백
@@ -51,15 +47,14 @@ class GameService:
             description=description,
             game_id=game_id,
         )
-        db.add(project)
-        await db.flush()
+        await project_repository.create(project, db)
 
         try:
             self._copy_base_game(game_id)
-            await db.commit()
-            await db.refresh(project)
+            await project_repository.commit(db)
+            await project_repository.refresh(project, db)
         except Exception:
-            await db.rollback()
+            await project_repository.rollback(db)
             self._cleanup_game_folder(game_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -68,14 +63,10 @@ class GameService:
         return project
 
     async def list_projects(self, user_id: int, db: AsyncSession) -> list[Project]:
-        result = await db.execute(
-            select(Project).where(Project.user_id == user_id).order_by(Project.updated_at.desc())
-        )
-        return list(result.scalars().all())
+        return await project_repository.find_by_user(user_id, db)
 
     async def get_project(self, project_id: int, user_id: int, db: AsyncSession) -> Project:
-        result = await db.execute(select(Project).where(Project.id == project_id))
-        project = result.scalar_one_or_none()
+        project = await project_repository.find_by_id(project_id, db)
         if project is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -101,18 +92,17 @@ class GameService:
             project.name = name
         if description is not None:
             project.description = description
-        await db.commit()
-        await db.refresh(project)
+        await project_repository.commit(db)
+        await project_repository.refresh(project, db)
         return project
 
     async def delete_project(self, project_id: int, user_id: int, db: AsyncSession) -> None:
         project = await self.get_project(project_id, user_id, db)
         game_id = project.game_id
         try:
-            await db.delete(project)
-            await db.commit()
+            await project_repository.delete(project, db)
         except Exception:
-            await db.rollback()
+            await project_repository.rollback(db)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="프로젝트 삭제 중 오류가 발생했습니다.",
