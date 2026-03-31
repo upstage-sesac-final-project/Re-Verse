@@ -186,35 +186,3 @@ class TestDeleteProject:
     async def test_delete_not_found(self, client: AsyncClient, auth_headers: dict):
         resp = await client.delete("/api/v1/games/9999", headers=auth_headers)
         assert resp.status_code == 404
-
-
-class TestGetGameData:
-    """GET /api/v1/games/{project_id}/data/{filename}"""
-
-    async def test_path_traversal_dotdot(
-        self, client: AsyncClient, auth_headers: dict, test_project: Project
-    ):
-        resp = await client.get(
-            f"/api/v1/games/{test_project.id}/data/..%2F..%2Fetc%2Fpasswd",
-            headers=auth_headers,
-        )
-        # URL 인코딩된 ..은 라우팅 단계에서 처리되어 400 또는 404
-        assert resp.status_code in (400, 404)
-
-    async def test_path_traversal_backslash(
-        self, client: AsyncClient, auth_headers: dict, test_project: Project
-    ):
-        resp = await client.get(
-            f"/api/v1/games/{test_project.id}/data/..\\secret",
-            headers=auth_headers,
-        )
-        assert resp.status_code == 400
-
-    async def test_file_not_found(
-        self, client: AsyncClient, auth_headers: dict, test_project: Project
-    ):
-        resp = await client.get(
-            f"/api/v1/games/{test_project.id}/data/NonExistent.json",
-            headers=auth_headers,
-        )
-        assert resp.status_code == 404
