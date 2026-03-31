@@ -51,19 +51,28 @@ _RAW: dict[str, dict[str, TileEntry]] = {
         "성": TileEntry(264, 1, "castle"),
     },
     # ── Outside (외부) ──────────────────────────────────────────────────────
+    # Steam 원본 txt 기준 slot 번호 (각 48 ID 간격, base=2048)
     "Outside_A1": {
-        "깊은물": TileEntry(2048, 0, "deep water"),
-        "물": TileEntry(2624, 0, "water"),  # 실측 top3 (outdoor)
-        "폭포": TileEntry(2160, 0, "waterfall"),
+        "깊은물": TileEntry(2048, 0, "water A meadow"),  # slot 0
+        "연못": TileEntry(2096, 0, "pond"),  # slot 1
+        "수초A": TileEntry(2144, 0, "swamp grass A"),  # slot 2
+        "물_항구": TileEntry(2624, 0, "water E port"),  # slot 12 (실측 top)
+        "폭포A": TileEntry(2288, 0, "waterfall A"),  # slot 5
+        "독늪": TileEntry(2720, 0, "poison swamp"),  # slot 14
     },
+    # Steam 원본 txt 기준 slot 번호 (각 48 ID 간격, base=2816)
     "Outside_A2": {
-        "풀밭": TileEntry(2816, 0, "grass"),  # 실측 top1 (outdoor A2)
-        "모래": TileEntry(2864, 0, "sand"),
-        "흙": TileEntry(2912, 0, "dirt"),
-        "눈": TileEntry(2960, 0, "snow"),
-        "절벽": TileEntry(3200, 0, "cliff"),  # 실측 top4
-        "돌길": TileEntry(3584, 0, "stone path"),  # 실측 top1 (outdoor 전체)
-        "돌바닥": TileEntry(3968, 0, "stone floor"),  # 실측 top9
+        "풀밭": TileEntry(2816, 0, "meadow"),  # slot 0 ✓
+        "흙_풀밭": TileEntry(2864, 0, "dirt on meadow"),  # slot 1
+        "길_풀밭": TileEntry(2912, 0, "road meadow"),  # slot 2
+        "돌바닥A": TileEntry(2960, 0, "cobblestones A"),  # slot 3
+        "흙": TileEntry(3200, 0, "dirt"),  # slot 8
+        "모래": TileEntry(3584, 0, "sand"),  # slot 16
+        "길_모래": TileEntry(3680, 0, "road sand"),  # slot 18
+        "돌바닥B": TileEntry(3728, 0, "cobblestones B"),  # slot 19 (실측 top)
+        "눈": TileEntry(3968, 0, "snow"),  # slot 24
+        "흙_눈": TileEntry(4016, 0, "dirt snow"),  # slot 25
+        "단차": TileEntry(4304, 0, "ledge/cliff"),  # slot 31
     },
     "Outside_A3": {
         "지붕_갈색": TileEntry(4352, 0, "brown roof"),
@@ -129,10 +138,13 @@ _RAW: dict[str, dict[str, TileEntry]] = {
     },
     # ── Dungeon (던전) ──────────────────────────────────────────────────────
     "Dungeon_A1": {
-        "물": TileEntry(2048, 0, "water"),
-        "용암": TileEntry(2096, 0, "lava"),
-        "독늪": TileEntry(2144, 0, "poison swamp"),
-        "어두운물": TileEntry(2240, 0, "dark water"),  # 실측 top3 (dungeon)
+        "물A": TileEntry(2048, 0, "water A"),
+        "깊은물": TileEntry(2096, 0, "deep water"),
+        "수초": TileEntry(2144, 0, "swamp grass"),
+        "수련": TileEntry(2192, 0, "lotus pads"),
+        "용암": TileEntry(2240, 0, "lava"),  # Steam 원본: slot 4
+        "폭포_용암": TileEntry(2288, 0, "waterfall lava cave"),
+        "물D_암굴": TileEntry(2528, 0, "water D rock cave"),  # 실측 top (dungeon)
     },
     "Dungeon_A2": {
         "던전벽": TileEntry(3104, 1, "dungeon wall"),  # 실측 압도적 top1 (dungeon layer1)
@@ -158,10 +170,16 @@ _RAW: dict[str, dict[str, TileEntry]] = {
         "보물상자": TileEntry(11, 1, "treasure chest"),
         "해골": TileEntry(19, 1, "skull"),
         "제단": TileEntry(27, 1, "altar"),
+        "계단_위": TileEntry(35, 1, "stairs up"),
+        "계단_아래": TileEntry(43, 1, "stairs down"),
     },
     "Dungeon_C": {
-        "균열": TileEntry(256, 1, "crack"),
-        "이끼": TileEntry(260, 1, "moss"),
+        # Steam 원본: Decorative Pillar A~H (slot 0~7), 각 tile_id=256+slot*4
+        "기둥_돌A": TileEntry(256, 1, "decorative pillar stone A"),
+        "기둥_돌B": TileEntry(257, 1, "decorative pillar stone B"),
+        "기둥_유적": TileEntry(258, 1, "decorative pillar temple"),
+        "기둥_암굴": TileEntry(259, 1, "decorative pillar rock cave"),
+        "기둥_마왕성": TileEntry(260, 1, "decorative pillar demon castle"),
     },
     # ── SF Outside (SF 외부) ────────────────────────────────────────────────
     "SF_Outside_A3": {

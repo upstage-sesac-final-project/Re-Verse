@@ -11,6 +11,7 @@ from agent.map_editor.loader import (
     save_map_infos,
 )
 from agent.map_editor.tile_ops import THEME_TILESET, fill_map_layer
+from agent.map_editor.wfc.features import apply_features
 
 _DEFAULT_MAP_INFO: dict[str, Any] = {
     "expanded": False,
@@ -64,6 +65,8 @@ def create_map(game_id: str, params: dict[str, Any]) -> dict[str, Any]:
         tileset_id (int): 타일셋 ID (theme 지정 시 자동 설정, 기본: 1)
         base_tile_id (int): 레이어 0 채울 타일 ID 직접 지정 (theme보다 우선)
         parent_id (int): 부모 맵 ID (기본: 0)
+        background (str): feature 기반 생성 시 배경 카테고리 (theme과 함께 또는 단독)
+        features (list[dict]): feature spec 목록 — 지정 시 apply_features로 지형 자동 생성
 
     반환: {"map_id": int, "name": str, "theme": str | None}
     """
@@ -82,9 +85,16 @@ def create_map(game_id: str, params: dict[str, Any]) -> dict[str, Any]:
     map_data = _make_blank_map(width, height, tileset_id)
     map_data["displayName"] = name
 
-    # 레이어 0 채우기 (theme 또는 base_tile_id 지정 시)
-    base_tile_id = params.get("base_tile_id")
-    if theme or base_tile_id is not None:
+    # feature 기반 생성 (background/features 있으면 apply_features 우선)
+    if params.get("features") or params.get("background"):
+        feature_spec = {
+            "background": params.get("background") or theme or "grass",
+            "features": params.get("features", []),
+        }
+        apply_features(map_data, feature_spec)
+    elif theme or params.get("base_tile_id") is not None:
+        # 단순 flat 채우기
+        base_tile_id = params.get("base_tile_id")
         fill_map_layer(map_data, {"layer": 0, "theme": theme, "tile_id": base_tile_id})
 
     save_map(game_id, map_id, map_data)

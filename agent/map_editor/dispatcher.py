@@ -13,10 +13,13 @@ from agent.map_editor.map_ops import create_map, duplicate_map
 from agent.map_editor.meta_ops import update_meta
 from agent.map_editor.tile_ops import fill_map_layer, update_tile, update_tile_region
 from agent.map_editor.validator import validate_map
+from agent.map_editor.wfc.features import apply_features
+from agent.map_editor.wfc.painter import generate_map_from_zones
 
 MapOperation = Literal[
     "create_map",
     "duplicate_map",
+    "generate_map",
     "add_event",
     "update_event_commands",
     "update_event_dialogue",
@@ -68,6 +71,34 @@ def execute_map_operation(
                 "operation": operation,
                 "map_id": result_data["map_id"],
                 "changes": [{"operation": operation, "params": params, "result": result_data}],
+                "error": None,
+                "validation_errors": [],
+            }
+
+        if operation == "generate_map":
+            # feature 기반 맵 자동 생성: load → paint → validate → save
+            # params에 "features" 키 있으면 신규 방식, "zones"만 있으면 구형 호환
+            map_data = load_map(game_id, map_id)
+            if "features" in params or "background" in params:
+                updated = apply_features(map_data, params)
+            else:
+                updated = generate_map_from_zones(map_data, params)
+            validation_errors = validate_map(updated)
+            if validation_errors:
+                return {
+                    "success": False,
+                    "operation": operation,
+                    "map_id": map_id,
+                    "changes": [],
+                    "error": "맵 유효성 검사 실패",
+                    "validation_errors": validation_errors,
+                }
+            save_map(game_id, map_id, updated)
+            return {
+                "success": True,
+                "operation": operation,
+                "map_id": map_id,
+                "changes": [{"operation": operation, "params": params}],
                 "error": None,
                 "validation_errors": [],
             }
