@@ -65,9 +65,6 @@ class Settings(BaseSettings):
     BASE_GAME_PATH: str = "./storage/games/base_game"
     MAX_PROJECTS_PER_USER: int = 3
 
-    # ── Agent 모드 ─────────────────────────────────────────────
-    AGENT_MODE: str = "keyword"  # "keyword" | "graph"
-
     @field_validator("JWT_SECRET_KEY", mode="after")
     @classmethod
     def validate_jwt_secret(cls, v: str, info) -> str:
