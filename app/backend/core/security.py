@@ -1,6 +1,7 @@
 """JWT 인증 + 비밀번호 해싱 + Refresh Token."""
 
 import hashlib
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -14,6 +15,7 @@ from app.backend.core.config import settings
 from app.backend.db.session import get_db
 from app.backend.models.user import User
 
+logger = logging.getLogger(__name__)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
@@ -43,6 +45,7 @@ def decode_access_token(token: str) -> dict | None:
     try:
         return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
     except JWTError:
+        logger.warning("[Security] access token 디코딩 실패")
         return None
 
 
@@ -61,6 +64,7 @@ async def verify_refresh_token(token: str, db: AsyncSession):
 
     refresh = await refresh_token_repository.find_by_token(token, db)
     if refresh is None or refresh.revoked:
+        logger.warning("[Security] 유효하지 않은 refresh token 사용 시도")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="유효하지 않은 refresh token입니다.",
@@ -69,6 +73,7 @@ async def verify_refresh_token(token: str, db: AsyncSession):
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=UTC)
     if expires_at < datetime.now(UTC):
+        logger.warning("[Security] 만료된 refresh token 사용 시도 | user_id=%d", refresh.user_id)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="만료된 refresh token입니다.",
@@ -100,12 +105,14 @@ async def get_current_user(
         )
     user_id = payload.get("sub")
     if user_id is None:
+        logger.warning("[Security] 토큰에 사용자 정보(sub) 없음")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="토큰에 사용자 정보가 없습니다.",
         )
     user = await user_repository.find_by_id(int(user_id), db)
     if user is None:
+        logger.warning("[Security] 토큰의 사용자가 DB에 없음 | user_id=%s", user_id)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="사용자를 찾을 수 없습니다.",
@@ -118,6 +125,7 @@ async def get_admin_user(
 ) -> User:
     """관리자 전용 의존성 — is_admin=False면 403."""
     if not getattr(current_user, "is_admin", False):
+        logger.warning("[Security] 관리자 권한 없음 | user_id=%d", current_user.id)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="관리자 권한이 필요합니다.",

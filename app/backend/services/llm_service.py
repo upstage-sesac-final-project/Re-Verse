@@ -52,21 +52,41 @@ class LLMService:
         # ① Project 조회 + 권한 확인
         project = await game_service.get_project(project_id, user_id, db)
         game_id = project.game_id
+        logger.info(
+            "[LLMService] 처리 시작 | project_id=%d, game_id=%s, user_id=%d",
+            project_id,
+            game_id,
+            user_id,
+        )
 
         # ② Game-Level Lock
         lock = await _get_game_lock(game_id)
         async with lock:
             start_time = time.time()
+            logger.debug("[LLMService] game lock 획득 | game_id=%s", game_id)
 
             # ③ S3 동기화 (프로덕션)
             if settings.STORAGE_BACKEND == "s3":
+                logger.info("[LLMService] S3 → 로컬 동기화 시작 | game_id=%s", game_id)
                 await asyncio.to_thread(sync_game_from_s3, game_id)
 
             # ④ Agent 호출
             try:
+                logger.info("[LLMService] Agent 호출 시작 | game_id=%s", game_id)
                 result = await self._call_graph_agent(message, game_id)
+                logger.info(
+                    "[LLMService] Agent 호출 완료 | success=%s, intent=%s, affected_files=%s",
+                    result["success"],
+                    result["intent"],
+                    result.get("affected_files", []),
+                )
             except TimeoutError:
                 processing_time = time.time() - start_time
+                logger.error(
+                    "[LLMService] Agent 타임아웃 | game_id=%s, elapsed=%.1fs",
+                    game_id,
+                    processing_time,
+                )
                 await self._save_log(
                     db,
                     project_id,
@@ -85,6 +105,12 @@ class LLMService:
                 )
             except Exception as e:
                 processing_time = time.time() - start_time
+                logger.error(
+                    "[LLMService] Agent 호출 실패 | game_id=%s, error=%s",
+                    game_id,
+                    e,
+                    exc_info=True,
+                )
                 await self._save_log(
                     db,
                     project_id,
@@ -105,13 +131,19 @@ class LLMService:
             # ⑤ S3 업로드 (성공 시) + 로컬 정리
             if settings.STORAGE_BACKEND == "s3":
                 if result["success"]:
+                    logger.info("[LLMService] 로컬 → S3 업로드 시작 | game_id=%s", game_id)
                     await asyncio.to_thread(sync_game_to_s3, game_id)
                 local_game_dir = Path(settings.STORAGE_PATH).resolve() / game_id
                 if local_game_dir.is_dir():
                     await asyncio.to_thread(shutil.rmtree, local_game_dir)
-                    logger.info("로컬 게임 폴더 정리 완료: %s", local_game_dir)
+                    logger.info("[LLMService] 로컬 게임 폴더 정리 완료 | %s", local_game_dir)
 
             processing_time = time.time() - start_time
+            logger.info(
+                "[LLMService] 처리 완료 | project_id=%d, processing_time=%.2fs",
+                project_id,
+                processing_time,
+            )
 
             # ⑥ ConversationLog DB 저장
             await self._save_log(

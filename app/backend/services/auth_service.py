@@ -1,5 +1,7 @@
 """Auth Service — 회원가입, 로그인, 토큰 갱신, 로그아웃."""
 
+import logging
+
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +17,8 @@ from app.backend.core.security import (
 from app.backend.models.user import User
 from app.backend.repositories.user_repository import user_repository
 from app.backend.schemas.auth import TokenResponse
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService:
@@ -41,6 +45,7 @@ class AuthService:
         """회원가입 — 이메일 중복 확인 후 JWT + refresh token 즉시 발급."""
         existing = await user_repository.find_by_email(email, db)
         if existing is not None:
+            logger.warning("[AuthService] 회원가입 실패 — 이메일 중복 | email=%s", email)
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="이미 등록된 이메일입니다.",
@@ -54,6 +59,7 @@ class AuthService:
             db=db,
             is_admin=is_admin,
         )
+        logger.info("[AuthService] 회원가입 성공 | user_id=%d, email=%s", user.id, email)
 
         return await self._issue_tokens(user, db)
 
@@ -66,10 +72,12 @@ class AuthService:
         """로그인 — 이메일 + 비밀번호 검증 후 JWT + refresh token 발급."""
         user = await user_repository.find_by_email(email, db)
         if user is None or not verify_password(password, user.hashed_password):
+            logger.warning("[AuthService] 로그인 실패 — 잘못된 인증 정보 | email=%s", email)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="이메일 또는 비밀번호가 올바르지 않습니다.",
             )
+        logger.info("[AuthService] 로그인 성공 | user_id=%d, email=%s", user.id, email)
 
         return await self._issue_tokens(user, db)
 
@@ -86,10 +94,14 @@ class AuthService:
 
         user = await user_repository.find_by_id(old_refresh.user_id, db)
         if user is None:
+            logger.warning(
+                "[AuthService] 토큰 갱신 실패 — 사용자 없음 | user_id=%d", old_refresh.user_id
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="사용자를 찾을 수 없습니다.",
             )
+        logger.debug("[AuthService] 토큰 갱신 완료 | user_id=%d", user.id)
 
         return await self._issue_tokens(user, db)
 
