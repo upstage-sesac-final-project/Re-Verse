@@ -32,11 +32,13 @@ def _state(
         "user_input": user_input,
         "game_id": "test_game",
         "intent": intent,  # type: ignore[typeddict-item]
+        "success": passed,
         "validation_result": {
             "passed": passed,
             "errors": errors or [],
             "error_count": len(errors or []),
         },
+        "validation_results": [{"errors": errors or [], "success": passed}] if errors else [],
     }
     if current:
         s["current_game_state"] = current
