@@ -21,11 +21,13 @@ class UserRepository:
         email: str,
         hashed_password: str,
         db: AsyncSession,
+        is_admin: bool = False,
     ) -> User:
         user = User(
             username=username,
             email=email,
             hashed_password=hashed_password,
+            is_admin=is_admin,
         )
         db.add(user)
         await db.commit()

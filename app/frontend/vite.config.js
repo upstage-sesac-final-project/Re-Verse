@@ -28,7 +28,13 @@ function serveGameFiles() {
     name: 'serve-game-files',
     configureServer(server) {
       server.middlewares.use('/game', (req, res, next) => {
-        const filePath = join(storagePath, decodeURIComponent(req.url))
+        // Strip query string before resolving path
+        const urlPath = decodeURIComponent(req.url.split('?')[0])
+        const filePath = resolve(join(storagePath, urlPath))
+        // Guard against path traversal (e.g. ../../etc/passwd)
+        if (!filePath.startsWith(storagePath + '/') && filePath !== storagePath) {
+          return next()
+        }
         if (existsSync(filePath) && statSync(filePath).isFile()) {
           const ext = extname(filePath)
           res.setHeader('Content-Type', MIME_TYPES[ext] || 'application/octet-stream')

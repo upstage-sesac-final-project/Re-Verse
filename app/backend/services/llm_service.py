@@ -133,7 +133,7 @@ class LLMService:
 
             # ⑦ ProcessResponse 반환
             return ProcessResponse(
-                code=201 if result["success"] else 400,
+                code=201 if result.get("success", False) else 400,
                 message=result.get("message", ""),
                 result=result.get("result", {}),
                 intent=result.get("intent"),
@@ -144,7 +144,7 @@ class LLMService:
                     for log in result.get("changes_log", [])
                 ],
                 reload_required=result.get("reload_required", False),
-                success=result["success"],
+                success=result.get("success", False),
             )
 
     # ── Agent 호출 ────────────────────────────────────────
