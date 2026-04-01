@@ -49,9 +49,7 @@ export async function sendPrompt(message, projectId) {
     role: 'assistant',
     content: data.message,
     intent: data.intent,
-    modifications: data.modifications,
     affected_files: data.affected_files,
-    result: data.result,
     changes_log: data.changes_log ?? [],
   }
 }
