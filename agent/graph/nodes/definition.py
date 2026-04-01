@@ -130,29 +130,30 @@ def _format_to_progress_spec(modifications: list[dict], classifications: list[di
 
 async def definition(state: AgentState) -> dict:
     """사용자 입력에서 핵심 파라미터 추출(1단계) 후 최종 명세 생성(5단계) 수행."""
-    # ... (기존 1~4단계 로직 유지)
-    print("\n[Step 2] Definition 노드 진입")
-
     game_id = state.get("game_id", "game_001")
     user_input = state.get("user_input", "")
 
+    logger.info("[Definition] 노드 시작 - game_id: %s, user_input: %s", game_id, user_input)
+
     # --- [1단계: 핵심 키워드 추출] ---
-    print(f"[*] 1단계: '{user_input}'에서 키워드 추출 중...")
+    logger.info(f"[Definition] Step 1: '{user_input}'에서 키워드 추출 중...")
     messages_1 = build_step1_prompt(state)
     response_1 = cast(
         Step1ExtractionResponse,
         await invoke_llm(messages=messages_1, structured_output=Step1ExtractionResponse),
     )
     extractions = [ext.model_dump() for ext in response_1.extractions]
+    logger.debug("[Definition] Step 1 완료 - 추출된 키워드 수: %d", len(extractions))
 
     # --- [2단계: 카테고리 분류] ---
-    print("[*] 2단계: 추출된 대상들 카테고리 분류 중...")
+    logger.info("[Definition] Step 2: 추출된 대상들 카테고리 분류 중...")
     messages_2 = build_step2_prompt(extractions)
     response_2 = cast(
         Step2ClassificationResponse,
         await invoke_llm(messages=messages_2, structured_output=Step2ClassificationResponse),
     )
     classifications = [cls.model_dump() for cls in response_2.classifications]
+    logger.debug("[Definition] Step 2 완료 - 분류된 엔티티 수: %d", len(classifications))
 
     # --- [3단계: 파이썬 기반 시스템 문맥 보정 (비용 0)] ---
     # 결과물 중에 시스템 참조(system_ref)가 있을 때만 작동
@@ -160,7 +161,7 @@ async def definition(state: AgentState) -> dict:
     sys_info = {}
 
     if needs_system_info:
-        print("[*] 3단계: 시스템 정보 기반 보정 수행 중...")
+        logger.info("[Definition] Step 3: 시스템 정보 기반 보정 수행 중...")
         sys_info = get_system_context(game_id)
 
         for cls in classifications:
@@ -175,24 +176,27 @@ async def definition(state: AgentState) -> dict:
                 cls["reason"] += (
                     f" (시스템 주인공: {sys_info['hero']['name']} ID:{sys_info['hero']['id']})"
                 )
+                logger.debug("[Definition] Step 3 보정: 주인공(hero) -> ID:%s", cls["mapped_id"])
 
             # 'game_title' 참조 보정
             elif ref == "game_title":
                 cls["current_value"] = sys_info["gameTitle"]
                 cls["reason"] += f" (현재 게임 제목: {sys_info['gameTitle']})"
+                logger.debug("[Definition] Step 3 보정: 게임 제목 -> %s", cls["current_value"])
 
             # 'currency' 참조 보정
             elif ref == "currency":
                 cls["current_value"] = sys_info["currencyUnit"]
                 cls["reason"] += f" (현재 화폐 단위: {sys_info['currencyUnit']})"
+                logger.debug("[Definition] Step 3 보정: 화폐 단위 -> %s", cls["current_value"])
 
     # 3.5단계: category_label 처리 (정리용)
     for cls in classifications:
         if cls.get("is_category_label"):
-            print(f"  - [카테고리 지칭어 감지] {cls['name']} -> {cls['category']}")
+            logger.info("[Definition] 카테고리 지칭어 감지: %s -> %s", cls["name"], cls["category"])
 
     # --- [4단계: 구체적 ID 매핑 (RAG 검색)] ---
-    print("[*] 4단계: 엔티티 ID 매핑 중...")
+    logger.info("[Definition] Step 4: 엔티티 ID 매핑 중...")
     from difflib import SequenceMatcher
 
     retriever = RPGRetriever(game_id)
@@ -225,9 +229,13 @@ async def definition(state: AgentState) -> dict:
                 cls["reason"] += (
                     f" (시스템 속성 일치: {cls['actual_name']} ID:{best_id} 유사도:{max_sim:.2f})"
                 )
+                logger.debug(
+                    "[Definition] Step 4 속성 매핑 성공: %s -> ID:%s", cls["name"], best_id
+                )
             else:
                 cls["mapped_id"] = "NEW"
                 cls["reason"] += " (새로운 속성으로 판단)"
+                logger.debug("[Definition] Step 4 속성 신규 생성 판단: %s", cls["name"])
             continue
 
         # [일반 케이스: 파일 기반 검색]
@@ -257,50 +265,73 @@ async def definition(state: AgentState) -> dict:
                     cls["reason"] += (
                         f" (중복 이름 발견: {best_match['name']} ID:{best_match['id']})"
                     )
+                    logger.debug(
+                        "[Definition] Step 4 중복 이름 발견: %s -> ID:%s",
+                        cls["name"],
+                        cls["mapped_id"],
+                    )
                 else:
                     cls["mapped_id"] = "NEW"
                     cls["reason"] += (
                         f" (새로운 이름으로 판단: {best_match['name']}와 유사도 {similarity:.2f}로 낮음)"
+                    )
+                    logger.debug(
+                        "[Definition] Step 4 신규 생성(낮은 유사도): %s (vs %s: %.2f)",
+                        cls["name"],
+                        best_match["name"],
+                        similarity,
                     )
             else:
                 if similarity >= 0.5:
                     cls["mapped_id"] = best_match["id"]
                     cls["actual_name"] = best_match["name"]
                     cls["reason"] += f" (매칭 성공: {best_match['name']} ID:{best_match['id']})"
+                    logger.debug(
+                        "[Definition] Step 4 매칭 성공: %s -> ID:%s (유사도 %.2f)",
+                        cls["name"],
+                        cls["mapped_id"],
+                        similarity,
+                    )
                 else:
                     # [능동적 생성] 수정/조회인데 대상을 못 찾으면 NEW로 간주하여 생성을 유도
                     cls["mapped_id"] = "NEW"
                     cls["reason"] += (
                         f" (데이터를 찾을 수 없어 신규 생성으로 전환: {best_match['name']}와 유사도 {similarity:.2f}로 낮음)"
                     )
+                    logger.debug(
+                        "[Definition] Step 4 매칭 실패(신규 생성 전환): %s (vs %s: %.2f)",
+                        cls["name"],
+                        best_match["name"],
+                        similarity,
+                    )
         else:
             # 검색 결과가 아예 없는 경우
             cls["mapped_id"] = "NEW"
             cls["reason"] += " (데이터가 존재하지 않아 신규 생성 대상으로 지정)"
+            logger.debug("[Definition] Step 4 검색 결과 없음(신규): %s", cls["name"])
 
     # 로그 출력
     for ext in extractions:
-        print(
-            f"  - 추출: [{ext['action']}] {ext['subject']} (속성: {ext['property']}, 값: {ext['value']})"
+        logger.info(
+            "[Definition] 추출 결과: [%s] %s (속성: %s, 값: %s)",
+            ext["action"],
+            ext["subject"],
+            ext["property"],
+            ext["value"],
         )
     for cls in classifications:
         mapped_str = f" -> ID:{cls.get('mapped_id')}" if cls.get("mapped_id") else ""
-
-        # 점수 상위 3개 추출 (로그용)
         scores = cls.get("category_scores", {})
         top_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:3]
         scores_str = ", ".join([f"{k}:{v:.1f}" for k, v in top_scores])
-
-        print(f"  - 분류: {cls['name']}{mapped_str} -> {cls['category']} (Scores: {scores_str})")
-        print(f"    ㄴ 사유: {cls['reason']}")
-
-    # 4. 상태 업데이트
-    # return {
-    #     "step1_extractions": extractions,
-    #     "step2_classifications": classifications,
-    #     "thought_process": f"1단계: {response_1.thought_process}\n2단계: {response_2.thought_process}",
-    #     "params_sufficient": params_sufficient,
-    # }
+        logger.info(
+            "[Definition] 분류 결과: %s%s -> %s (Scores: %s)",
+            cls["name"],
+            mapped_str,
+            cls["category"],
+            scores_str,
+        )
+        logger.debug("[Definition] 분류 사유: %s", cls["reason"])
 
     # --- [4.5단계: 중복 및 지칭어 필터링] ---
     # 동일 카테고리에 구체적인 이름이 있는 엔티티와 '지칭어'가 섞여있으면 지칭어 제거
@@ -312,14 +343,16 @@ async def definition(state: AgentState) -> dict:
     for cls in classifications:
         # 지칭어인데 해당 카테고리에 이미 구체적인 이름의 엔티티가 있다면 제외
         if cls.get("is_category_label") and cls["category"] in categories_with_real_names:
-            print(
-                f"  - [중복 지칭어 제거] {cls['name']} (카테고리 {cls['category']}에 구체적 대상 존재)"
+            logger.info(
+                "[Definition] 중복 지칭어 제거: %s (카테고리 %s에 구체적 대상 존재)",
+                cls["name"],
+                cls["category"],
             )
             continue
         final_classifications.append(cls)
 
     # --- [5단계: 최종 조립 (Specification)] ---
-    print("[*] 5단계: 최종 수정 명세 생성 중...")
+    logger.info("[Definition] Step 5: 최종 수정 명세 생성 중...")
 
     # 스키마 파일 로드 (로컬 비용 0)
     schema_dir = os.path.join("agent", "rag", "data")
@@ -343,9 +376,10 @@ async def definition(state: AgentState) -> dict:
         FinalDefinitionResponse,
         await invoke_llm(messages=messages_5, structured_output=FinalDefinitionResponse),
     )
+    logger.debug("[Definition] Step 5 완료 - 대상 파일: %s", final_response.target_files)
 
     # --- [규격 강제 보정 로직 호출] ---
-    print("[*] 6단계: 규격 준수 여부 최종 확인 및 보정 중...")
+    logger.info("[Definition] Step 6: 규격 준수 여부 확인 및 보정 중...")
     strictly_formatted_mods = _format_to_progress_spec(
         final_response.modifications, classifications
     )
@@ -365,7 +399,7 @@ async def definition(state: AgentState) -> dict:
                 final_extracted_ids[cls["name"]] = m_id
 
     # --- [7단계: 신규 ID 실제 할당 (NEW -> Last ID + 1)] ---
-    print("[*] 7단계: 신규 생성 대상 ID 할당 중...")
+    logger.info("[Definition] Step 7: 신규 생성 대상 ID 할당 중...")
     next_id_cache = {}
 
     for mod in strictly_formatted_mods:
@@ -382,9 +416,13 @@ async def definition(state: AgentState) -> dict:
             params[id_field] = assigned_id
             display_name = params.get("name", target)
             final_extracted_ids[display_name] = assigned_id
+            logger.info(
+                "[Definition] 신규 ID 할당: [%s] %s -> ID:%s", target, display_name, assigned_id
+            )
             # 다음 생성을 위해 ID 증가 (한 번에 여러 개 생성 대비)
             next_id_cache[target] += 1
 
+    logger.info("[Definition] 노드 완료 - 생성된 modification 수: %d", len(strictly_formatted_mods))
     # 최종 결과 반환
     return {
         "target_files": final_response.target_files,
