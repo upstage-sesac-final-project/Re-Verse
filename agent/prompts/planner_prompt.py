@@ -87,7 +87,7 @@ _SYSTEM_PROMPT = """\
     },
     {
       "step_id": 3,
-      "description": "주인공(actor_id=1)의 Actors.json traits[]에 파이어볼 스킬 부여 (code=35, dataId=파이어볼 인덱스)",
+      "description": "주인공(actor_id=1)의 Actors.json traits[]에 파이어볼 스킬 부여 (code=43, dataId=파이어볼 인덱스)",
       "action_type": "update",
       "target_file": "Actors.json",
       "target_info": {"actor_id": 1, "skill_name": "파이어볼"},

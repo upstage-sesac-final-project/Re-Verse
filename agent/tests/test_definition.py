@@ -11,7 +11,7 @@ from agent.core.llm_client import reset_llm
 from agent.graph.nodes.definition import definition
 
 # 로깅 설정 (필요에 따라 INFO 또는 DEBUG로 조절 가능)
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.INFO)  # 기본값은 WARNING
 
 
 async def run_interactive_test():
