@@ -42,6 +42,13 @@ export default function Header() {
               </Link>
             )}
             <Link
+              to="/docs"
+              className="text-xs px-3 py-1.5 rounded-lg"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              가이드
+            </Link>
+            <Link
               to="/dashboard"
               className="text-xs px-3 py-1.5 rounded-lg"
               style={{ color: 'var(--text-secondary)' }}
@@ -61,6 +68,13 @@ export default function Header() {
           </>
         ) : (
           <>
+            <Link
+              to="/docs"
+              className="text-xs px-3 py-1.5 rounded-lg"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              가이드
+            </Link>
             <Link
               to="/login"
               className="text-xs px-3 py-1.5 rounded-lg"

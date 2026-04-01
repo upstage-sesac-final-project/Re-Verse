@@ -9,7 +9,7 @@ const TABS = [
   { id: 'data', label: 'Game Data' },
 ]
 
-export default function GamePreview({ refreshKey, gameId = 'game_001' }) {
+export default function GamePreview({ refreshKey, gameId }) {
   const [activeTab, setActiveTab] = useState('play')
 
   return (

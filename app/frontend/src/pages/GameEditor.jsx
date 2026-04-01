@@ -10,7 +10,7 @@ export default function GameEditor() {
   const { projectId } = useParams()
   const navigate = useNavigate()
   const dispatch = useDispatch()
-  const { projects, isLoading } = useSelector((s) => s.game)
+  const { projects, isLoading, currentProject } = useSelector((s) => s.game)
 
   const [refreshKey, setRefreshKey] = useState(0)
   const [isCollapsed, setIsCollapsed] = useState(false)
@@ -61,7 +61,7 @@ export default function GameEditor() {
           isCollapsed={isCollapsed}
           onToggleCollapse={() => setIsCollapsed((prev) => !prev)}
         />
-        <GamePreview refreshKey={refreshKey} />
+        <GamePreview refreshKey={refreshKey} gameId={currentProject?.game_id} />
       </div>
     </div>
   )

@@ -12,6 +12,7 @@ import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import GameEditor from './pages/GameEditor'
 import Admin from './pages/Admin'
+import Docs from './pages/Docs'
 import NotFound from './pages/NotFound'
 
 function AppRoutes() {
@@ -68,6 +69,7 @@ function AppRoutes() {
           </AdminRoute>
         }
       />
+      <Route path="/docs" element={<Docs />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   )
