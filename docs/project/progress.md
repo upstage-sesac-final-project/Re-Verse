@@ -1,6 +1,7 @@
 # Re:Verse 개발 현황 및 TODO
 
-> 최종 업데이트: 2026-03-23
+> 최종 업데이트: 2026-04-01
+> 참고: 이 문서는 초기 구현 계획과 진행 기록이 섞여 있는 히스토리 문서다. 현재 구조 요약은 `docs/index.md`, 실행 방법은 `docs/project/setup.md`, validator 관련 최신 내용은 `docs/nodes/validator/` 아래 문서를 우선 본다.
 
 ---
 
@@ -321,4 +322,4 @@ npm ci
 npm run dev
 ```
 
-> 자세한 설정은 `docs/SETUP.md` 참고
+> 자세한 설정은 `docs/project/setup.md` 참고
