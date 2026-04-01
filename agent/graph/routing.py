@@ -1,6 +1,10 @@
 """조건부 라우팅 함수 — 워크플로우 분기 로직."""
 
+import logging
+
 from agent.graph.state import AgentState
+
+logger = logging.getLogger(__name__)
 
 
 def route_after_router(state: AgentState) -> str:
@@ -12,7 +16,9 @@ def route_after_router(state: AgentState) -> str:
     intent = state.get("intent", "범위_외")
 
     if intent in ("게임_요소_생성", "게임_요소_수정", "게임_요소_조회"):
+        logger.info("[route] router → definition (intent=%s)", intent)
         return "definition"
+    logger.info("[route] router → __end__ (intent=%s)", intent)
     return "__end__"
 
 
@@ -23,7 +29,9 @@ def route_after_definition(state: AgentState) -> str:
     - 파라미터 불충분 → __end__ (clarification 메시지 포함)
     """
     if state.get("params_sufficient", False):
+        logger.info("[route] definition → planner")
         return "planner"
+    logger.info("[route] definition → __end__ (params_sufficient=False)")
     return "__end__"
 
 
@@ -38,9 +46,12 @@ def route_after_validator(state: AgentState) -> str:
     retry_count = state.get("retry_count", 0)
 
     if success:
+        logger.info("[route] validator → synthesizer (success)")
         return "synthesizer"
 
     if retry_count < 2:
+        logger.info("[route] validator → executor (retry %d/2)", retry_count + 1)
         return "executor"
 
+    logger.warning("[route] validator → synthesizer (max retries reached, retry=%d)", retry_count)
     return "synthesizer"
