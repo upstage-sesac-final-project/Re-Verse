@@ -73,13 +73,13 @@ uv run --extra dev python agent\tests\test_validator.py `
   --modified C:\Users\yebin\Desktop\Re-Verse\storage\games\game_002\data\Actors.json
 ```
 
-실질적으로 `game_002\data` 폴더 전체 검증처럼 동작한다.  
+실질적으로 `game_002\data` 폴더 전체 검증처럼 동작한다.
 `Actors.json`만 보고 싶다면 `--current-dir`는 사용하지 않는다.
 
 
 ## 5. `data` 안의 모든 JSON 파일을 한 번에 검증하기
 
-현재 스크립트는 `--modified`에 **폴더 경로**를 직접 받을 수 없다.  
+현재 스크립트는 `--modified`에 **폴더 경로**를 직접 받을 수 없다.
 `--modified`는 파일 경로만 받으며, 내부에서 `is_file()` 검사도 한다.
 
 즉 아래처럼는 동작하지 않는다.

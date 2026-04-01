@@ -142,6 +142,7 @@ def build_validation_summary(validation_results: list[FileValidationResult]) -> 
 
 
 def build_state_error(message: str, retry_count: int | None = None) -> ValidatorOutput:
+    logger.warning("[Validator] 조기 종료: %s (retry=%s)", message, retry_count)
     validation_results = [
         build_file_result(
             target="state",
@@ -189,54 +190,58 @@ def load_validation_payload(file_name: str, value: Any) -> tuple[Any, list[dict[
     return payload, []
 
 
-def detect_modified_files(
-    current_game_state: dict[str, Any],
-    modified_game_state: dict[str, Any],
-) -> list[str]:
-    modified_files: list[str] = []
-    for file_name, modified_value in modified_game_state.items():
-        if file_name not in current_game_state:
-            modified_files.append(file_name)
+def load_validation_entries(
+    game_state: dict[str, Any],
+) -> dict[str, tuple[Any, list[dict[str, Any]]]]:
+    entries: dict[str, tuple[Any, list[dict[str, Any]]]] = {}
+    for file_name, value in game_state.items():
+        entries[file_name] = load_validation_payload(file_name, value)
+    return entries
+
+
+def summarize_modified_files(
+    current_entries: dict[str, tuple[Any, list[dict[str, Any]]]],
+    modified_entries: dict[str, tuple[Any, list[dict[str, Any]]]],
+) -> tuple[int, int]:
+    detected_count = 0
+    unchanged_count = 0
+    for file_name, (modified_payload, modified_errors) in modified_entries.items():
+        if file_name not in current_entries:
+            detected_count += 1
             continue
-        current_payload, current_errors = load_validation_payload(
-            file_name,
-            current_game_state[file_name],
-        )
-        modified_payload, modified_errors = load_validation_payload(file_name, modified_value)
-        if current_errors or modified_errors:
-            modified_files.append(file_name)
+
+        current_payload, current_errors = current_entries[file_name]
+        if current_errors or modified_errors or current_payload != modified_payload:
+            detected_count += 1
             continue
-        if current_payload != modified_payload:
-            modified_files.append(file_name)
-    return modified_files
+
+        unchanged_count += 1
+    return detected_count, unchanged_count
 
 
-def merge_reference_snapshots(
-    current_game_state: dict[str, Any],
-    modified_game_state: dict[str, Any],
-) -> dict[str, Any]:
-    merged: dict[str, Any] = {}
-    for file_name, value in current_game_state.items():
-        payload, errors = load_validation_payload(file_name, value)
-        if not errors:
-            merged[file_name] = payload
-    for file_name, value in modified_game_state.items():
-        payload, errors = load_validation_payload(file_name, value)
-        if not errors:
-            merged[file_name] = payload
-    return merged
+def _format_first_error(errors: list[dict[str, Any]] | list[ValidationErrorItem]) -> str:
+    normalized_errors = normalize_validation_errors(errors)
+    if not normalized_errors:
+        return "unknown error"
+
+    first_error = normalized_errors[0]
+    return f"loc={first_error.loc}, msg={first_error.msg}"
 
 
-def validate_single_file(file_name: str, data: Any) -> FileValidationResult:
+def validate_single_file(
+    file_name: str,
+    payload: Any,
+    payload_errors: list[dict[str, Any]] | None = None,
+) -> FileValidationResult:
     model = resolve_schema(file_name)
     if model is None:
+        logger.warning("[Validator] 미지원 스키마: target=%s", file_name)
         return build_file_result(
             target=file_name,
             success=False,
             errors=[{"loc": "$", "msg": f"unsupported schema for {file_name}"}],
         )
 
-    payload, payload_errors = load_validation_payload(file_name, data)
     if payload_errors:
         return build_file_result(
             target=file_name,
@@ -247,10 +252,16 @@ def validate_single_file(file_name: str, data: Any) -> FileValidationResult:
     try:
         model.model_validate(payload, strict=True)
     except ValidationError as error:
+        validation_errors = to_jsonable(error.errors())
+        logger.warning(
+            "[Validator] 검증 실패: target=%s, error=%s",
+            file_name,
+            _format_first_error(validation_errors),
+        )
         return build_file_result(
             target=file_name,
             success=False,
-            errors=to_jsonable(error.errors()),
+            errors=validation_errors,
         )
 
     return build_file_result(
@@ -269,6 +280,8 @@ async def validator(state: AgentState) -> dict[str, Any]:
         retry_count,
     ) = extract_validation_inputs(state)
 
+    logger.info("[Validator] 시작: files=%d, retry=%d", len(modified_game_state), retry_count)
+
     if not modified_game_state:
         result = build_state_error(
             "modified_game_state is missing or empty.",
@@ -276,31 +289,37 @@ async def validator(state: AgentState) -> dict[str, Any]:
         )
         return result.model_dump(mode="json", exclude_none=True)
 
-    modified_files = detect_modified_files(current_game_state, modified_game_state)
-    reference_snapshots = merge_reference_snapshots(current_game_state, modified_game_state)
+    current_entries = load_validation_entries(current_game_state)
+    modified_entries = load_validation_entries(modified_game_state)
+    detected_count, unchanged_count = summarize_modified_files(current_entries, modified_entries)
     logger.info(
-        "Validator starting | files=%d | detected_modified=%d | reference_snapshots=%d",
-        len(modified_game_state),
-        len(modified_files),
-        len(reference_snapshots),
+        "[Validator] 변경 감지 요약: detected=%d, unchanged=%d, total=%d",
+        detected_count,
+        unchanged_count,
+        len(modified_entries),
     )
 
     validation_results = [
-        validate_single_file(file_name, data) for file_name, data in modified_game_state.items()
+        validate_single_file(file_name, payload, payload_errors)
+        for file_name, (payload, payload_errors) in modified_entries.items()
     ]
     success = all(item.success for item in validation_results)
     validation_summary = build_validation_summary(validation_results)
+    next_retry_count = retry_count + 1 if not success else None
+    failed_count = sum(1 for item in validation_results if not item.success)
 
     logger.info(
-        "Validator finished | validated_files=%d | success=%s",
-        len(validation_results),
+        "[Validator] 종료: success=%s, validated=%d, failed=%d, retry_count=%s",
         success,
+        len(validation_results),
+        failed_count,
+        next_retry_count,
     )
 
     result = build_output(
         validation_results=validation_results,
         validation_summary=validation_summary,
         success=success,
-        retry_count=retry_count + 1 if not success else None,
+        retry_count=next_retry_count,
     )
     return result.model_dump(mode="json", exclude_none=True)

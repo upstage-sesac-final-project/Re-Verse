@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { resolve, join, extname } from 'path'
+import { resolve, join, extname, sep } from 'path'
 import { createReadStream, existsSync, statSync } from 'fs'
 
 const MIME_TYPES = {
@@ -32,7 +32,7 @@ function serveGameFiles() {
         const urlPath = decodeURIComponent(req.url.split('?')[0])
         const filePath = resolve(join(storagePath, urlPath))
         // Guard against path traversal (e.g. ../../etc/passwd)
-        if (!filePath.startsWith(storagePath + '/') && filePath !== storagePath) {
+        if (!filePath.startsWith(storagePath + sep) && filePath !== storagePath) {
           return next()
         }
         if (existsSync(filePath) && statSync(filePath).isFile()) {
