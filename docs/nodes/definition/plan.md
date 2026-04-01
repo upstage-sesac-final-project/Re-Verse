@@ -1,5 +1,7 @@
 # Definition Node 재설계 계획
 
+> 상태: 계획 문서. 현재 저장소 구조와 최신 실행 흐름은 `docs/index.md`와 `docs/project/progress.md`를 기준으로 본다.
+
 ## 1~4단계: 데이터 식별 및 ID 확정 (완료)
 - **1단계**: 키워드 추출 (Action, Subject, Property, Value)
 - **2단계**: 카테고리 분류 (Actor, Enemy, Item, Skill, Weapon, Armor, Class, System) 및 확신도 점수 계산
@@ -26,7 +28,7 @@ LLM은 아래의 표준 스키마를 엄격히 준수하여 번역한다.
 | 회복량 | `damage.value` 또는 `effects` | 아이템/스킬 설정에 따름 |
 | 직업 | `classId` | Actors.json 필드 |
 
-### 3. 최종 출력 규격 (PROGRESS.md 준수)
+### 3. 최종 출력 규격 (`docs/project/progress.md` 기준)
 LLM은 최종적으로 `FinalDefinitionResponse` 구조를 반환하며, `modifications` 리스트는 아래 형식을 따른다.
 
 ```json

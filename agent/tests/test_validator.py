@@ -6,8 +6,18 @@ import importlib.util
 import json
 import sys
 import types
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
+
+import pytest
+
+from agent.graph.nodes.validator import (
+    FileValidationResult,
+    ValidationErrorItem,
+    ValidatorOutput,
+    validator,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -229,19 +239,17 @@ async def run() -> int:
         state = build_state(args)
         result = await validator(state)
     except (FileNotFoundError, ValueError, json.JSONDecodeError, ImportError) as error:
-        error_result = {
-            "validation_results": [
-                {
-                    "target": "driver",
-                    "success": False,
-                    "message": "test_validator.py failed to build validator state",
-                    "errors": [{"loc": "$", "msg": str(error)}],
-                    "error_count": 1,
-                }
+        error_result = ValidatorOutput(
+            validation_results=[
+                FileValidationResult(
+                    target="driver",
+                    success=False,
+                    errors=[ValidationErrorItem(loc="$", msg=str(error))],
+                )
             ],
-            "validation_summary": str(error),
-            "success": False,
-        }
+            validation_summary=str(error),
+            success=False,
+        ).model_dump(mode="json", exclude_none=True)
         print(json.dumps(error_result, ensure_ascii=False, indent=2))
         return 1
 
@@ -251,6 +259,272 @@ async def run() -> int:
 
 def main() -> None:
     raise SystemExit(asyncio.run(run()))
+
+
+def _audio_file() -> dict[str, Any]:
+    return {"name": "", "pan": 0, "pitch": 100, "volume": 90}
+
+
+def _vehicle() -> dict[str, Any]:
+    return {"bgm": _audio_file()}
+
+
+def _actor(actor_id: int, name: str) -> dict[str, Any]:
+    return {
+        "id": actor_id,
+        "name": name,
+        "classId": 1,
+        "faceName": "Actor1",
+        "faceIndex": 0,
+        "characterName": "Actor1",
+        "characterIndex": 0,
+        "battlerName": "Actor1_1",
+    }
+
+
+def _system(party_members: list[int]) -> dict[str, Any]:
+    return {
+        "airship": _vehicle(),
+        "battleBgm": _audio_file(),
+        "boat": _vehicle(),
+        "defeatMe": _audio_file(),
+        "gameoverMe": _audio_file(),
+        "ship": _vehicle(),
+        "terms": {},
+        "titleBgm": _audio_file(),
+        "victoryMe": _audio_file(),
+        "partyMembers": party_members,
+        "elements": [None, "Fire"],
+        "equipTypes": [None, "Weapon", "Shield"],
+        "weaponTypes": [None, "Sword"],
+        "armorTypes": [None, "Light"],
+        "skillTypes": [None, "Magic"],
+    }
+
+
+def _base_validator_state() -> dict[str, Any]:
+    current_game_state = {
+        "Actors.json": [None, _actor(1, "Hero")],
+        "Classes.json": [None, {"id": 1, "name": "Warrior"}],
+        "System.json": _system([1]),
+    }
+    modified_game_state = deepcopy(current_game_state)
+    modified_game_state["Actors.json"].append(_actor(2, "Sofia"))
+    modified_game_state["System.json"]["partyMembers"] = [1, 2]
+
+    return {
+        "current_game_state": current_game_state,
+        "modified_game_state": modified_game_state,
+        "changes_log": [
+            {
+                "step_id": 1,
+                "target_file": "Actors.json",
+                "tool_name": "structured_actors_create",
+                "success": True,
+                "description": "Create actor Sofia with classId 1",
+            },
+            {
+                "step_id": 2,
+                "target_file": "System.json",
+                "tool_name": "structured_system_update",
+                "success": True,
+                "description": "Add Sofia to partyMembers",
+            },
+        ],
+        "backup_paths": {},
+        "retry_count": 0,
+    }
+
+
+def _map_event_page(text: str) -> dict[str, Any]:
+    return {
+        "conditions": {
+            "actorId": 1,
+            "actorValid": False,
+            "itemId": 1,
+            "itemValid": False,
+            "selfSwitchCh": "A",
+            "selfSwitchValid": False,
+            "switch1Id": 1,
+            "switch1Valid": False,
+            "switch2Id": 1,
+            "switch2Valid": False,
+            "variableId": 1,
+            "variableValid": False,
+            "variableValue": 0,
+        },
+        "directionFix": False,
+        "image": {
+            "characterIndex": 0,
+            "characterName": "",
+            "direction": 2,
+            "pattern": 0,
+            "tileId": 0,
+        },
+        "list": [
+            {"code": 101, "indent": 0, "parameters": ["", 0, 0, 2]},
+            {"code": 401, "indent": 0, "parameters": [text]},
+            {"code": 0, "indent": 0, "parameters": []},
+        ],
+        "moveFrequency": 3,
+        "moveRoute": {
+            "list": [{"code": 0, "parameters": []}],
+            "repeat": True,
+            "skippable": False,
+            "wait": False,
+        },
+        "moveSpeed": 3,
+        "moveType": 0,
+        "priorityType": 0,
+        "stepAnime": False,
+        "through": False,
+        "trigger": 0,
+        "walkAnime": True,
+    }
+
+
+def _map_event(event_id: int, name: str, text: str) -> dict[str, Any]:
+    return {
+        "id": event_id,
+        "name": name,
+        "note": "",
+        "pages": [_map_event_page(text)],
+        "x": 1,
+        "y": 1,
+    }
+
+
+def _map_file(event_name: str, text: str) -> dict[str, Any]:
+    return {
+        "autoplayBgm": False,
+        "autoplayBgs": False,
+        "battleback1Name": "",
+        "battleback2Name": "",
+        "bgm": _audio_file(),
+        "bgs": _audio_file(),
+        "disableDashing": False,
+        "displayName": "Village",
+        "encounterList": [],
+        "encounterStep": 30,
+        "height": 2,
+        "note": "",
+        "parallaxLoopX": False,
+        "parallaxLoopY": False,
+        "parallaxName": "",
+        "parallaxShow": True,
+        "parallaxSx": 0,
+        "parallaxSy": 0,
+        "scrollType": 0,
+        "specifyBattleback": False,
+        "tilesetId": 1,
+        "width": 2,
+        "data": [0] * 24,
+        "events": [None, _map_event(1, event_name, text)],
+    }
+
+
+def _write_snapshot_files(snapshot: dict[str, Any], directory: Path, prefix: str) -> dict[str, str]:
+    written: dict[str, str] = {}
+    for file_name, payload in snapshot.items():
+        path = directory / f"{prefix}_{file_name}"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        written[file_name] = str(path.resolve())
+    return written
+
+
+@pytest.mark.asyncio
+async def test_validator_validates_all_modified_game_state_files():
+    state = _base_validator_state()
+    result = await validator(state)
+
+    assert result["success"] is True
+    assert "retry_count" not in result
+    assert "validation_result" not in result
+    assert [item["target"] for item in result["validation_results"]] == [
+        "Actors.json",
+        "Classes.json",
+        "System.json",
+    ]
+    assert result["validation_summary"] == "총 3개 파일이 모두 스키마 검증을 통과했습니다."
+    assert all("message" not in item for item in result["validation_results"])
+    assert all("error_count" not in item for item in result["validation_results"])
+
+
+@pytest.mark.asyncio
+async def test_validator_supports_snapshot_path_inputs(tmp_path: Path):
+    state = _base_validator_state()
+    state["current_game_state"]["Map001.json"] = _map_file("Guide", "Welcome to the village.")
+    state["modified_game_state"]["Map001.json"] = _map_file(
+        "Village Elder",
+        "Welcome to Re:Verse.",
+    )
+
+    expected = await validator(state)
+    current_game_state = _write_snapshot_files(state["current_game_state"], tmp_path, "before")
+    modified_game_state = _write_snapshot_files(state["modified_game_state"], tmp_path, "after")
+    assert all(Path(path).is_absolute() for path in current_game_state.values())
+    assert all(Path(path).is_absolute() for path in modified_game_state.values())
+
+    result = await validator(
+        {
+            **state,
+            "current_game_state": current_game_state,
+            "modified_game_state": modified_game_state,
+        }
+    )
+
+    assert result == expected
+    assert result["success"] is True
+    assert "retry_count" not in result
+    assert "validation_result" not in result
+    assert [item["target"] for item in result["validation_results"]] == [
+        "Actors.json",
+        "Classes.json",
+        "System.json",
+        "Map001.json",
+    ]
+    assert result["validation_summary"] == "총 4개 파일이 모두 스키마 검증을 통과했습니다."
+    assert all("message" not in item for item in result["validation_results"])
+    assert all("error_count" not in item for item in result["validation_results"])
+
+
+@pytest.mark.asyncio
+async def test_validator_schema_failure_increments_retry_count():
+    state = _base_validator_state()
+    state["modified_game_state"]["Actors.json"][1]["classId"] = "invalid"
+    result = await validator(state)
+
+    assert result["success"] is False
+    assert result["retry_count"] == 1
+    assert result["validation_summary"] == "총 3개 파일 중 1개 파일 검증에 실패했습니다."
+    assert "validation_result" not in result
+    actor_result = next(
+        item for item in result["validation_results"] if item["target"] == "Actors.json"
+    )
+    assert actor_result["success"] is False
+    assert "message" not in actor_result
+    assert "error_count" not in actor_result
+    assert len(actor_result["errors"]) > 0
+    assert sum(len(item["errors"]) for item in result["validation_results"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_validator_unsupported_schema_returns_standard_shape():
+    state = _base_validator_state()
+    state["modified_game_state"]["Unknown.json"] = {"foo": "bar"}
+    result = await validator(state)
+
+    unknown_result = next(
+        item for item in result["validation_results"] if item["target"] == "Unknown.json"
+    )
+    assert unknown_result["success"] is False
+    assert "message" not in unknown_result
+    assert "error_count" not in unknown_result
+    assert unknown_result["errors"][0]["msg"] == "unsupported schema for Unknown.json"
+    assert result["success"] is False
+    assert result["retry_count"] == 1
+    assert "validation_result" not in result
+    assert result["validation_summary"] == "총 4개 파일 중 1개 파일 검증에 실패했습니다."
 
 
 if __name__ == "__main__":

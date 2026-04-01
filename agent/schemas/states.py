@@ -14,10 +14,10 @@ class State(BaseModel):
     # --------------- 일반 설정
 
     name: str = Field(description="일반 설정 > 이름", default="")
-    iconIndex: int = Field(description="일반 설정 > 아이콘", default=0)
-    restriction: int = Field(description="일반 설정 > 행동 제한")
-    priority: int = Field(description="일반 설정 > 우선권")
-    motion: int = Field(description="일반 설정 > [SV] 모션")
+    iconIndex: int = Field(description="일반 설정 > 아이콘", default=0, ge=0)
+    restriction: int = Field(description="일반 설정 > 행동 제한", ge=0, le=4)
+    priority: int = Field(description="일반 설정 > 우선권", ge=0, le=100)
+    motion: int = Field(description="일반 설정 > [SV] 모션", ge=0, le=3)
     overlay: int = Field(description="일반 설정 > [SV] 오버레이")
 
     # --------------- 해제 조건
@@ -28,28 +28,20 @@ class State(BaseModel):
     )
     autoRemovalTiming: int = Field(description="해제 조건 > 자동 해제의 타이밍", ge=0, le=2)
     minTurns: int = Field(
-        description="해제 조건 > 지속 순번 횟수(최솟값)",
-        ge=0,
-        le=9999,
+        description="해제 조건 > 지속 순번 횟수(최솟값)", default=1, ge=0, le=9999
     )
     maxTurns: int = Field(
-        description="해제 조건 > 지속 순번 횟수(최댓값)",
-        ge=0,
-        le=9999,
+        description="해제 조건 > 지속 순번 횟수(최댓값)", default=1, ge=0, le=9999
     )
     removeByDamage: bool = Field(description="해제 조건 > 피해로 인한 해제", default=False)
     chanceByDamage: int = Field(
-        description="해제 조건 > 피해로 인한 해제(체크 시) > 해제 확률",
-        ge=0,
-        le=100,
+        description="해제 조건 > 피해로 인한 해제(체크 시) > 해제 확률", default=100, ge=0, le=100
     )
     removeByWalking: bool = Field(description="해제 조건 > 보행으로 해제", default=False)
     stepsToRemove: int = Field(
-        description="해제 조건 > 보행으로 해제(체크 시) > 보행 횟수",
-        ge=1,
-        le=9999,
+        description="해제 조건 > 보행으로 해제(체크 시) > 보행 횟수", default=100, ge=1, le=9999
     )
-    releaseByDamage: bool = Field(description="뭐임?!")
+    releaseByDamage: bool = Field(description="뭐임?!", default=False)  # 미스테리
 
     # --------------- 메시지
 
@@ -57,7 +49,7 @@ class State(BaseModel):
     message2: str = Field(description="메시지 > 적 캐릭터가 해당 상태가 됐을 때:", default="")
     message3: str = Field(description="메시지 > 해당 상태가 계속될 때:", default="")
     message4: str = Field(description="메시지 > 해당 상태가 해제될 때:", default="")
-    messageType: int = Field(description="뭐임?!")  # 0으로 바꾸고 테스트
+    messageType: int = Field(description="뭐임?!")  # 미스테리
 
     # --------------- 특성
 
