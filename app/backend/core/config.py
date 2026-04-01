@@ -65,9 +65,6 @@ class Settings(BaseSettings):
     BASE_GAME_PATH: str = "./storage/games/base_game"
     MAX_PROJECTS_PER_USER: int = 3
 
-    # ── Agent 모드 ─────────────────────────────────────────────
-    AGENT_MODE: str = "keyword"  # "keyword" | "graph"
-
     # ── 관리자 ──────────────────────────────────────────────
     ADMIN_EMAIL: str = ""  # 해당 이메일로 가입하면 자동 관리자
 
