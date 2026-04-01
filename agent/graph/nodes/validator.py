@@ -22,7 +22,8 @@ from agent.schemas.maps import MapFile
 from agent.schemas.skills import SkillsFile
 from agent.schemas.states import StatesFile
 from agent.schemas.system import System
-#from agent.schemas.traits import TraitsFile
+
+# from agent.schemas.traits import TraitsFile
 from agent.schemas.troops import TroopsFile
 from agent.schemas.weapons import WeaponsFile
 
@@ -38,7 +39,7 @@ SCHEMA_MAP: dict[str, type[Any]] = {
     "Skills.json": SkillsFile,
     "States.json": StatesFile,
     "System.json": System,
-    #"Traits.json": TraitsFile,
+    # "Traits.json": TraitsFile,
     "Troops.json": TroopsFile,
     "Weapons.json": WeaponsFile,
 }

@@ -19,85 +19,86 @@ class Effect(BaseModel):
         validate_effect_by_rule(self)
         return self
 
+
 EFFECT_RULES = {
     11: {
         "name": "HP 회복",
         "dataId": {"type": "range", "min": 0},
         "value1": {"type": "range", "min": 0, "max": 10},
-        "value2": {"type": "range", "min": 0}
+        "value2": {"type": "range", "min": 0},
     },
     12: {
         "name": "MP 회복",
         "dataId": {"type": "range", "min": 0},
         "value1": {"type": "range", "min": 0, "max": 10},
-        "value2": {"type": "range", "min": 0}
+        "value2": {"type": "range", "min": 0},
     },
     13: {
         "name": "TP 회복",
         "dataId": {"type": "range", "min": 0},
         "value1": {"type": "range", "min": 0, "max": 10},
-        "value2": {"type": "range", "min": 0}
+        "value2": {"type": "range", "min": 0},
     },
     21: {
         "name": "상태 추가",
         "dataId": {"type": "range", "min": 0},
         "value1": {"type": "range", "min": 0, "max": 10},
-        "value2": {"type": "range", "min": 0}
+        "value2": {"type": "range", "min": 0},
     },
     22: {
         "name": "상태 해제",
         "dataId": {"type": "range", "min": 0},
         "value1": {"type": "range", "min": 0, "max": 10},
-        "value2": {"type": "range", "min": 0}
+        "value2": {"type": "range", "min": 0},
     },
     31: {
         "name": "강화",
         "dataId": {"type": "range", "min": 0, "max": 7},
         "value1": {"type": "range", "min": 1, "max": 1000},
-        "value2": {"type": "exact", "value": 0}
+        "value2": {"type": "exact", "value": 0},
     },
     32: {
         "name": "약화",
         "dataId": {"type": "range", "min": 0, "max": 7},
         "value1": {"type": "range", "min": 1, "max": 1000},
-        "value2": {"type": "exact", "value": 0}
+        "value2": {"type": "exact", "value": 0},
     },
     33: {
         "name": "강화 해제",
         "dataId": {"type": "range", "min": 0, "max": 7},
         "value1": {"type": "range", "min": 0, "max": 10},
-        "value2": {"type": "exact", "value": 0}
+        "value2": {"type": "exact", "value": 0},
     },
     34: {
         "name": "약화 해제",
         "dataId": {"type": "range", "min": 0, "max": 7},
         "value1": {"type": "range", "min": 0, "max": 10},
-        "value2": {"type": "exact", "value": 0}
+        "value2": {"type": "exact", "value": 0},
     },
     41: {
         "name": "특수 효과",
         "dataId": {"type": "exact", "value": 0},
         "value1": {"type": "exact", "value": 1},
-        "value2": {"type": "exact", "value": 0}
+        "value2": {"type": "exact", "value": 0},
     },
     42: {
         "name": "성장",
         "dataId": {"type": "range", "min": 0, "max": 7},
         "value1": {"type": "range", "min": 0},
-        "value2": {"type": "exact", "value": 0}
+        "value2": {"type": "exact", "value": 0},
     },
     43: {
         "name": "스킬 습득",
-        "dataId": {"type": "range", "min": 1}, # "max": 스킬 한도
+        "dataId": {"type": "range", "min": 1},  # "max": 스킬 한도
         "value1": {"type": "exact", "value": 1},
-        "value2": {"type": "exact", "value": 0}
+        "value2": {"type": "exact", "value": 0},
     },
     44: {
         "name": "공통 이벤트",
-        "dataId": {"type": "range", "min": 1}, # "max": 공통 이벤트 한도
+        "dataId": {"type": "range", "min": 1},  # "max": 공통 이벤트 한도
         "value1": {"type": "exact", "value": 1},
-        "value2": {"type": "exact", "value": 0}
-    }
+        "value2": {"type": "exact", "value": 0},
+    },
 }
 
 
@@ -129,23 +130,17 @@ def _validate_field(
     if rule_type == "exact":
         expected = field_rule["value"]
         if value != expected:
-            raise ValueError(
-                f"code {code}: {field_name} must be exactly {expected}, got {value}"
-            )
+            raise ValueError(f"code {code}: {field_name} must be exactly {expected}, got {value}")
 
     elif rule_type == "range":
         min_value = field_rule.get("min")
         max_value = field_rule.get("max")
 
         if min_value is not None and value < min_value:
-            raise ValueError(
-                f"code {code}: {field_name} must be >= {min_value}, got {value}"
-            )
+            raise ValueError(f"code {code}: {field_name} must be >= {min_value}, got {value}")
 
         if max_value is not None and value > max_value:
-            raise ValueError(
-                f"code {code}: {field_name} must be <= {max_value}, got {value}"
-            )
+            raise ValueError(f"code {code}: {field_name} must be <= {max_value}, got {value}")
 
     elif rule_type == "one_of":
         allowed_values = field_rule["values"]
@@ -155,6 +150,4 @@ def _validate_field(
             )
 
     else:
-        raise ValueError(
-            f"code {code}: unknown validation rule type for {field_name}: {rule_type}"
-        )
+        raise ValueError(f"code {code}: unknown validation rule type for {field_name}: {rule_type}")

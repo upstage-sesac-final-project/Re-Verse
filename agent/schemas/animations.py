@@ -11,9 +11,11 @@ class SE(BaseModel):
     pitch: int = Field(description="효과음 > PITCH", default=100, ge=50, le=150)
     volume: int = Field(description="효과음 > VOLUME", default=90, ge=0, le=100)
 
+
 class SoundTiming(BaseModel):
     frame: int = Field(description="효과음 > 프레임", default=0, ge=0)
     se: SE = Field(description="효과음 설정")
+
 
 class FlashTiming(BaseModel):
     frame: int = Field(description="플래시 > 프레임", default=0, ge=0)
@@ -23,10 +25,12 @@ class FlashTiming(BaseModel):
         default=(255, 255, 255, 255),
     )
 
+
 class Rotation(BaseModel):
     x: int = Field(description="파티클 효과 > 회전 > X", default=0)
     y: int = Field(description="파티클 효과 > 회전 > Y", default=0)
     z: int = Field(description="파티클 효과 > 회전 > Z", default=0)
+
 
 class Animation(BaseModel):
     id: int = Field(description="애니메이션 id, 분류용")
@@ -56,6 +60,7 @@ class Animation(BaseModel):
 
     # --------------- timings
     timings: list = Field(description="MV 호환용 레거시 필드로 추정", default_factory=list)
+
 
 class AnimationsFile(RootModel[Annotated[list[Animation | None], Field(min_length=1)]]):
     @model_validator(mode="after")
