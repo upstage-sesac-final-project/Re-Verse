@@ -309,11 +309,28 @@ def _supports_legacy_fallback(target_file: str, action: str) -> bool:
     legacy_supported = {
         ("Classes.json", "query"),
         ("Classes.json", "create"),
+        ("Classes.json", "update"),
         ("Actors.json", "query"),
         ("Actors.json", "create"),
         ("Actors.json", "update"),
+        ("Actors.json", "update_actor"),
         ("System.json", "update"),
+        ("System.json", "update_game_title"),
+        ("System.json", "set_variable_name"),
+        ("System.json", "set_switch_name"),
+        ("System.json", "update_starting_position"),
         ("Skills.json", "create"),
+        ("Skills.json", "create_damage"),
+        ("Skills.json", "create_healing"),
+        ("Skills.json", "create_buff"),
+        ("Skills.json", "create_state"),
+        ("Skills.json", "update"),
+        ("Items.json", "create"),
+        ("Items.json", "update"),
+        ("Items.json", "search"),
+        ("Enemies.json", "create"),
+        ("Enemies.json", "update"),
+        ("Enemies.json", "search"),
     }
     return (target_file, action) in legacy_supported
 
@@ -574,6 +591,20 @@ async def _execute_one_structured_step(
                 "timestamp": ts,
             }
 
+        if target_file == "Classes.json" and action == "update":
+            mgr = ClassManager(data_path, f"struct_{sid}")
+            r = await mgr.execute("update", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_classes_update",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "structured": True,
+                "timestamp": ts,
+            }
+
         if target_file == "Actors.json" and action == "query":
             mgr = ActorManager(data_path, f"struct_{sid}")
             r = await mgr.execute("query", target_info=target_info)
@@ -624,6 +655,21 @@ async def _execute_one_structured_step(
                 "timestamp": ts,
             }
 
+        if target_file == "Actors.json" and action == "update_actor":
+            mgr = ActorManager(data_path, f"struct_{sid}")
+            # update_actor는 이름 변경 등 일반 속성 수정을 처리한다.
+            r = await mgr.execute("update_general", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_actors_update_general",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "structured": True,
+                "timestamp": ts,
+            }
+
         if target_file == "System.json" and action == "update":
             mgr = SystemManager(data_path, f"struct_{sid}")
             # MVP update는 `partyMembers`에 actor를 추가하는 케이스만 지원한다.
@@ -639,26 +685,56 @@ async def _execute_one_structured_step(
                 "timestamp": ts,
             }
 
-        if target_file == "Skills.json" and action == "create":
+        # System의 세부 update 액션들 (MCP 폴백용)
+        if target_file == "System.json" and action in (
+            "update_game_title",
+            "set_variable_name",
+            "set_switch_name",
+            "update_starting_position",
+        ):
+            mgr = SystemManager(data_path, f"struct_{sid}")
+            r = await mgr.execute(action, target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": f"structured_system_{action}",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "structured": True,
+                "timestamp": ts,
+            }
+
+        if target_file == "Skills.json" and action in (
+            "create",
+            "create_damage",
+            "create_healing",
+            "create_buff",
+            "create_state",
+        ):
             mgr = SkillManager(data_path, f"struct_{sid}")
             name = (target_info.get("name") or target_info.get("skill_name") or "").strip()
             if not name:
-                err = "Skills 스텝 create: name 또는 skill_name 필요"
+                err = f"Skills 스텝 {action}: name 또는 skill_name 필요"
                 step_results[sid] = {"success": False, "error": err, "step_id": sid}
                 return {
                     "step_id": sid,
-                    "tool_name": "structured_skills_create",
+                    "tool_name": f"structured_skills_{action}",
                     "success": False,
                     "stderr": err,
                     "structured": True,
                     "timestamp": ts,
                 }
-            extra = {k: target_info[k] for k in ("mpCost", "description") if k in target_info}
+            extra = {
+                k: target_info[k]
+                for k in ("mpCost", "description", "damageFormula", "healFormula")
+                if k in target_info
+            }
             r = await mgr.execute("add", name, **extra)
             step_results[sid] = {**r, "step_id": sid}
             return {
                 "step_id": sid,
-                "tool_name": "structured_skills_create",
+                "tool_name": f"structured_skills_{action}",
                 "success": bool(r.get("success")),
                 "stdout": r.get("message", ""),
                 "stderr": r.get("error") or "",
@@ -666,6 +742,95 @@ async def _execute_one_structured_step(
                 "structured": True,
                 "timestamp": ts,
             }
+
+        if target_file == "Skills.json" and action == "update":
+            mgr = SkillManager(data_path, f"struct_{sid}")
+            skill_id = target_info.get("skill_id") or target_info.get("skillId")
+            updates = target_info.get("updates")
+            if skill_id is None or not isinstance(updates, dict):
+                err = "Skills update에는 skill_id와 updates가 필요합니다."
+                step_results[sid] = {"success": False, "error": err, "step_id": sid}
+                return {
+                    "step_id": sid,
+                    "tool_name": "structured_skills_update",
+                    "success": False,
+                    "stderr": err,
+                    "structured": True,
+                    "timestamp": ts,
+                }
+            # SkillManager의 update 액션 사용 (skill_id 기반)
+            r = await mgr.execute("update", f"skill_{skill_id}", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_skills_update",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "modified_files": r.get("modified_files"),
+                "structured": True,
+                "timestamp": ts,
+            }
+
+        # Items/Enemies는 dispatcher 함수를 통해 처리 (매니저가 없음)
+        if target_file in ("Items.json", "Enemies.json") and action in (
+            "create",
+            "update",
+            "search",
+        ):
+            from app.backend.services.json_modify_tools.dispatcher import run_enemies, run_items
+
+            dispatcher_map = {
+                "Items.json": run_items,
+                "Enemies.json": run_enemies,
+            }
+
+            dispatcher_func = dispatcher_map[target_file]
+
+            # target_info에서 적절한 자연어 입력 구성
+            name = (
+                target_info.get("name")
+                or target_info.get("item_name")
+                or target_info.get("enemy_name")
+                or ""
+            )
+
+            if action == "create":
+                user_input = f"{name} 추가해줘"
+            elif action == "update":
+                updates = target_info.get("updates", {})
+                if isinstance(updates, dict) and updates:
+                    update_desc = ", ".join(f"{k}={v}" for k, v in updates.items())
+                    user_input = f"{name} {update_desc}로 수정해줘"
+                else:
+                    user_input = f"{name} 수정해줘"
+            else:  # search
+                user_input = f"{name} 찾아줘"
+
+            try:
+                r = await asyncio.to_thread(dispatcher_func, user_input)
+                step_results[sid] = {**r, "step_id": sid}
+                return {
+                    "step_id": sid,
+                    "tool_name": f"structured_{target_file.replace('.json', '').lower()}_{action}",
+                    "success": bool(r.get("success", False)),
+                    "stdout": r.get("stdout", ""),
+                    "stderr": r.get("stderr", ""),
+                    "modified_files": [target_file],
+                    "structured": True,
+                    "timestamp": ts,
+                }
+            except Exception as e:
+                err = f"Dispatcher 호출 실패: {e}"
+                step_results[sid] = {"success": False, "error": err, "step_id": sid}
+                return {
+                    "step_id": sid,
+                    "tool_name": f"structured_{target_file.replace('.json', '').lower()}_{action}",
+                    "success": False,
+                    "stderr": err,
+                    "structured": True,
+                    "timestamp": ts,
+                }
 
         # 위 조건에 없는 target/action 조합은 현재 MVP에서 아직 구현되지 않았다는 뜻이다.
         # (MCP 핸들러 없음 + 레거시 매니저 핸들러 없음)인 "정의되지 않은 액션"이다.

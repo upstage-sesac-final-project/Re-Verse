@@ -21,6 +21,26 @@ class ActorManager(BaseManager):
         return self.data_path / "Actors.json"
 
     async def execute(self, action: str, **kwargs) -> dict[str, Any]:
+        # Executor 구조화 스텝 / MCP 폴백: ID·필드 단위 일반 수정 (update_actor와 동일 역할의 레거시)
+        if action == "update_general":
+            ti = kwargs.get("target_info", {})
+            if isinstance(ti, dict):
+                actor_id = ti.get("actor_id") or ti.get("actorId")
+                updates = ti.get("updates")
+                if actor_id is None:
+                    return {
+                        "success": False,
+                        "error": "update_general에는 actor_id가 필요합니다.",
+                        "category": "actors",
+                    }
+                if not isinstance(updates, dict):
+                    return {
+                        "success": False,
+                        "error": "update_general에는 updates dict가 필요합니다.",
+                        "category": "actors",
+                    }
+                return self._handle_update_general(actor_id, updates)
+
         actor_name = (kwargs.get("actor_name") or "").strip()
         if not actor_name:
             ti = kwargs.get("target_info")
@@ -247,5 +267,102 @@ class ActorManager(BaseManager):
             "class_id": int(resolved_class_id),
             "modified_files": ["Actors.json"],
             "message": f"액터 '{actor_name}' classId를 {int(resolved_class_id)}로 수정",
+            "category": "actors",
+        }
+
+    def _handle_update_general(self, actor_id: int, updates: dict[str, Any]) -> dict[str, Any]:
+        """Actors.json에서 actor_id 인덱스 행의 허용 필드만 갱신한다.
+
+        RPG MZ Actors 배열 규칙(0번 null)을 따르며, 지정 키만 타입에 맞게 덮어쓴다.
+        """
+        try:
+            actor_id = int(actor_id)
+        except (TypeError, ValueError):
+            return {
+                "success": False,
+                "error": f"잘못된 actor_id: {actor_id}",
+                "category": "actors",
+            }
+
+        data = self.load_json_data()
+        if not isinstance(data, list) or actor_id < 1 or actor_id >= len(data):
+            return {
+                "success": False,
+                "error": f"actor_id {actor_id}는 유효하지 않습니다.",
+                "category": "actors",
+            }
+
+        actor = data[actor_id]
+        if actor is None:
+            return {
+                "success": False,
+                "error": f"actor_id {actor_id}에 액터가 없습니다.",
+                "category": "actors",
+            }
+
+        # RPG MZ 액터 객체에서 안전하게 손댈 수 있는 키만 허용 (나머지는 무시)
+        updatable_fields = {
+            "name": str,
+            "nickname": str,
+            "profile": str,
+            "classId": int,
+            "characterName": str,
+            "characterIndex": int,
+            "faceName": str,
+            "faceIndex": int,
+            "initialLevel": int,
+            "expParams": list,
+            "params": list,
+        }
+
+        updated_fields = []
+        original_values = {}
+
+        for field, value in updates.items():
+            if field not in updatable_fields:
+                logger.warning("[%s] 지원하지 않는 필드 무시: %s", self.operation_id, field)
+                continue
+
+            expected_type = updatable_fields[field]
+            original_values[field] = actor.get(field)
+
+            try:
+                # 타입 변환
+                if expected_type is int:
+                    actor[field] = int(value)
+                elif expected_type is str:
+                    actor[field] = str(value)
+                elif expected_type is list:
+                    if isinstance(value, list):
+                        actor[field] = value
+                    else:
+                        logger.warning("[%s] 리스트가 아닌 값은 무시: %s", self.operation_id, field)
+                        continue
+                else:
+                    actor[field] = value
+
+                updated_fields.append(field)
+            except (TypeError, ValueError) as e:
+                logger.warning("[%s] 필드 %s 변환 실패: %s", self.operation_id, field, e)
+                continue
+
+        if not updated_fields:
+            return {
+                "success": False,
+                "error": "업데이트할 유효한 필드가 없습니다.",
+                "category": "actors",
+            }
+
+        # 파일 저장
+        self.save_json_data(data)
+
+        return {
+            "success": True,
+            "action": "update_general",
+            "actor_id": actor_id,
+            "updated_fields": updated_fields,
+            "original_values": original_values,
+            "message": f"액터 {actor_id}의 {len(updated_fields)}개 속성을 업데이트했습니다: {', '.join(updated_fields)}",
+            "modified_files": ["Actors.json"],
             "category": "actors",
         }
