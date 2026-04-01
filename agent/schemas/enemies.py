@@ -2,23 +2,23 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, Field, RootModel, model_validator
+from pydantic import BaseModel, Field, RootModel, field_validator, model_validator
 
 from .traits import Trait
 
 
 class DropItem(BaseModel):
-    kind: int = Field(description="아이템 드롭 > 드롭 종류", default=0, ge=0, le=3)
-    dataId: int = Field(description="아이템 드롭 > 아이템 인덱스", default=1)
-    denominator: int = Field(description="아이템 드롭 > 출현율", default=1, ge=1, le=999)
+    kind: int = Field(description="드롭 아이템 > 드롭 종류", default=0, ge=0, le=3)
+    dataId: int = Field(description="드롭 아이템 > 아이템 인덱스", default=1)
+    denominator: int = Field(description="드롭 아이템 > 출현율", default=1, ge=1, le=1000)
 
 
 class Action(BaseModel):
-    skillId: int = Field(description="행동 패턴 > 스킬 ID", default=1)
+    skillId: int = Field(description="행동 패턴 > 스킬 ID")
     rating: int = Field(description="행동 패턴 > 우선도", ge=1, le=9)
-    conditionType: int = Field(description="행동 패턴 > 조건 유형", ge=0, le=6)
-    conditionParam1: int | float = Field(description="행동 패턴 > 첫번째 condition 결정값")
-    conditionParam2: int | float = Field(description="행동 패턴 > 두번째 condition 결정값")
+    conditionType: int = Field(description="행동 패턴 > 조건 유형", default=5, ge=0, le=6)
+    conditionParam1: int = Field(description="행동 패턴 > 첫번째 조건 결정값", ge=0, le=100)
+    conditionParam2: int = Field(description="행동 패턴 > 두번째 조건 결정값", ge=0, le=100)
 
 
 class Enemy(BaseModel):
@@ -28,15 +28,37 @@ class Enemy(BaseModel):
     # --------------- 일반 설정
 
     name: str = Field(description="일반 설정 > 이름", default="")
+    battlerHue: int = Field(description="일반 설정 > 색조", default=0, ge=0, le=360)
+    battlerName: str = Field(description="일반 설정 > 이미지")
+    params: list[int] = Field(description="일반 설정 > 설정값", min_length=8, max_length=8)
+
+    @field_validator("params")
+    @classmethod
+    def validate_params(cls, v: list[int]) -> list[int]:
+        rules = [
+            (1, 999999),  # 최대 HP
+            (0, 9999),  # 최대 MP
+            (0, 999),  # 공격
+            (0, 999),  # 방어
+            (0, 999),  # 마법 공격력
+            (0, 999),  # 마법 방어력
+            (0, 999),  # 민첩성
+            (0, 999),  # 운
+        ]
+
+        for i, (ge, le) in enumerate(rules):
+            if not (ge <= v[i] <= le):
+                raise ValueError(f"params[{i}] must be between {ge} and {le}, got {v[i]}")
+        return v
 
     # --------------- 보상
 
-    exp: int = Field(description="보상 > EXP", ge=0, default=0)
-    gold: int = Field(description="보상 > 소지금액", ge=0, default=0)
+    exp: int = Field(description="보상 > EXP", default=10, ge=0, le=9999999)
+    gold: int = Field(description="보상 > 소지금액", default=5, ge=0, le=9999999)
 
     # --------------- 드롭 아이템
 
-    dropItems: list[DropItem] = Field(description="드롭 아이템", default_factory=list)
+    dropItems: list[DropItem] = Field(description="드롭 아이템", min_length=3, max_length=3)
 
     # --------------- 행동 패턴
 

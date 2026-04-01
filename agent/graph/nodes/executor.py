@@ -505,12 +505,17 @@ async def _execute_one_structured_step(
     action = _normalize_structured_action(target_file, raw_action, target_info)
     ts = datetime.now().isoformat()
 
+    # 정규화 결과 로깅 (편차가 있을 때만)
+    if raw_action != action:
+        logger.debug("[Executor] action 정규화: %s → %s (step %d)", raw_action, action, sid)
+
     try:
         # ── MCP 인터셉터: 켜져 있고 (파일, 액션) 매핑이 있으면 stdio MCP 우선 ──
         # 성공 시 즉시 반환. 실패·미설정 시 아래 Class/Actor/System 매니저로 폴백한다.
         if is_mcp_enabled():
             mcp_entry = MCP_TOOL_MAP.get((target_file, action))
             if mcp_entry and build_stdio_server_parameters() is not None:
+                logger.debug("[Executor] MCP 시도: tool=%s, step=%d", mcp_entry["tool"], sid)
                 # MCP 툴은 구조화 step의 target_info를 툴 inputSchema에 맞게 정규화한 뒤 호출한다.
                 # 결과 성공 여부는 call_mcp_tool이 {success,data,error,modified_files}로 정리한 값을 사용한다.
                 norm = _normalize_mcp_arguments(target_file, action, target_info)
@@ -523,6 +528,15 @@ async def _execute_one_structured_step(
                         path_arg_name=path_key,
                     )
                 if r.get("success"):
+                    modified_files = r.get("modified_files") or mcp_entry.get(
+                        "backup_files", [target_file]
+                    )
+                    logger.info(
+                        "[Executor] MCP 성공: step=%d, tool=%s, files=%s",
+                        sid,
+                        mcp_entry["tool"],
+                        modified_files,
+                    )
                     step_results[sid] = {**r, "step_id": sid}
                     return {
                         "step_id": sid,
@@ -530,8 +544,7 @@ async def _execute_one_structured_step(
                         "success": True,
                         "stdout": str(r.get("data", "")),
                         "stderr": r.get("error") or "",
-                        "modified_files": r.get("modified_files")
-                        or mcp_entry.get("backup_files", [target_file]),
+                        "modified_files": modified_files,
                         "structured": True,
                         "timestamp": ts,
                     }
@@ -549,6 +562,7 @@ async def _execute_one_structured_step(
                         str(r.get("error") or "unknown mcp error"),
                         hint=f"tool={mcp_entry['tool']}",
                     )
+                    logger.error("[Executor] MCP 중단: step=%d, %s", sid, err)
                     step_results[sid] = {"success": False, "error": err, "step_id": sid}
                     return {
                         "step_id": sid,
@@ -558,9 +572,15 @@ async def _execute_one_structured_step(
                         "structured": True,
                         "timestamp": ts,
                     }
+            else:
+                if not mcp_entry:
+                    logger.debug("[Executor] MCP 매핑 없음: (%s, %s)", target_file, action)
+                else:
+                    logger.debug("[Executor] MCP 설정 없음, 레거시로")
 
         # target_file/action_type 조합을 현재 MVP에서 지원하는 매니저 호출로 매핑한다.
         if target_file == "Classes.json" and action == "query":
+            logger.debug("[Executor] 레거시 분기: Classes.query")
             mgr = ClassManager(data_path, f"struct_{sid}")
             r = await mgr.execute("query", target_info=target_info)
             step_results[sid] = {**r, "step_id": sid}
@@ -577,6 +597,7 @@ async def _execute_one_structured_step(
             }
 
         if target_file == "Classes.json" and action == "create":
+            logger.debug("[Executor] 레거시 분기: Classes.create")
             mgr = ClassManager(data_path, f"struct_{sid}")
             r = await mgr.execute("create", target_info=target_info)
             step_results[sid] = {**r, "step_id": sid}
@@ -592,6 +613,7 @@ async def _execute_one_structured_step(
             }
 
         if target_file == "Classes.json" and action == "update":
+            logger.debug("[Executor] 레거시 분기: Classes.update")
             mgr = ClassManager(data_path, f"struct_{sid}")
             r = await mgr.execute("update", target_info=target_info)
             step_results[sid] = {**r, "step_id": sid}
@@ -606,6 +628,7 @@ async def _execute_one_structured_step(
             }
 
         if target_file == "Actors.json" and action == "query":
+            logger.debug("[Executor] 레거시 분기: Actors.query")
             mgr = ActorManager(data_path, f"struct_{sid}")
             r = await mgr.execute("query", target_info=target_info)
             step_results[sid] = {**r, "step_id": sid}
@@ -621,6 +644,7 @@ async def _execute_one_structured_step(
             }
 
         if target_file == "Actors.json" and action == "create":
+            logger.debug("[Executor] 레거시 분기: Actors.create")
             mgr = ActorManager(data_path, f"struct_{sid}")
             # Planner가 class_id를 생략할 수 있어서 기본값(=1)으로 안전 처리한다.
             class_id = target_info.get("class_id", 1)
@@ -641,6 +665,7 @@ async def _execute_one_structured_step(
             }
 
         if target_file == "Actors.json" and action == "update":
+            logger.debug("[Executor] 레거시 분기: Actors.update (classId 변경)")
             mgr = ActorManager(data_path, f"struct_{sid}")
             # MVP update는 `classId` 변경만 지원한다(=class_name 또는 class_id로 resolve).
             r = await mgr.execute("update_class", target_info=target_info)
@@ -656,6 +681,7 @@ async def _execute_one_structured_step(
             }
 
         if target_file == "Actors.json" and action == "update_actor":
+            logger.debug("[Executor] 레거시 분기: Actors.update_actor (일반 속성)")
             mgr = ActorManager(data_path, f"struct_{sid}")
             # update_actor는 이름 변경 등 일반 속성 수정을 처리한다.
             r = await mgr.execute("update_general", target_info=target_info)
@@ -671,6 +697,7 @@ async def _execute_one_structured_step(
             }
 
         if target_file == "System.json" and action == "update":
+            logger.debug("[Executor] 레거시 분기: System.update (partyMembers)")
             mgr = SystemManager(data_path, f"struct_{sid}")
             # MVP update는 `partyMembers`에 actor를 추가하는 케이스만 지원한다.
             r = await mgr.execute("add_party_member", target_info=target_info)
@@ -692,6 +719,7 @@ async def _execute_one_structured_step(
             "set_switch_name",
             "update_starting_position",
         ):
+            logger.debug("[Executor] 레거시 분기: System.%s", action)
             mgr = SystemManager(data_path, f"struct_{sid}")
             r = await mgr.execute(action, target_info=target_info)
             step_results[sid] = {**r, "step_id": sid}
@@ -712,10 +740,12 @@ async def _execute_one_structured_step(
             "create_buff",
             "create_state",
         ):
+            logger.debug("[Executor] 레거시 분기: Skills.%s", action)
             mgr = SkillManager(data_path, f"struct_{sid}")
             name = (target_info.get("name") or target_info.get("skill_name") or "").strip()
             if not name:
                 err = f"Skills 스텝 {action}: name 또는 skill_name 필요"
+                logger.warning("[Executor] %s", err)
                 step_results[sid] = {"success": False, "error": err, "step_id": sid}
                 return {
                     "step_id": sid,
@@ -744,11 +774,13 @@ async def _execute_one_structured_step(
             }
 
         if target_file == "Skills.json" and action == "update":
+            logger.debug("[Executor] 레거시 분기: Skills.update")
             mgr = SkillManager(data_path, f"struct_{sid}")
             skill_id = target_info.get("skill_id") or target_info.get("skillId")
             updates = target_info.get("updates")
             if skill_id is None or not isinstance(updates, dict):
                 err = "Skills update에는 skill_id와 updates가 필요합니다."
+                logger.warning("[Executor] %s", err)
                 step_results[sid] = {"success": False, "error": err, "step_id": sid}
                 return {
                     "step_id": sid,
@@ -778,6 +810,7 @@ async def _execute_one_structured_step(
             "update",
             "search",
         ):
+            logger.debug("[Executor] 레거시 분기: %s.%s", target_file, action)
             from app.backend.services.json_modify_tools.dispatcher import run_enemies, run_items
 
             dispatcher_map = {
@@ -807,6 +840,7 @@ async def _execute_one_structured_step(
             else:  # search
                 user_input = f"{name} 찾아줘"
 
+            logger.debug("[Executor] dispatcher 입력: '%s'", user_input)
             try:
                 r = await asyncio.to_thread(dispatcher_func, user_input)
                 step_results[sid] = {**r, "step_id": sid}
@@ -822,6 +856,7 @@ async def _execute_one_structured_step(
                 }
             except Exception as e:
                 err = f"Dispatcher 호출 실패: {e}"
+                logger.error("[Executor] %s (step %d)", err, sid)
                 step_results[sid] = {"success": False, "error": err, "step_id": sid}
                 return {
                     "step_id": sid,
@@ -841,6 +876,7 @@ async def _execute_one_structured_step(
             "no mcp/legacy handler",
             hint=f"raw_action={raw_action}",
         )
+        logger.warning("[Executor] 미지원 스텝: %s", err)
         step_results[sid] = {"success": False, "error": err, "step_id": sid}
         return {
             "step_id": sid,
@@ -881,6 +917,7 @@ async def _executor_structured(
     ordered = _topological_sort_steps(execution_plan)
     target_files = sorted(_collect_structured_target_files(execution_plan))
     if not target_files:
+        logger.info("[Executor structured] target_files 비어있음, 기본값 Actors.json 사용")
         target_files = ["Actors.json"]
 
     logger.info(
@@ -890,11 +927,22 @@ async def _executor_structured(
         target_files,
     )
 
+    # 위상 정렬 결과 로깅
+    ordered_step_ids = [step.get("step_id") for step in ordered if isinstance(step, dict)]
+    logger.debug("[Executor structured] 실행 순서: %s", ordered_step_ids)
+
     # snapshot/backup은 "실패했을 때 롤백"과 "실행 전/후 비교"를 위한 MVP 장치다.
     run_id = uuid.uuid4().hex
     snap_dir = _executor_snapshot_dir(data_path, run_id)
+    logger.info("[Executor structured] 스냅샷 준비: run_id=%s, snap_dir=%s", run_id, snap_dir)
+
     current_game_state = _copy_snapshot_files_to_disk(data_path, target_files, snap_dir, "before")
     backup_paths = _create_backup(data_path, target_files)
+    logger.info(
+        "[Executor structured] before 스냅샷: %d개 파일, 백업: %d개 파일",
+        len(current_game_state),
+        len(backup_paths),
+    )
 
     changes_log: list[dict[str, Any]] = []
     step_results: dict[int, dict] = {}
@@ -902,15 +950,20 @@ async def _executor_structured(
     for step in ordered:
         # Planner output이 깨진 경우에도 전체 실행이 터지지 않게 방어한다.
         if not isinstance(step, dict):
+            logger.warning("[Executor structured] 비-dict step 건너뜀: %s", type(step))
             continue
         try:
             sid = int(step.get("step_id", -1))
         except (TypeError, ValueError):
+            logger.warning(
+                "[Executor structured] step_id 파싱 실패 건너뜀: %s", step.get("step_id")
+            )
             continue
 
         # 의존성/조건 기반으로 "실행할지 말지" 먼저 판정
         should_run, skip_reason = _should_execute_structured_step(step, step_results)
         if not should_run:
+            logger.info("[Executor structured] step %d 스킵: %s", sid, skip_reason)
             # 스킵은 "에러"가 아니라 "조건 만족(예: 이미 존재)"인 케이스로 취급한다.
             step_results[sid] = {
                 "skipped": True,
@@ -931,10 +984,31 @@ async def _executor_structured(
             )
             continue
 
+        # 스텝 실행 시작
+        target_file = step.get("target_file", "")
+        action_type = step.get("action_type", "")
+        logger.info("[Executor structured] step %d 실행 시작: %s.%s", sid, target_file, action_type)
+
         entry = await _execute_one_structured_step(step, data_path, step_results, game_id)
+        logger.info(
+            "[Executor structured] step %d 완료: success=%s, tool=%s",
+            sid,
+            entry.get("success"),
+            entry.get("tool_name"),
+        )
         changes_log.append(entry)
 
     modified_game_state = _copy_snapshot_files_to_disk(data_path, target_files, snap_dir, "after")
+
+    # 실행 요약
+    success_count = sum(1 for entry in changes_log if entry.get("success"))
+    logger.info(
+        "[Executor structured] 전체 완료: %d/%d 성공, after 스냅샷: %d개 파일",
+        success_count,
+        len(changes_log),
+        len(modified_game_state),
+    )
+
     return {
         "current_game_state": current_game_state,
         "modified_game_state": modified_game_state,
@@ -1007,7 +1081,10 @@ async def executor(state: AgentState) -> dict:
     # ── 3단계 구조화 플랜 (action_type / step_id / target_file) ──
     # 이 포맷이면 LLM 번역 단계(레거시) 없이 곧바로 4단계 구조화 엔진으로 분기한다.
     if _is_structured_execution_plan(execution_plan):
+        logger.info("[Executor] 구조화 플랜 분기: %d개 step", len(execution_plan))
         return await _executor_structured(data_path, execution_plan, game_id, retry_count)
+
+    logger.info("[Executor] 비구조화(번역) 경로: %d개 항목", len(execution_plan))
 
     # ── Step 3: LLM 번역 (MVP: 간단한 키워드 기반) ──────────
     try:
@@ -1055,6 +1132,7 @@ async def executor(state: AgentState) -> dict:
         tool_function = TOOL_MAP.get(tool_call.tool_name)
 
         if tool_function is None:
+            logger.warning("[Executor MVP] 지원하지 않는 툴: %s", tool_call.tool_name)
             changes_log.append(
                 {
                     "step": i + 1,
@@ -1073,7 +1151,7 @@ async def executor(state: AgentState) -> dict:
         try:
             # MVP: 스킬은 매니저 사용, 나머지는 기존 dispatcher
             if tool_call.tool_name == "edit_skills":
-                # 새로운 스킬 매니저 사용
+                logger.debug("[Executor MVP] SkillManager 분기 사용")
                 skill_manager = SkillManager(data_path, f"mvp_{i}")
 
                 # user_input에서 기본 파라미터 추출
@@ -1098,7 +1176,7 @@ async def executor(state: AgentState) -> dict:
                     description=f"{skill_name} 설명",
                 )
             else:
-                # 기존 dispatcher 함수 호출
+                logger.debug("[Executor MVP] Dispatcher 분기 사용: %s", tool_call.tool_name)
                 result = await asyncio.to_thread(tool_function, tool_call.user_input)
 
             changes_log.append(

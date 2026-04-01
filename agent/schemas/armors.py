@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, Field, RootModel, model_validator
+from pydantic import BaseModel, Field, RootModel, field_validator, model_validator
 
 from .traits import Trait
 
@@ -10,7 +10,6 @@ from .traits import Trait
 class Armor(BaseModel):
     id: int = Field(description="방어구 id, 분류용")
     note: str = Field(description="메모", default="")
-    etypeId: int = Field(description="장비 유형", ge=0, le=5)
 
     # --------------- 일반 설정
 
@@ -19,10 +18,30 @@ class Armor(BaseModel):
     description: str = Field(description="일반 설정 > 설명", default="")
     atypeId: int = Field(description="일반 설정 > 방어구 유형", ge=0, le=6)
     price: int = Field(description="일반 설정 > 가격", default=100, ge=0, le=999999)
+    etypeId: int = Field(description="장비 유형", ge=2, le=5)
 
     # --------------- 능력치 변화량
 
-    params: list[int] = Field(description="능력치 변화량", default=[0, 0, 8, 0, 0, 0, 0, 0])
+    params: list[int] = Field(description="능력치 변화량", min_length=8, max_length=8)
+
+    @field_validator("params")
+    @classmethod
+    def validate_params(cls, v: list[int]) -> list[int]:
+        rules = [
+            (0, 9999),  # 최대 HP
+            (0, 9999),  # 최대 MP
+            (0, 999),  # 공격
+            (0, 999),  # 방어
+            (0, 999),  # 마법 공격력
+            (0, 999),  # 마법 방어력
+            (0, 999),  # 민첩성
+            (0, 999),  # 운
+        ]
+
+        for i, (ge, le) in enumerate(rules):
+            if not (ge <= v[i] <= le):
+                raise ValueError(f"params[{i}] must be between {ge} and {le}, got {v[i]}")
+        return v
 
     # --------------- 특성
 
