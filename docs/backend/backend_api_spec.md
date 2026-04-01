@@ -354,13 +354,10 @@ POST /api/v1/llm/process
 {
   "code": 201,
   "message": "주인공의 초기 레벨을 25로 설정했습니다.",
-  "result": {
-    "intent": "modify_level",
-    "processed": true
-  },
-  "intent": "modify_level",
-  "modifications": ["Actors"],
-  "affected_files": ["Actors"],
+  "intent": "게임_요소_수정",
+  "success": true,
+  "affected_files": ["Actors.json"],
+  "reload_required": true,
   "changes_log": [
     {
       "step_id": 1,
@@ -369,9 +366,7 @@ POST /api/v1/llm/process
       "success": true,
       "result_summary": "레벨 25로 설정 완료"
     }
-  ],
-  "reload_required": true,
-  "success": true
+  ]
 }
 ```
 
@@ -380,13 +375,11 @@ POST /api/v1/llm/process
 {
   "code": 500,
   "message": "처리 중 오류가 발생했습니다: ...",
-  "result": {},
   "intent": "error",
-  "modifications": [],
+  "success": false,
   "affected_files": [],
-  "changes_log": [],
   "reload_required": false,
-  "success": false
+  "changes_log": []
 }
 ```
 
@@ -396,17 +389,29 @@ POST /api/v1/llm/process
   "code": 504,
   "message": "요청 처리 시간이 초과되었습니다.",
   "intent": "timeout",
-  "success": false
+  "success": false,
+  "affected_files": [],
+  "reload_required": false,
+  "changes_log": []
 }
 ```
 
-| 필드 | 프론트엔드 활용 |
-|------|----------------|
-| `success` | 성공/실패 판단 |
-| `reload_required` | `true`이면 게임 뷰어를 리로드 |
-| `message` | 사용자에게 보여줄 자연어 응답 |
-| `changes_log` | 변경 이력 UI 렌더링 |
-| `affected_files` | 어떤 게임 파일이 수정되었는지 |
+**응답 필드 설명**
+
+| 필드 | 출처 | 설명 |
+|------|------|------|
+| `code` | Backend | HTTP 상태코드 (성공 201, 실패 400/500/504) |
+| `message` | Synthesizer (6단계) | 사용자에게 보여줄 자연어 응답 |
+| `intent` | Router (1단계) | 분류된 사용자 의도 (`게임_요소_생성`, `게임_요소_수정`, `게임_요소_조회`, `추가_정보_필요`, `복합_의도`, `일반_대화`, `범위_외`) |
+| `success` | Validator (5단계) | 전체 검증 통과 여부 |
+| `affected_files` | Executor (4단계) | 수정된 게임 JSON 파일명 목록 (예: `["Enemies.json", "Skills.json"]`) |
+| `reload_required` | Backend | 수정된 파일이 있으면 `true` → 프론트엔드 게임 리로드 필요 |
+| `changes_log` | Executor (4단계) | 단계별 변경 이력 리스트 |
+
+| 프론트엔드 활용 필드 | 용도 |
+|---------------------|------|
+| `message` | 채팅 메시지로 렌더링 |
+| `changes_log` | 변경 이력 UI (ChangesBadge) 렌더링 |
 
 | 에러 코드 | 상황 |
 |-----------|------|
@@ -601,6 +606,10 @@ games/
 | `AWS_REGION` | - | `ap-northeast-2` | S3 리전 |
 | `S3_BUCKET_NAME` | - | `upstage-sesac-31-reverse-project-s3` | S3 버킷명 |
 | `S3_PREFIX` | - | `games` | S3 prefix |
+| `LOG_LEVEL` | - | 자동 결정 | 로그 레벨 (`DEBUG`/`INFO`/`WARNING`/`ERROR`) |
+| `LOG_DIR` | - | `./logs` | 로그 파일 저장 경로 |
+| `LOG_LEVEL_SQLALCHEMY` | - | `WARNING` | SQLAlchemy 로거 레벨 오버라이드 |
+| `LOG_LEVEL_HTTPX` | - | `WARNING` | HTTPX 로거 레벨 오버라이드 |
 
 ---
 
