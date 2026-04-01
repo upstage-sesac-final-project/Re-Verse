@@ -367,7 +367,12 @@ def _map_event_page(text: str) -> dict[str, Any]:
             {"code": 0, "indent": 0, "parameters": []},
         ],
         "moveFrequency": 3,
-        "moveRoute": {"list": [{"code": 0, "parameters": []}], "repeat": True, "skippable": False, "wait": False},
+        "moveRoute": {
+            "list": [{"code": 0, "parameters": []}],
+            "repeat": True,
+            "skippable": False,
+            "wait": False,
+        },
         "moveSpeed": 3,
         "moveType": 0,
         "priorityType": 0,
