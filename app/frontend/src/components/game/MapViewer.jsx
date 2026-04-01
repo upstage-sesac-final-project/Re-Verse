@@ -280,7 +280,7 @@ const ZOOM_MAX = 3.0
 const ZOOM_STEP = 0.25
 const BASE_CELL = 48
 
-export default function MapViewer({ gameId }) {
+export default function MapViewer({ gameId, refreshKey }) {
   const [mapList, setMapList]       = useState([])
   const [selectedMapId, setSelectedMapId] = useState(1)
   const [mapData, setMapData]       = useState(null)
@@ -291,6 +291,19 @@ export default function MapViewer({ gameId }) {
   const [error, setError]           = useState(null)
   const [zoom, setZoom]             = useState(0.5)
   const canvasRef = useRef(null)
+
+  // Re-fetch map list when game data is updated by the AI
+  useEffect(() => {
+    if (refreshKey === 0) return  // skip initial mount (handled by the main effect)
+    fetch(`/game/${gameId}/data/MapInfos.json`)
+      .then((r) => r.json())
+      .then((data) => {
+        const list = data.filter(Boolean).sort((a, b) => a.order - b.order)
+        setMapList(list)
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey])
 
   // MapInfos.json 로드
   useEffect(() => {
@@ -335,7 +348,7 @@ export default function MapViewer({ gameId }) {
       })
       .catch((e) => setError(e.message))
       .finally(() => setIsLoading(false))
-  }, [gameId, selectedMapId])
+  }, [gameId, selectedMapId, refreshKey])
 
   // Canvas 렌더링
   const cellSize = Math.max(4, Math.round(BASE_CELL * zoom))

@@ -67,21 +67,30 @@ export default function Admin() {
 
   const [overview, setOverview] = useState(null)
   const [overviewLoading, setOverviewLoading] = useState(true)
+  const [overviewError, setOverviewError] = useState(false)
   const [signups, setSignups] = useState([])
   const [logins, setLogins] = useState([])
   const [usage, setUsage] = useState([])
   const [intents, setIntents] = useState([])
   const [health, setHealth] = useState(null)
   const [healthLoading, setHealthLoading] = useState(false)
+  const [healthError, setHealthError] = useState(false)
 
   const [signupPeriod, setSignupPeriod] = useState('daily')
   const [usagePeriod, setUsagePeriod] = useState('daily')
 
-  useEffect(() => {
+  function loadOverview() {
+    setOverviewLoading(true)
+    setOverviewError(false)
     adminApi.fetchOverview()
       .then(setOverview)
-      .catch((e) => console.error('[Admin]', e))
+      .catch(() => setOverviewError(true))
       .finally(() => setOverviewLoading(false))
+  }
+
+  useEffect(() => {
+    loadOverview()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -99,13 +108,19 @@ export default function Admin() {
     adminApi.fetchIntents().then(setIntents).catch((e) => console.error('[Admin]', e))
   }, [])
 
-  useEffect(() => {
-    if (tab !== 3) return
+  function loadHealth() {
     setHealthLoading(true)
+    setHealthError(false)
     adminApi.fetchHealth()
       .then(setHealth)
-      .catch((e) => console.error('[Admin]', e))
+      .catch(() => setHealthError(true))
       .finally(() => setHealthLoading(false))
+  }
+
+  useEffect(() => {
+    if (tab !== 3) return
+    loadHealth()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
   return (
@@ -117,7 +132,7 @@ export default function Admin() {
       >
         <div className="flex items-center gap-3">
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
             style={{ background: 'var(--accent)' }}
           >
             R
@@ -126,7 +141,7 @@ export default function Admin() {
             Re:Verse
           </span>
           <span
-            className="text-xs px-2 py-0.5 rounded-full font-medium ml-1"
+            className="text-xs px-2 py-0.5 rounded-md font-medium ml-1"
             style={{ background: 'var(--accent)', color: '#fff' }}
           >
             Admin
@@ -134,7 +149,7 @@ export default function Admin() {
         </div>
         <button
           onClick={() => navigate('/dashboard')}
-          className="text-xs px-3 py-1.5 rounded-lg"
+          className="re-btn-secondary text-xs px-3 py-1.5 rounded-lg"
           style={{ background: 'var(--border)', color: 'var(--text-secondary)' }}
         >
           대시보드로
@@ -171,9 +186,18 @@ export default function Admin() {
               <StatCard label="성공률" value={`${(overview.success_rate * 100).toFixed(1)}%`} />
               <StatCard label="평균 응답시간" value={`${overview.avg_processing_time}s`} />
             </div>
-          ) : (
-            <p className="text-sm" style={{ color: '#f87171' }}>통계를 불러올 수 없습니다.</p>
-          )
+          ) : overviewError ? (
+            <div className="flex items-center gap-3">
+              <p className="text-sm" style={{ color: '#f87171' }}>통계를 불러올 수 없습니다.</p>
+              <button
+                onClick={loadOverview}
+                className="text-xs px-3 py-1.5 rounded-lg"
+                style={{ background: 'var(--border)', color: 'var(--text-secondary)' }}
+              >
+                재시도
+              </button>
+            </div>
+          ) : null
         )}
 
         {/* 유저 트렌드 탭 */}
@@ -191,7 +215,7 @@ export default function Admin() {
                     <XAxis dataKey="date" tick={chartStyle} />
                     <YAxis tick={chartStyle} allowDecimals={false} />
                     <Tooltip contentStyle={{ background: '#2d2d2d', border: '1px solid #3d3d3d', borderRadius: 8 }} />
-                    <Bar dataKey="count" fill="#e60012" name="가입" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="count" fill="#ff3b5c" name="가입" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -249,7 +273,7 @@ export default function Admin() {
                     <XAxis type="number" tick={chartStyle} allowDecimals={false} />
                     <YAxis type="category" dataKey="intent" tick={chartStyle} width={120} />
                     <Tooltip contentStyle={{ background: '#2d2d2d', border: '1px solid #3d3d3d', borderRadius: 8 }} />
-                    <Bar dataKey="count" fill="#e60012" name="횟수" radius={[0, 4, 4, 0]} />
+                    <Bar dataKey="count" fill="#ff3b5c" name="횟수" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -261,6 +285,17 @@ export default function Admin() {
         {tab === 3 && (
           healthLoading ? (
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>헬스 체크 중...</p>
+          ) : healthError ? (
+            <div className="flex items-center gap-3">
+              <p className="text-sm" style={{ color: '#f87171' }}>헬스 체크에 실패했습니다.</p>
+              <button
+                onClick={loadHealth}
+                className="text-xs px-3 py-1.5 rounded-lg"
+                style={{ background: 'var(--border)', color: 'var(--text-secondary)' }}
+              >
+                재시도
+              </button>
+            </div>
           ) : health ? (
             <div className="flex flex-col gap-4">
               <HealthBadge label="Database" ok={health.db.ok} detail={health.db.detail} />
@@ -279,9 +314,7 @@ export default function Admin() {
                 </div>
               )}
             </div>
-          ) : (
-            <p className="text-sm" style={{ color: '#f87171' }}>헬스 체크에 실패했습니다.</p>
-          )
+          ) : null
         )}
       </main>
     </div>

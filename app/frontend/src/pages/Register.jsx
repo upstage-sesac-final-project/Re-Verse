@@ -42,7 +42,7 @@ export default function Register() {
       >
         <div className="flex items-center gap-2 mb-8">
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
             style={{ background: 'var(--accent)' }}
           >
             R
@@ -128,7 +128,7 @@ export default function Register() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 rounded-lg text-sm font-semibold mt-1 disabled:opacity-50"
+            className="re-btn-primary w-full py-2.5 rounded-lg text-sm font-semibold mt-1 disabled:opacity-50"
             style={{ background: 'var(--accent)', color: '#fff' }}
           >
             {loading ? '가입 중...' : '회원가입'}

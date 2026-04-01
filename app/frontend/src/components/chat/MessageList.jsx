@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import ChangesBadge from './ChangesBadge'
 
-export default function MessageList({ messages }) {
+export default function MessageList({ messages, onRetry }) {
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -74,6 +74,15 @@ export default function MessageList({ messages }) {
               </div>
             )}
             {msg.role === 'assistant' && <ChangesBadge changes={msg.changes_log} />}
+            {msg.retryInput && onRetry && (
+              <button
+                onClick={() => onRetry(msg.retryInput)}
+                className="mt-2 text-xs hover:opacity-80"
+                style={{ color: 'var(--accent)' }}
+              >
+                다시 시도 →
+              </button>
+            )}
           </div>
         </div>
       ))}

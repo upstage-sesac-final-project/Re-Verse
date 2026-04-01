@@ -91,7 +91,9 @@ export default function Docs() {
   const [editDraft, setEditDraft] = useState({})
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [saveSuccess, setSaveSuccess] = useState(false)
   const textareaRef = useRef(null)
+  const handleSaveRef = useRef(null)
 
   useEffect(() => {
     fetchDocs()
@@ -107,6 +109,17 @@ export default function Docs() {
     if (editingKey && textareaRef.current) {
       textareaRef.current.focus()
     }
+  }, [editingKey])
+
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (editingKey && (e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        handleSaveRef.current?.()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
   }, [editingKey])
 
   const activeSection = sections.find((s) => s.key === activeKey)
@@ -134,12 +147,16 @@ export default function Docs() {
       setSections(res.sections)
       setEditingKey(null)
       setEditDraft({})
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 3000)
     } catch (e) {
       setSaveError(e.message || '저장에 실패했습니다')
     } finally {
       setSaving(false)
     }
   }
+
+  handleSaveRef.current = handleSave
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
@@ -150,7 +167,7 @@ export default function Docs() {
       >
         <Link to="/" className="flex items-center gap-3">
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
             style={{ background: 'var(--accent)' }}
           >
             R
@@ -256,7 +273,10 @@ export default function Docs() {
                   {saveError && (
                     <p className="text-xs" style={{ color: '#f87171' }}>{saveError}</p>
                   )}
-                  <div className="flex gap-2 justify-end">
+                  <div className="flex items-center gap-2 justify-end">
+                    <span className="text-xs mr-auto" style={{ color: 'var(--text-secondary)' }}>
+                      ⌘S로 저장
+                    </span>
                     <button
                       onClick={cancelEdit}
                       className="text-xs px-3 py-1.5 rounded-lg"
@@ -292,6 +312,15 @@ export default function Docs() {
           )}
         </main>
       </div>
+
+      {saveSuccess && (
+        <div
+          className="fixed bottom-5 right-5 px-4 py-3 rounded-lg text-sm font-medium shadow-lg"
+          style={{ background: '#166534', color: '#bbf7d0', zIndex: 50 }}
+        >
+          저장되었습니다
+        </div>
+      )}
     </div>
   )
 }

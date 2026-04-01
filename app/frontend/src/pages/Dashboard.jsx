@@ -5,6 +5,20 @@ import { fetchProjects, createProject, deleteProject, setCurrentProject } from '
 import Header from '../components/layout/Header'
 import Modal from '../components/common/Modal'
 
+function relativeTime(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const minutes = Math.floor(diff / 60000)
+  if (minutes < 1) return '방금 전'
+  if (minutes < 60) return `${minutes}분 전`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}시간 전`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}일 전`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months}개월 전`
+  return `${Math.floor(months / 12)}년 전`
+}
+
 export default function Dashboard() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
@@ -70,7 +84,7 @@ export default function Dashboard() {
           <button
             onClick={() => setCreating(true)}
             disabled={projects.length >= 3 || creating}
-            className="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40"
+            className="re-btn-primary px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40"
             style={{ background: 'var(--accent)', color: '#fff' }}
           >
             + 새 프로젝트
@@ -164,7 +178,7 @@ export default function Dashboard() {
             {projects.map((project) => (
               <div
                 key={project.id}
-                className="rounded-xl p-5 flex items-center justify-between"
+                className="re-card rounded-xl p-5 flex items-center justify-between"
                 style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}
               >
                 <div>
@@ -177,20 +191,20 @@ export default function Dashboard() {
                     </p>
                   )}
                   <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                    수정: {new Date(project.updated_at).toLocaleDateString('ko-KR')}
+                    수정: {relativeTime(project.updated_at)}
                   </p>
                 </div>
                 <div className="flex gap-2 ml-4">
                   <button
                     onClick={() => handleEdit(project)}
-                    className="px-3 py-1.5 text-xs rounded-lg font-medium"
+                    className="re-btn-primary px-3 py-1.5 text-xs rounded-lg font-medium"
                     style={{ background: 'var(--accent)', color: '#fff' }}
                   >
                     편집
                   </button>
                   <button
                     onClick={() => setDeleteTarget(project)}
-                    className="px-3 py-1.5 text-xs rounded-lg"
+                    className="re-btn-secondary px-3 py-1.5 text-xs rounded-lg"
                     style={{ background: 'var(--border)', color: 'var(--text-secondary)' }}
                   >
                     삭제

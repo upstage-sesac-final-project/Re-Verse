@@ -241,11 +241,16 @@ function SystemView({ data, filename }) {
 }
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────
-export default function GameDataViewer({ gameId }) {
+export default function GameDataViewer({ gameId, refreshKey }) {
   const [cache, setCache] = useState({})
   const [selectedFile, setSelectedFile] = useState('Enemies.json')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
+
+  // Clear cache when game data is updated by the AI
+  useEffect(() => {
+    setCache({})
+  }, [refreshKey])
 
   useEffect(() => {
     if (cache[selectedFile]) return
@@ -259,8 +264,9 @@ export default function GameDataViewer({ gameId }) {
       .then((data) => setCache((prev) => ({ ...prev, [selectedFile]: data })))
       .catch((e) => setError(e.message))
       .finally(() => setIsLoading(false))
+    // cache intentionally included — re-fetch after cache cleared by AI update
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameId, selectedFile])
+  }, [gameId, selectedFile, cache])
 
   const data = cache[selectedFile]
   const isArray = Array.isArray(data)

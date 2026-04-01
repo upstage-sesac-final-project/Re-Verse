@@ -6,6 +6,7 @@ export default function Header() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
   const { isAuthenticated, user } = useSelector((s) => s.user)
+  const currentProject = useSelector((s) => s.game.currentProject)
 
   async function handleLogout() {
     await dispatch(logoutUser())
@@ -19,7 +20,7 @@ export default function Header() {
     >
       <Link to={isAuthenticated ? '/dashboard' : '/'} className="flex items-center gap-3">
         <div
-          className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm"
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
           style={{ background: 'var(--accent)' }}
         >
           R
@@ -28,6 +29,11 @@ export default function Header() {
           Re:Verse
         </span>
       </Link>
+      {currentProject && (
+        <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          {currentProject.name}
+        </span>
+      )}
 
       <div className="flex items-center gap-3">
         {isAuthenticated ? (
@@ -35,7 +41,7 @@ export default function Header() {
             {user?.isAdmin && (
               <Link
                 to="/admin"
-                className="text-xs px-2 py-1 rounded-full font-medium"
+                className="re-btn-primary text-xs px-2 py-1 rounded-md font-medium"
                 style={{ background: 'var(--accent)', color: '#fff' }}
               >
                 관리자
@@ -43,14 +49,14 @@ export default function Header() {
             )}
             <Link
               to="/docs"
-              className="text-xs px-3 py-1.5 rounded-lg"
+              className="re-nav-link text-xs px-3 py-1.5"
               style={{ color: 'var(--text-secondary)' }}
             >
               가이드
             </Link>
             <Link
               to="/dashboard"
-              className="text-xs px-3 py-1.5 rounded-lg"
+              className="re-nav-link text-xs px-3 py-1.5"
               style={{ color: 'var(--text-secondary)' }}
             >
               내 프로젝트
@@ -60,7 +66,7 @@ export default function Header() {
             </span>
             <button
               onClick={handleLogout}
-              className="text-xs px-3 py-1.5 rounded-lg"
+              className="re-btn-secondary text-xs px-3 py-1.5 rounded-lg"
               style={{ background: 'var(--border)', color: 'var(--text-secondary)' }}
             >
               로그아웃
@@ -70,21 +76,21 @@ export default function Header() {
           <>
             <Link
               to="/docs"
-              className="text-xs px-3 py-1.5 rounded-lg"
+              className="re-nav-link text-xs px-3 py-1.5"
               style={{ color: 'var(--text-secondary)' }}
             >
               가이드
             </Link>
             <Link
               to="/login"
-              className="text-xs px-3 py-1.5 rounded-lg"
+              className="re-nav-link text-xs px-3 py-1.5"
               style={{ color: 'var(--text-secondary)' }}
             >
               로그인
             </Link>
             <Link
               to="/register"
-              className="text-xs px-3 py-1.5 rounded-lg font-medium"
+              className="re-btn-primary text-xs px-3 py-1.5 rounded-lg font-medium"
               style={{ background: 'var(--accent)', color: '#fff' }}
             >
               회원가입

@@ -1,4 +1,14 @@
+import { useEffect } from 'react'
+
 export default function Modal({ title, message, errorMessage, confirmLabel = '확인', cancelLabel = '취소', onConfirm, onCancel, loading = false }) {
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.key === 'Escape' && !loading) onCancel()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [loading, onCancel])
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={!loading ? onCancel : undefined} />
