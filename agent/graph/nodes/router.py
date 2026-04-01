@@ -4,6 +4,7 @@
 """
 
 import logging
+import time
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -41,31 +42,35 @@ async def router(state: AgentState) -> dict:
 
     # 빈 입력 사전 차단 — LLM 호출 없이 즉시 반환
     if not user_input.strip():
-        logger.info("Router: 빈 입력 감지 → 추가_정보_필요")
+        logger.info("🔀 Router: 빈 입력 감지 → 추가_정보_필요 (LLM 호출 없음)")
         return {
             "intent": "추가_정보_필요",
             "confidence": 1.0,
             "final_response": "무엇을 도와드릴까요? 만들거나 수정하고 싶은 게임 요소를 알려주세요.",
         }
 
-    logger.info("Router 시작: user_input=%r", user_input)
+    logger.info("─── 🔀 Router START ────────────────────────────────")
+    logger.info("  input : %r", user_input)
 
     messages = build_prompt(state)
+    _t0 = time.perf_counter()
     output: _RouterOutput = await invoke_llm(messages, structured_output=_RouterOutput)  # type: ignore[assignment]
+    _elapsed = time.perf_counter() - _t0
 
     logger.info(
-        "Router 결과: intent=%s, confidence=%.2f | %s",
+        "  intent: %s (confidence=%.2f, elapsed=%.2fs)",
         output.intent,
         output.confidence,
-        output.reasoning,
+        _elapsed,
     )
+    logger.info("  reason: %s", output.reasoning)
 
     intent = output.intent
 
     # confidence 가 기준 미만이면 추가 정보 요청으로 강제 전환
     if intent in _ACTION_INTENTS and output.confidence < _CONFIDENCE_THRESHOLD:
-        logger.info(
-            "confidence %.2f < %.2f → 추가_정보_필요로 전환 (원래 의도: %s)",
+        logger.warning(
+            "  ⚠️  confidence %.2f < %.2f → 추가_정보_필요로 강제 전환 (원래 의도: %s)",
             output.confidence,
             _CONFIDENCE_THRESHOLD,
             intent,
@@ -82,7 +87,11 @@ async def router(state: AgentState) -> dict:
         result["final_response"] = (
             "요청을 하나씩 입력해주세요. 예) '슬라임 HP 올려줘' 후 '드래곤 만들어줘'"
         )
+        logger.info("─── 🛑 Router END → 복합_의도 (terminal) ──────────────")
     elif intent in _TERMINAL_INTENTS:
         result["final_response"] = output.response or "조금 더 구체적으로 말씀해주시겠어요?"
+        logger.info("─── 🛑 Router END → %s (terminal) ─────────────────────", intent)
+    else:
+        logger.info("─── ✅ Router END → %s (next: definition) ──────────────", intent)
 
     return result
