@@ -56,24 +56,58 @@ async def planner(state: AgentState) -> dict:
     Returns:
         execution_plan 을 담은 dict.
     """
+    logger.info("=" * 60)
+    logger.info("[Planner] 노드 진입")
     logger.info(
-        "Planner 시작 | intent=%s | target_files=%s",
+        "[Planner] 입력 state | intent=%s | target_files=%s",
         state.get("intent"),
         state.get("target_files"),
     )
+    logger.debug(
+        "[Planner] modifications=%s",
+        state.get("modifications"),
+    )
+    logger.debug(
+        "[Planner] extracted_ids=%s",
+        state.get("extracted_ids"),
+    )
+    logger.debug(
+        "[Planner] user_input=%s",
+        state.get("user_input"),
+    )
 
     messages = build_prompt(state)
+    logger.debug(
+        "[Planner] 프롬프트 생성 완료 | 메시지 수=%d | human 길이=%d자",
+        len(messages),
+        len(messages[-1].content) if messages else 0,
+    )
 
     try:
+        logger.info("[Planner] LLM 호출 시작")
         result = cast(_PlannerOutput, await invoke_llm(messages, structured_output=_PlannerOutput))
         execution_plan = [step.model_dump() for step in result.execution_plan]
+
         logger.info(
-            "Planner 완료 | steps=%d | reasoning=%s",
+            "[Planner] LLM 호출 성공 | steps=%d | reasoning=%s",
             len(execution_plan),
             result.reasoning,
         )
+        for step in execution_plan:
+            logger.debug(
+                "[Planner] step %d | action=%s | file=%s | depends_on=%s | condition=%s | desc=%s",
+                step["step_id"],
+                step["action_type"],
+                step["target_file"],
+                step["depends_on"],
+                step["condition"] or "(없음)",
+                step["description"],
+            )
     except Exception as e:
-        logger.error("Planner LLM 호출 실패: %s", e)
+        logger.error("[Planner] LLM 호출 실패: %s", e, exc_info=True)
         execution_plan = []
+
+    logger.info("[Planner] 노드 종료 | 반환 step 수=%d", len(execution_plan))
+    logger.info("=" * 60)
 
     return {"execution_plan": execution_plan}
