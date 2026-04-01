@@ -28,6 +28,7 @@ class AuthService:
             expires_in=settings.JWT_EXPIRATION_MINUTES * 60,
             user_id=user.id,
             username=user.username,
+            is_admin=getattr(user, "is_admin", False),
         )
 
     async def register(
@@ -45,11 +46,13 @@ class AuthService:
                 detail="이미 등록된 이메일입니다.",
             )
 
+        is_admin = bool(settings.ADMIN_EMAIL and email == settings.ADMIN_EMAIL)
         user = await user_repository.create(
             username=username,
             email=email,
             hashed_password=hash_password(password),
             db=db,
+            is_admin=is_admin,
         )
 
         return await self._issue_tokens(user, db)

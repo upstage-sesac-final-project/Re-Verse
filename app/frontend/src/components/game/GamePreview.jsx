@@ -9,7 +9,7 @@ const TABS = [
   { id: 'data', label: 'Game Data' },
 ]
 
-export default function GamePreview({ refreshKey, gameId = 'game_001' }) {
+export default function GamePreview({ refreshKey, gameId }) {
   const [activeTab, setActiveTab] = useState('play')
 
   return (
@@ -17,7 +17,7 @@ export default function GamePreview({ refreshKey, gameId = 'game_001' }) {
       {/* 탭 바 */}
       <div
         className="h-10 flex items-center flex-shrink-0 px-2"
-        style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+        style={{ borderBottom: '1px solid var(--border)', background: '#232323' }}
       >
         {TABS.map((tab) => (
           <button
@@ -37,11 +37,17 @@ export default function GamePreview({ refreshKey, gameId = 'game_001' }) {
         ))}
       </div>
 
-      {/* 탭 콘텐츠 */}
+      {/* 탭 콘텐츠 — keep all mounted to preserve state (iframe, map zoom, data cache) */}
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-        {activeTab === 'play' && <RPGMakerFrame refreshKey={refreshKey} gameId={gameId} />}
-        {activeTab === 'map' && <MapViewer gameId={gameId} />}
-        {activeTab === 'data' && <GameDataViewer gameId={gameId} />}
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0" style={{ display: activeTab === 'play' ? 'flex' : 'none' }}>
+          <RPGMakerFrame refreshKey={refreshKey} gameId={gameId} />
+        </div>
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0" style={{ display: activeTab === 'map' ? 'flex' : 'none' }}>
+          <MapViewer gameId={gameId} refreshKey={refreshKey} />
+        </div>
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0" style={{ display: activeTab === 'data' ? 'flex' : 'none' }}>
+          <GameDataViewer gameId={gameId} refreshKey={refreshKey} />
+        </div>
       </div>
     </div>
   )
