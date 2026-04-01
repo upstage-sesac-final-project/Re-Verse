@@ -8,12 +8,10 @@ import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.backend.core.config import settings
 from app.backend.db.session import get_db
-from app.backend.models.refresh_token import RefreshToken
 from app.backend.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -50,22 +48,18 @@ def decode_access_token(token: str) -> dict | None:
 
 async def create_refresh_token(user_id: int, db: AsyncSession) -> str:
     """Refresh token 생성 후 DB 저장."""
+    from app.backend.repositories.refresh_token_repository import refresh_token_repository
+
     token = secrets.token_urlsafe(64)
-    expires_at = datetime.now(UTC) + timedelta(hours=settings.REFRESH_TOKEN_EXPIRATION_HOURS)
-    refresh = RefreshToken(
-        token=token,
-        user_id=user_id,
-        expires_at=expires_at,
-    )
-    db.add(refresh)
-    await db.commit()
+    await refresh_token_repository.create(token=token, user_id=user_id, db=db)
     return token
 
 
-async def verify_refresh_token(token: str, db: AsyncSession) -> RefreshToken:
+async def verify_refresh_token(token: str, db: AsyncSession):
     """Refresh token 검증 — 유효하면 RefreshToken 반환, 아니면 401."""
-    result = await db.execute(select(RefreshToken).where(RefreshToken.token == token))
-    refresh = result.scalar_one_or_none()
+    from app.backend.repositories.refresh_token_repository import refresh_token_repository
+
+    refresh = await refresh_token_repository.find_by_token(token, db)
     if refresh is None or refresh.revoked:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -84,17 +78,19 @@ async def verify_refresh_token(token: str, db: AsyncSession) -> RefreshToken:
 
 async def revoke_refresh_token(token: str, db: AsyncSession) -> None:
     """Refresh token 폐기."""
-    result = await db.execute(select(RefreshToken).where(RefreshToken.token == token))
-    refresh = result.scalar_one_or_none()
+    from app.backend.repositories.refresh_token_repository import refresh_token_repository
+
+    refresh = await refresh_token_repository.find_by_token(token, db)
     if refresh is not None:
-        refresh.revoked = True
-        await db.commit()
+        await refresh_token_repository.revoke(refresh, db)
 
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
-) -> User:
+):
+    from app.backend.repositories.user_repository import user_repository
+
     payload = decode_access_token(token)
     if payload is None:
         raise HTTPException(
@@ -108,8 +104,7 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="토큰에 사용자 정보가 없습니다.",
         )
-    result = await db.execute(select(User).where(User.id == int(user_id)))
-    user = result.scalar_one_or_none()
+    user = await user_repository.find_by_id(int(user_id), db)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

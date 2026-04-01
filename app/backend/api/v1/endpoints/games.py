@@ -1,13 +1,8 @@
 """게임 프로젝트 CRUD 엔드포인트."""
 
-import json
-from pathlib import Path
-
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.backend.core.config import settings
 from app.backend.core.security import get_current_user
 from app.backend.db.session import get_db
 from app.backend.models.user import User
@@ -88,30 +83,3 @@ async def delete_project(
 ):
     """프로젝트 삭제 (DB cascade + 게임 폴더 삭제)."""
     await game_service.delete_project(project_id, current_user.id, db)
-
-
-@router.get("/{project_id}/data/{filename}")
-async def get_game_data(
-    project_id: int,
-    filename: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """게임 JSON 파일 서빙 (소유권 확인 + path traversal 방어)."""
-    if ".." in filename or "/" in filename or "\\" in filename:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="잘못된 파일명입니다.",
-        )
-
-    project = await game_service.get_project(project_id, current_user.id, db)
-    file_path = Path(settings.STORAGE_PATH).resolve() / project.game_id / "data" / filename
-
-    if not file_path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="파일을 찾을 수 없습니다.",
-        )
-
-    data = json.loads(file_path.read_text(encoding="utf-8"))
-    return JSONResponse(content=data)

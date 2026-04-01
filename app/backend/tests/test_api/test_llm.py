@@ -27,7 +27,7 @@ class TestProcessUserInput:
         }
 
         with patch(
-            "app.backend.services.llm_service.LLMService._call_keyword_agent",
+            "app.backend.services.llm_service.LLMService._call_graph_agent",
             new_callable=AsyncMock,
             return_value=mock_result,
         ):
@@ -100,7 +100,7 @@ class TestProcessUserInput:
         }
 
         with patch(
-            "app.backend.services.llm_service.LLMService._call_keyword_agent",
+            "app.backend.services.llm_service.LLMService._call_graph_agent",
             new_callable=AsyncMock,
             return_value=mock_result,
         ):
@@ -124,7 +124,7 @@ class TestProcessUserInput:
     ):
         """Agent에서 예외 발생 시 success=False, code=500 응답."""
         with patch(
-            "app.backend.services.llm_service.LLMService._call_keyword_agent",
+            "app.backend.services.llm_service.LLMService._call_graph_agent",
             new_callable=AsyncMock,
             side_effect=Exception("Agent crashed"),
         ):

@@ -25,7 +25,6 @@ with patch.dict(
         "DATABASE_URL": "sqlite+aiosqlite:///:memory:",
         "STORAGE_PATH": _test_storage,
         "BASE_GAME_PATH": _test_base,
-        "AGENT_MODE": "keyword",
     },
 ):
     with patch("agent.monitoring.langsmith_setup.setup_langsmith"):

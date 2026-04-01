@@ -1,8 +1,4 @@
-"""LLM Service — Agent 호출 + Synthesizer 응답 전달.
-
-keyword 모드: 기존 키워드 기반 dispatcher 직접 호출 (MVP)
-graph 모드:   LangGraph 워크플로우 (Stage 1~6, Synthesizer 포함)
-"""
+"""LLM Service — LangGraph Agent 호출 + Synthesizer 응답 전달."""
 
 import asyncio
 import logging
@@ -15,16 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.core.config import agent_config
 from app.backend.core.config import settings
-from app.backend.models.game import ConversationLog
+from app.backend.repositories.project_repository import project_repository
 from app.backend.schemas.llm import ChangeLog, ProcessResponse
 from app.backend.services.game_service import game_service
-from app.backend.services.json_modify_tools.dispatcher import (
-    run_enemies,
-    run_items,
-    run_levels,
-    run_map_villager,
-    run_skills,
-)
 from app.backend.services.s3_game_storage import sync_game_from_s3, sync_game_to_s3
 
 logger = logging.getLogger(__name__)
@@ -73,12 +62,9 @@ class LLMService:
             if settings.STORAGE_BACKEND == "s3":
                 await asyncio.to_thread(sync_game_from_s3, game_id)
 
-            # ④ Agent 호출 (모드 분기)
+            # ④ Agent 호출
             try:
-                if settings.AGENT_MODE == "graph":
-                    result = await self._call_graph_agent(message, game_id)
-                else:
-                    result = await self._call_keyword_agent(message, game_id)
+                result = await self._call_graph_agent(message, game_id)
             except TimeoutError:
                 processing_time = time.time() - start_time
                 await self._save_log(
@@ -189,81 +175,6 @@ class LLMService:
             "changes_log": final_state.get("changes_log", []),
         }
 
-    async def _call_keyword_agent(self, message: str, game_id: str) -> dict[str, Any]:
-        """기존 키워드 기반 MVP 호출."""
-        user_input = message.lower()
-
-        tool_name = "none"
-        tool_result = None
-        intent = "unknown"
-        resp_message = "요청을 이해하지 못했습니다. 더 구체적으로 말씀해주세요."
-
-        if any(kw in user_input for kw in ["레벨", "level", "초기레벨", "초기 레벨"]):
-            intent, tool_name = "modify_level", "edit_levels"
-            resp_message = "레벨을 수정하는 중입니다..."
-            tool_result = await asyncio.to_thread(run_levels, message)
-
-        elif any(
-            kw in user_input
-            for kw in [
-                "스킬",
-                "skill",
-                "기술",
-                "최후의일격",
-                "전체공격",
-                "회복마법",
-                "버프",
-                "필살기",
-                "강화",
-                "공격력강화",
-            ]
-        ):
-            intent, tool_name = "modify_skill", "edit_skills"
-            resp_message = "스킬을 수정하는 중입니다..."
-            tool_result = await asyncio.to_thread(run_skills, message)
-
-        elif any(
-            kw in user_input for kw in ["적", "몬스터", "몹", "보스", "boss", "적군", "에너미"]
-        ):
-            intent, tool_name = "modify_enemy", "edit_enemies"
-            resp_message = "몬스터를 수정하는 중입니다..."
-            tool_result = await asyncio.to_thread(run_enemies, message)
-
-        elif any(kw in user_input for kw in ["아이템", "템", "item", "장비", "소비템", "소모품"]):
-            intent, tool_name = "modify_item", "edit_items"
-            resp_message = "아이템을 수정하는 중입니다..."
-            tool_result = await asyncio.to_thread(run_items, message)
-
-        elif any(
-            kw in user_input
-            for kw in ["맵", "지형", "타일", "지도", "건물", "배경", "환경", "마을"]
-        ):
-            intent, tool_name = "modify_map", "edit_map_villager"
-            resp_message = "맵을 수정하는 중입니다..."
-            tool_result = await asyncio.to_thread(run_map_villager, message)
-
-        edit_success = tool_result.get("success", False) if tool_result else False
-
-        if tool_result and not edit_success:
-            resp_message = tool_result.get("stderr", resp_message)
-
-        return {
-            "message": resp_message,
-            "intent": intent,
-            "success": edit_success if intent != "unknown" else False,
-            "result": {
-                "intent": intent,
-                "processed": edit_success,
-                "user_input": message,
-                "modifications": [tool_name] if edit_success else [],
-            },
-            "modifications": [tool_name] if edit_success else [],
-            "affected_files": [],
-            "reload_required": edit_success,
-            "changes_log": [],
-            "error": (tool_result.get("stderr") if tool_result and not edit_success else None),
-        }
-
     # ── 대화 이력 저장 ────────────────────────────────────
 
     async def _save_log(
@@ -277,7 +188,8 @@ class LLMService:
         processing_time: float,
         error_message: str | None = None,
     ) -> None:
-        log = ConversationLog(
+        await project_repository.save_conversation_log(
+            db=db,
             project_id=project_id,
             user_input=user_input,
             agent_response=agent_response,
@@ -286,8 +198,6 @@ class LLMService:
             processing_time=processing_time,
             error_message=error_message,
         )
-        db.add(log)
-        await db.commit()
 
 
 # 싱글톤 인스턴스

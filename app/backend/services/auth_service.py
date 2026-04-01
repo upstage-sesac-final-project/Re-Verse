@@ -1,7 +1,6 @@
 """Auth Service — 회원가입, 로그인, 토큰 갱신, 로그아웃."""
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.backend.core.config import settings
@@ -14,6 +13,7 @@ from app.backend.core.security import (
     verify_refresh_token,
 )
 from app.backend.models.user import User
+from app.backend.repositories.user_repository import user_repository
 from app.backend.schemas.auth import TokenResponse
 
 
@@ -39,23 +39,21 @@ class AuthService:
         db: AsyncSession,
     ) -> TokenResponse:
         """회원가입 — 이메일 중복 확인 후 JWT + refresh token 즉시 발급."""
-        result = await db.execute(select(User).where(User.email == email))
-        if result.scalar_one_or_none() is not None:
+        existing = await user_repository.find_by_email(email, db)
+        if existing is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="이미 등록된 이메일입니다.",
             )
 
         is_admin = bool(settings.ADMIN_EMAIL and email == settings.ADMIN_EMAIL)
-        user = User(
+        user = await user_repository.create(
             username=username,
             email=email,
             hashed_password=hash_password(password),
+            db=db,
             is_admin=is_admin,
         )
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
 
         return await self._issue_tokens(user, db)
 
@@ -66,8 +64,7 @@ class AuthService:
         db: AsyncSession,
     ) -> TokenResponse:
         """로그인 — 이메일 + 비밀번호 검증 후 JWT + refresh token 발급."""
-        result = await db.execute(select(User).where(User.email == email))
-        user = result.scalar_one_or_none()
+        user = await user_repository.find_by_email(email, db)
         if user is None or not verify_password(password, user.hashed_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -87,8 +84,7 @@ class AuthService:
         old_refresh.revoked = True
         await db.commit()
 
-        result = await db.execute(select(User).where(User.id == old_refresh.user_id))
-        user = result.scalar_one_or_none()
+        user = await user_repository.find_by_id(old_refresh.user_id, db)
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
