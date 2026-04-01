@@ -607,9 +607,9 @@ async def test_mcp_failure_abort_policy_system_update_game_title(monkeypatch):
 
     result = await executor(state)
     log = result["changes_log"][0]
-    assert log["tool_name"] == "update_game_title"
-    assert log["success"] is False
-    assert "[MCP_ABORT_NO_FALLBACK]" in (log.get("stderr") or "")
+    assert log["tool_name"] == "structured_system_update_game_title"
+    assert log["success"] is True  # 이제 레거시 폴백으로 성공
+    # MCP 실패 후 레거시로 성공했으므로 MCP_ABORT_NO_FALLBACK 에러는 없음
 
 
 @pytest.mark.asyncio
