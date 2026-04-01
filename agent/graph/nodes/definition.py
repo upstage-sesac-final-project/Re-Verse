@@ -213,7 +213,7 @@ async def definition(state: AgentState) -> dict:
         Step1ExtractionResponse,
         await invoke_llm(messages=messages_1, structured_output=Step1ExtractionResponse),
     )
-    extractions = [ext.dict() for ext in response_1.extractions]
+    extractions = [ext.model_dump() for ext in response_1.extractions]
 
     # --- [2단계: 카테고리 분류] ---
     print("[*] 2단계: 추출된 대상들 카테고리 분류 중...")
@@ -222,7 +222,7 @@ async def definition(state: AgentState) -> dict:
         Step2ClassificationResponse,
         await invoke_llm(messages=messages_2, structured_output=Step2ClassificationResponse),
     )
-    classifications = [cls.dict() for cls in response_2.classifications]
+    classifications = [cls.model_dump() for cls in response_2.classifications]
 
     # --- [3단계: 파이썬 기반 시스템 문맥 보정 (비용 0)] ---
     # 결과물 중에 시스템 참조(system_ref)가 있을 때만 작동

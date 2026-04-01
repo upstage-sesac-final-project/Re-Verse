@@ -4,12 +4,16 @@ export default function NotFound() {
   const navigate = useNavigate()
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-white">
-      <h1 className="text-8xl font-bold text-blue-500 mb-4">404</h1>
-      <p className="text-xl text-gray-400 mb-8">페이지를 찾을 수 없습니다</p>
+    <div
+      className="flex flex-col items-center justify-center h-screen"
+      style={{ background: 'var(--bg-primary)' }}
+    >
+      <h1 className="text-8xl font-bold mb-4" style={{ color: 'var(--accent)' }}>404</h1>
+      <p className="text-xl mb-8" style={{ color: 'var(--text-secondary)' }}>페이지를 찾을 수 없습니다</p>
       <button
         onClick={() => navigate('/')}
-        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        className="px-6 py-3 rounded-lg text-sm font-semibold"
+        style={{ background: 'var(--accent)', color: '#fff' }}
       >
         홈으로 돌아가기
       </button>

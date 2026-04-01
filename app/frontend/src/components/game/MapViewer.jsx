@@ -280,7 +280,7 @@ const ZOOM_MAX = 3.0
 const ZOOM_STEP = 0.25
 const BASE_CELL = 48
 
-export default function MapViewer({ gameId }) {
+export default function MapViewer({ gameId, refreshKey }) {
   const [mapList, setMapList]       = useState([])
   const [selectedMapId, setSelectedMapId] = useState(1)
   const [mapData, setMapData]       = useState(null)
@@ -291,6 +291,19 @@ export default function MapViewer({ gameId }) {
   const [error, setError]           = useState(null)
   const [zoom, setZoom]             = useState(0.5)
   const canvasRef = useRef(null)
+
+  // Re-fetch map list when game data is updated by the AI
+  useEffect(() => {
+    if (refreshKey === 0) return  // skip initial mount (handled by the main effect)
+    fetch(`/game/${gameId}/data/MapInfos.json`)
+      .then((r) => r.json())
+      .then((data) => {
+        const list = data.filter(Boolean).sort((a, b) => a.order - b.order)
+        setMapList(list)
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey])
 
   // MapInfos.json 로드
   useEffect(() => {
@@ -311,6 +324,7 @@ export default function MapViewer({ gameId }) {
     setMapData(null)
     setTileImages([])
     setSelectedEvent(null)
+    setHoveredEvent(null)
     setError(null)
 
     const mapFilename = `Map${String(selectedMapId).padStart(3, '0')}.json`
@@ -334,7 +348,7 @@ export default function MapViewer({ gameId }) {
       })
       .catch((e) => setError(e.message))
       .finally(() => setIsLoading(false))
-  }, [gameId, selectedMapId])
+  }, [gameId, selectedMapId, refreshKey])
 
   // Canvas 렌더링
   const cellSize = Math.max(4, Math.round(BASE_CELL * zoom))
@@ -426,7 +440,8 @@ export default function MapViewer({ gameId }) {
           <input
             type="range" min={ZOOM_MIN} max={ZOOM_MAX} step={ZOOM_STEP} value={zoom}
             onChange={(e) => setZoom(Number(e.target.value))}
-            className="w-24 accent-[#7c5cff]"
+            className="w-24"
+            style={{ accentColor: 'var(--accent)' }}
           />
           <button
             onClick={() => setZoom((z) => Math.min(ZOOM_MAX, Math.round((z + ZOOM_STEP) * 100) / 100))}
@@ -438,7 +453,7 @@ export default function MapViewer({ gameId }) {
             {Math.round(zoom * 100)}%
           </span>
           <button
-            onClick={() => setZoom(0.5)}
+            onClick={() => setZoom(1.0)}
             className="text-xs px-1.5 py-0.5 rounded"
             style={{ background: 'var(--border)', color: 'var(--text-secondary)' }}
           >1:1</button>
@@ -501,7 +516,7 @@ export default function MapViewer({ gameId }) {
                   style={{
                     position: 'absolute',
                     left: hoveredEvent.x * cellSize,
-                    top: hoveredEvent.y * cellSize - 28,
+                    top: Math.max(4, hoveredEvent.y * cellSize - 28),
                     background: 'var(--bg-secondary)',
                     border: '1px solid var(--border)',
                     borderRadius: '4px',
@@ -528,7 +543,7 @@ export default function MapViewer({ gameId }) {
           >
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>이벤트 정보</span>
-              <button onClick={() => setSelectedEvent(null)} className="text-xs hover:opacity-70" style={{ color: 'var(--text-secondary)' }}>✕</button>
+              <button onClick={() => setSelectedEvent(null)} aria-label="이벤트 패널 닫기" className="text-xs hover:opacity-70" style={{ color: 'var(--text-secondary)' }}>✕</button>
             </div>
             <div className="space-y-2 text-xs">
               <Row label="이름" value={selectedEvent.name} />
