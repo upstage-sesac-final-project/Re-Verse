@@ -21,6 +21,7 @@ from app.backend.api.v1 import api_router
 from app.backend.core.config import settings
 from app.backend.db.session import check_database_connection, init_db
 from app.backend.services.s3_game_storage import check_s3_bucket_access
+from shared.logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    setup_logging()
     logger.info("Re:Verse Backend Starting...")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"Debug Mode: {settings.DEBUG}")
