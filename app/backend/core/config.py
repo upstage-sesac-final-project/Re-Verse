@@ -37,16 +37,6 @@ class Settings(BaseSettings):
         description="허용 Origin 목록 (쉼표 구분)",
     )
 
-    # Upstage API
-    UPSTAGE_API_KEY: str = ""
-    SOLAR_API_BASE_URL: str = "https://api.upstage.ai/v1/solar"
-    SOLAR_MODEL: str = "solar-pro"
-
-    # LangSmith
-    LANGSMITH_API_KEY: str = ""
-    LANGSMITH_PROJECT: str = "Re-Verse_project"
-    LANGSMITH_TRACING: bool = True
-
     # ── 게임 파일 저장 ────────────────────────────────────────────────
     # 로컬 개발: ./storage/games (그대로 파일 수정)
     # 프로덕션: EC2 컨테이너 내 경로 + S3 동기화(STORAGE_BACKEND=s3)
@@ -65,9 +55,23 @@ class Settings(BaseSettings):
     # 예: postgresql+psycopg://user:pass@host:5432/dbname?sslmode=require
     DATABASE_URL: str = ""
 
-    # Agent Settings
-    AGENT_TIMEOUT: int = 30
-    MAX_RETRIES: int = 3
+    # ── JWT ─────────────────────────────────────────────────
+    JWT_SECRET_KEY: str = ""
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRATION_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRATION_HOURS: int = 24
+
+    # ── 프로젝트 ──────────────────────────────────────────────
+    BASE_GAME_PATH: str = "./storage/games/base_game"
+    MAX_PROJECTS_PER_USER: int = 3
+
+    @field_validator("JWT_SECRET_KEY", mode="after")
+    @classmethod
+    def validate_jwt_secret(cls, v: str, info) -> str:
+        """JWT_SECRET_KEY가 비어 있으면 시작 차단."""
+        if not v:
+            raise ValueError("JWT_SECRET_KEY must be set in .env")
+        return v
 
     @field_validator("S3_PREFIX", mode="before")
     @classmethod
