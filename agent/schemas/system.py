@@ -86,8 +86,8 @@ class System(BaseModel):
     skillTypes: list[str | None] = Field(default_factory=list, description="스킬 타입 목록")
     sounds: list[AudioFile] = Field(default_factory=list, description="시스템 사운드 목록")
     startMapId: int = Field(default=0, ge=0, description="게임 시작 맵 ID")
-    startX: int = Field(default=0, ge=0, description="게임 시작 X 좌표")
-    startY: int = Field(default=0, ge=0, description="게임 시작 Y 좌표")
+    startX: int = Field(default=1, ge=1, description="게임 시작 X 좌표")
+    startY: int = Field(default=1, ge=1, description="게임 시작 Y 좌표")
     switches: list[str | None] = Field(default_factory=list, description="스위치명 목록")
     terms: SystemTerms = Field(description="시스템 용어 설정")
     testBattlers: list[TestBattler] = Field(

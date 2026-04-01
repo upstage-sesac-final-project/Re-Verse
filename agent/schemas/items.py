@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import re
 from typing import Annotated
 
 from pydantic import BaseModel, Field, RootModel, field_validator, model_validator
 
 from .effects import Effect
 
-import re
 
 class Damage(BaseModel):
     type: int = Field(description="피해 > 유형", ge=0, le=6)
@@ -22,10 +22,7 @@ class Damage(BaseModel):
             return v
 
         token_pattern = r"(?:a|b)\.(?:atk|def|mhp|mat)|\d+(?:\.\d+)?|[+\-*/()]|\s+"
-        consumed = "".join(
-            m.group(0)
-            for m in re.finditer(token_pattern, v)
-        )
+        consumed = "".join(m.group(0) for m in re.finditer(token_pattern, v))
 
         if consumed != v:
             raise ValueError("허용되지 않은 damage formula 형식입니다.")

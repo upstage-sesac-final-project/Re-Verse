@@ -23,15 +23,25 @@ class State(BaseModel):
     # --------------- 해제 조건
 
     removeAtBattleEnd: bool = Field(description="해제 조건 > 전투 종료 시에 해제", default=False)
-    removeByRestriction: bool = Field(description="해제 조건 > 행동 제한에 따라 해제", default=False)
+    removeByRestriction: bool = Field(
+        description="해제 조건 > 행동 제한에 따라 해제", default=False
+    )
     autoRemovalTiming: int = Field(description="해제 조건 > 자동 해제의 타이밍", ge=0, le=2)
-    minTurns: int = Field(description="해제 조건 > 지속 순번 횟수(최솟값)", default=1, ge=0, le=9999)
-    maxTurns: int = Field(description="해제 조건 > 지속 순번 횟수(최댓값)", default=1, ge=0, le=9999)
+    minTurns: int = Field(
+        description="해제 조건 > 지속 순번 횟수(최솟값)", default=1, ge=0, le=9999
+    )
+    maxTurns: int = Field(
+        description="해제 조건 > 지속 순번 횟수(최댓값)", default=1, ge=0, le=9999
+    )
     removeByDamage: bool = Field(description="해제 조건 > 피해로 인한 해제", default=False)
-    chanceByDamage: int = Field(description="해제 조건 > 피해로 인한 해제(체크 시) > 해제 확률", default=100, ge=0, le=100)
+    chanceByDamage: int = Field(
+        description="해제 조건 > 피해로 인한 해제(체크 시) > 해제 확률", default=100, ge=0, le=100
+    )
     removeByWalking: bool = Field(description="해제 조건 > 보행으로 해제", default=False)
-    stepsToRemove: int = Field(description="해제 조건 > 보행으로 해제(체크 시) > 보행 횟수", default=100, ge=1, le=9999)
-    releaseByDamage: bool = Field(description="뭐임?!", default=False) # 미스테리
+    stepsToRemove: int = Field(
+        description="해제 조건 > 보행으로 해제(체크 시) > 보행 횟수", default=100, ge=1, le=9999
+    )
+    releaseByDamage: bool = Field(description="뭐임?!", default=False)  # 미스테리
 
     # --------------- 메시지
 

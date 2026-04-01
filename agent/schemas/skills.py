@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import re
 from typing import Annotated
 
 from pydantic import BaseModel, Field, RootModel, field_validator, model_validator
 
 from .effects import Effect
-
-import re
 
 
 class Damage(BaseModel):
@@ -23,15 +22,13 @@ class Damage(BaseModel):
             return v
 
         token_pattern = r"(?:a|b)\.(?:atk|def|mhp|mat)|\d+(?:\.\d+)?|[+\-*/()]|\s+"
-        consumed = "".join(
-            m.group(0)
-            for m in re.finditer(token_pattern, v)
-        )
+        consumed = "".join(m.group(0) for m in re.finditer(token_pattern, v))
 
         if consumed != v:
             raise ValueError("허용되지 않은 damage formula 형식입니다.")
 
         return v
+
 
 class Skill(BaseModel):
     id: int = Field(description="스킬 id, 분류용")
@@ -61,7 +58,7 @@ class Skill(BaseModel):
 
     message1: str = Field(description="메시지 첫번째 줄", default="")
     message2: str = Field(description="메시지 두번째 줄", default="")
-    messageType: int = Field(description="메시지 타입") # 미스테리...
+    messageType: int = Field(description="메시지 타입")  # 미스테리...
 
     # --------------- 필요한 무기
 
