@@ -71,6 +71,46 @@ class SQLiteVectorStore:
             conn.commit()
         print("    [VectorStore] 저장 완료!")
 
+    def delete(self, collection_name: str, where: dict[str, Any] | None = None):
+        """조건에 맞는 문서 삭제"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            query = "DELETE FROM documents WHERE collection_name = ?"
+            params = [collection_name]
+
+            if where:
+                for key, val in where.items():
+                    query += f" AND json_extract(metadata, '$.{key}') = ?"
+                    params.append(val)
+
+            cursor.execute(query, tuple(params))
+            conn.commit()
+
+    def search_by_metadata(
+        self, collection_name: str, where: dict[str, Any], limit: int = 1
+    ) -> list[dict[str, Any]]:
+        """메타데이터 필터링을 통한 단순 조회 (벡터 거리 계산 없음)"""
+        results = []
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            query = "SELECT id, content, metadata FROM documents WHERE collection_name = ?"
+            params = [collection_name]
+
+            for key, val in where.items():
+                query += f" AND json_extract(metadata, '$.{key}') = ?"
+                params.append(val)
+
+            query += f" LIMIT {limit}"
+            cursor.execute(query, tuple(params))
+            rows = cursor.fetchall()
+
+            for row in rows:
+                doc_id, content, meta_json = row
+                results.append(
+                    {"id": doc_id, "document": content, "metadata": json.loads(meta_json)}
+                )
+        return results
+
     def _cosine_similarity(self, v1: list[float], v2: list[float]) -> float:
         dot_product = sum(x * y for x, y in zip(v1, v2))
         norm1 = math.sqrt(sum(x * x for x in v1))

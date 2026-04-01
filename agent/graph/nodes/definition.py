@@ -1,9 +1,8 @@
 """Definition 노드 — 1단계: 핵심 키워드 추출."""
 
-import json
 import logging
 import os
-from typing import Any, cast
+from typing import cast
 
 from agent.core.llm_client import invoke_llm
 from agent.graph.schemas import (
@@ -18,6 +17,7 @@ from agent.prompts.definition_prompt import (
     build_step5_prompt,
 )
 from agent.rag.retriever import RPGRetriever
+from agent.utils.game_data_io import get_next_entity_id, get_system_context
 
 logger = logging.getLogger(__name__)
 
@@ -57,76 +57,6 @@ PLURAL_TO_SINGULAR.update({"enemies": "enemy", "actors": "actor"})
 def _normalize_category_to_plural(cat: str) -> str:
     """단수형 카테고리를 RPG Maker MZ 파일용 복수형으로 변환 (예: Enemy -> Enemies)"""
     return CATEGORY_TO_PLURAL.get(cat.lower(), cat.capitalize())
-
-
-def _get_next_id(game_id: str, category: str) -> int:
-    """특정 카테고리의 다음 가용한 ID(마지막 ID + 1)를 가져온다."""
-    data_dir = os.path.join("storage", "games", game_id, "data")
-    plural_cat = _normalize_category_to_plural(category)
-    file_path = os.path.join(data_dir, f"{plural_cat}.json")
-
-    if not os.path.exists(file_path):
-        return 1
-
-    try:
-        with open(file_path, encoding="utf-8") as f:
-            data = json.load(f)
-            if not isinstance(data, list):
-                return 1
-            # RPG Maker 데이터는 보통 [null, {id:1}, {id:2}, ...] 구조임
-            ids = [item["id"] for item in data if isinstance(item, dict) and "id" in item]
-            return max(ids) + 1 if ids else 1
-    except Exception:
-        return 1
-
-
-def _get_system_info(game_id: str) -> dict:
-    """System.json 및 Actors.json에서 핵심 시스템 정보를 추출한다."""
-    data_dir = os.path.join("storage", "games", game_id, "data")
-    system_path = os.path.join(data_dir, "System.json")
-    actors_path = os.path.join(data_dir, "Actors.json")
-
-    info: dict[str, Any] = {
-        "gameTitle": "알 수 없음",
-        "currencyUnit": "G",
-        "hero": {"id": None, "name": "알 수 없음"},
-        "startPosition": {"mapId": 0, "x": 0, "y": 0},
-        "elements": [],  # 속성 리스트 추가
-    }
-
-    if os.path.exists(system_path):
-        try:
-            with open(system_path, encoding="utf-8") as f:
-                sys_data = json.load(f)
-                info["gameTitle"] = sys_data.get("gameTitle", "알 수 없음")
-                info["currencyUnit"] = sys_data.get("currencyUnit", "G")
-                info["elements"] = sys_data.get("elements", [])
-                info["startPosition"] = {
-                    "mapId": sys_data.get("startMapId", 0),
-                    "x": sys_data.get("startX", 0),
-                    "y": sys_data.get("startY", 0),
-                }
-                # 주인공 (1번 파티원) ID
-                party = list(sys_data.get("partyMembers", []))
-                if party:
-                    info["hero"]["id"] = party[0]
-        except Exception:
-            pass
-    # ... (생략된 이름 찾기 로직 유지)
-
-    # 주인공 이름 찾기 (Actors.json)
-    if info["hero"]["id"] and os.path.exists(actors_path):
-        try:
-            with open(actors_path, encoding="utf-8") as f:
-                actors_data = json.load(f)
-                for a in actors_data:
-                    if a and a.get("id") == info["hero"]["id"]:
-                        info["hero"]["name"] = a.get("name", "알 수 없음")
-                        break
-        except Exception:
-            pass
-
-    return info
 
 
 def _format_to_progress_spec(modifications: list[dict], classifications: list[dict]) -> list[dict]:
@@ -227,10 +157,11 @@ async def definition(state: AgentState) -> dict:
     # --- [3단계: 파이썬 기반 시스템 문맥 보정 (비용 0)] ---
     # 결과물 중에 시스템 참조(system_ref)가 있을 때만 작동
     needs_system_info = any(cls.get("system_ref") is not None for cls in classifications)
+    sys_info = {}
 
     if needs_system_info:
         print("[*] 3단계: 시스템 정보 기반 보정 수행 중...")
-        sys_info = _get_system_info(game_id)
+        sys_info = get_system_context(game_id)
 
         for cls in classifications:
             ref = cls.get("system_ref")
@@ -265,7 +196,8 @@ async def definition(state: AgentState) -> dict:
     from difflib import SequenceMatcher
 
     retriever = RPGRetriever(game_id)
-    sys_info = _get_system_info(game_id)  # 시스템 정보 미리 확보
+    if not sys_info:  # 시스템 정보 미리 확보
+        sys_info = get_system_context(game_id)
 
     for cls in classifications:
         # 이미 3단계에서 ID를 찾았거나, 분류가 None이거나, 카테고리 지칭어면 패스
@@ -300,7 +232,7 @@ async def definition(state: AgentState) -> dict:
 
         # [일반 케이스: 파일 기반 검색]
         plural_cat = _normalize_category_to_plural(cls["category"])
-        results = retriever.retrieve_entities(cls["name"], plural_cat, k=1)
+        results = await retriever.retrieve_entities(cls["name"], plural_cat, k=1)
 
         # 1단계 의도 확인 (CREATE 인지 여부)
         is_create = any(
@@ -420,13 +352,6 @@ async def definition(state: AgentState) -> dict:
 
     # --- [상태 전이용 ID 맵핑 강화 및 중복 제거] ---
     final_extracted_ids = {}
-
-    # 1. LLM이 명시적으로 반환한 ID들 먼저 수집
-    if final_response.extracted_ids:
-        for k, v in final_response.extracted_ids.items():
-            if v and v != "NEW":
-                final_extracted_ids[k] = v
-
     # 2. 분류 단계에서 확정된 ID들 병합 (system_ref 우선)
     for cls in classifications:
         m_id = cls.get("mapped_id")
@@ -446,19 +371,17 @@ async def definition(state: AgentState) -> dict:
     for mod in strictly_formatted_mods:
         target = mod["target"]
         id_field = CATEGORY_TO_ID_FIELD.get(target, f"{target}_id")
-
+        action_type = mod.get("type")
         params = mod.get("params", {})
-        if params.get(id_field) == "NEW":
+
+        if action_type == "create" or params.get(id_field) == "NEW":
             if target not in next_id_cache:
-                next_id_cache[target] = _get_next_id(game_id, target)
+                next_id_cache[target] = get_next_entity_id(game_id, target)
 
             assigned_id = next_id_cache[target]
             params[id_field] = assigned_id
-
-            # extracted_ids에도 반영
-            name = params.get("name", target)
-            final_extracted_ids[name] = assigned_id
-
+            display_name = params.get("name", target)
+            final_extracted_ids[display_name] = assigned_id
             # 다음 생성을 위해 ID 증가 (한 번에 여러 개 생성 대비)
             next_id_cache[target] += 1
 
@@ -468,5 +391,5 @@ async def definition(state: AgentState) -> dict:
         "modifications": strictly_formatted_mods,
         "extracted_ids": final_extracted_ids,
         "params_sufficient": final_response.params_sufficient,
-        "final_response": final_response.message_for_user,
+        # "final_response": final_response.message_for_user,
     }
