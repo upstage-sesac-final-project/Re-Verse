@@ -18,6 +18,7 @@ from app.backend.schemas.llm import (
 from app.backend.services.game_service import game_service
 from app.backend.services.llm_service import llm_service
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -28,17 +29,35 @@ async def process_user_input(
     db: AsyncSession = Depends(get_db),
 ) -> ProcessResponse:
     """사용자 입력을 처리하는 메인 엔드포인트 (인증 필수)."""
+    logger.info(
+        "[LLM] 요청 수신 | user_id=%d, project_id=%d, message=%s",
+        current_user.id,
+        request.project_id,
+        request.message[:50],
+    )
     try:
-        return await llm_service.process_chat(
+        response = await llm_service.process_chat(
             project_id=request.project_id,
             message=request.message,
             user_id=current_user.id,
             db=db,
         )
+        logger.info(
+            "[LLM] 요청 완료 | user_id=%d, project_id=%d, success=%s, intent=%s",
+            current_user.id,
+            request.project_id,
+            response.success,
+            response.intent,
+        )
+        return response
     except HTTPException:
         raise
     except Exception:
-        logging.getLogger(__name__).exception("LLM 처리 오류")
+        logger.exception(
+            "[LLM] 처리 오류 | user_id=%d, project_id=%d",
+            current_user.id,
+            request.project_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="요청 처리 중 오류가 발생했습니다.",
@@ -54,6 +73,7 @@ async def get_conversation_history(
     db: AsyncSession = Depends(get_db),
 ):
     """대화 이력 조회 (인증 + 소유권 확인)."""
+    logger.debug("[LLM] 대화 이력 조회 | user_id=%d, project_id=%d", current_user.id, project_id)
     await game_service.get_project(project_id, current_user.id, db)
 
     result = await db.execute(

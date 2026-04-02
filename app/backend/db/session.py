@@ -40,7 +40,7 @@ def get_engine() -> AsyncEngine | None:
 
     _engine = create_async_engine(
         settings.DATABASE_URL,
-        echo=settings.DEBUG and settings.ENVIRONMENT == "development",
+        echo=False,  # SQLAlchemy 로그는 shared/logging_config.py의 dictConfig로 제어
         connect_args=connect_args,
     )
     _async_session = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)

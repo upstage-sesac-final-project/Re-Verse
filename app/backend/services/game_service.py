@@ -32,6 +32,11 @@ class GameService:
         # ① 프로젝트 수 제한
         count = await project_repository.count_by_user(user_id, db)
         if count >= settings.MAX_PROJECTS_PER_USER:
+            logger.warning(
+                "[GameService] 프로젝트 생성 제한 초과 | user_id=%d, count=%d",
+                user_id,
+                count,
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"프로젝트는 최대 {settings.MAX_PROJECTS_PER_USER}개까지 생성 가능합니다.",
@@ -54,12 +59,24 @@ class GameService:
             await project_repository.commit(db)
             await project_repository.refresh(project, db)
         except Exception:
+            logger.error(
+                "[GameService] 프로젝트 생성 실패 — 롤백 | user_id=%d, game_id=%s",
+                user_id,
+                game_id,
+                exc_info=True,
+            )
             await project_repository.rollback(db)
             self._cleanup_game_folder(game_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="프로젝트 생성 중 오류가 발생했습니다.",
             )
+        logger.info(
+            "[GameService] 프로젝트 생성 완료 | user_id=%d, project_id=%d, game_id=%s",
+            user_id,
+            project.id,
+            game_id,
+        )
         return project
 
     async def list_projects(self, user_id: int, db: AsyncSession) -> list[Project]:
@@ -68,11 +85,18 @@ class GameService:
     async def get_project(self, project_id: int, user_id: int, db: AsyncSession) -> Project:
         project = await project_repository.find_by_id(project_id, db)
         if project is None:
+            logger.warning("[GameService] 프로젝트 없음 | project_id=%d", project_id)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="프로젝트를 찾을 수 없습니다.",
             )
         if project.user_id != user_id:
+            logger.warning(
+                "[GameService] 접근 권한 없음 | project_id=%d, owner=%d, requester=%d",
+                project_id,
+                project.user_id,
+                user_id,
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="접근 권한이 없습니다.",
@@ -102,6 +126,12 @@ class GameService:
         try:
             await project_repository.delete(project, db)
         except Exception:
+            logger.error(
+                "[GameService] 프로젝트 삭제 실패 — 롤백 | project_id=%d, game_id=%s",
+                project_id,
+                game_id,
+                exc_info=True,
+            )
             await project_repository.rollback(db)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

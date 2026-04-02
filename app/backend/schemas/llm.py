@@ -56,15 +56,16 @@ class ProcessResponse(BaseModel):
     """프로세스 처리 응답"""
 
     code: int = Field(201, description="성공 시 201")
-    message: str = Field("", description="처리 메시지")
-    result: dict[str, Any] = Field(default_factory=dict)
-
-    intent: str | None = Field(None, description="파악된 의도")
-    modifications: list[str] | None = Field(None, description="수정된 항목 목록")
-    affected_files: list[str] | None = Field(None, description="영향받은 파일 목록")
-    changes_log: list[ChangeLog] = Field(default_factory=list, description="실행된 변경 로그")
+    message: str = Field("", description="Synthesizer가 생성한 최종 응답")
+    intent: str | None = Field(None, description="Router가 분류한 사용자 의도")
+    success: bool = Field(True, description="Validator 전체 검증 통과 여부")
+    affected_files: list[str] = Field(
+        default_factory=list, description="Executor가 수정한 파일 목록"
+    )
     reload_required: bool = Field(False, description="프론트엔드 게임 리로드 필요 여부")
-    success: bool = Field(True, description="처리 성공 여부")
+    changes_log: list[ChangeLog] = Field(
+        default_factory=list, description="Executor 단계별 변경 이력"
+    )
 
 
 class ConversationLogResponse(BaseModel):
