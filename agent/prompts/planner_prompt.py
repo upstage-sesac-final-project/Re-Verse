@@ -57,7 +57,11 @@ _SYSTEM_PROMPT = """\
    - 조건 없이 무조건 실행하는 step은 빈 문자열("")로 설정
 4. depends_on으로 선행 step과의 순서 의존성을 명시할 것
 5. target_info에 modifications와 extracted_ids의 내용을 구체적으로 포함할 것
-6. action_type은 반드시 "query" / "create" / "update" / "delete" 중 하나만 사용할 것
+6. action_type은 "query" / "create" / "update" / "delete" / "list" / "search" 중 하나만 사용할 것
+   - 전체 목록만 필요하면 Actors.json·Skills.json·Items.json 등에 `list` 사용
+   - 이름 부분 일치 검색은 `search` + target_info에 searchTerm(또는 query)
+   - Actors.json에서 query만 써야 할 때: ID 조회는 actor_id, 이름 존재 확인은 actor_name/name, 전체 목록은 target_info에 list_actors=true, 부분 검색은 searchTerm만(이름 키 없이)
+   - Actors.json 수정: 생성 직후 같은 흐름에서 수정하면 depends_on으로 이어 주고, target_info에 actor_id를 반복하지 않아도 됨(Executor가 선행 step의 actor_id를 채움). 이름 변경은 actor_id+new_name 또는 actor_name+new_name, 일반 필드는 updates+actor_id
 
 ---
 

@@ -194,6 +194,11 @@ def _normalize_mcp_arguments(
 
     # ── Items.json ──
     if target_file == "Items.json" and action == "search":
+        # query→search 정규화 후에도 플래너가 name/item_name 만 넘기는 경우가 있어 searchTerm 으로 맞춘다.
+        if not (out.get("searchTerm") or out.get("search_term") or out.get("query")):
+            nm = out.get("name") or out.get("item_name")
+            if nm is not None:
+                out["searchTerm"] = str(nm)
         return {"searchTerm": _search_term()}
 
     if target_file == "Items.json" and action == "update":
@@ -259,14 +264,49 @@ def _normalize_structured_action(target_file: str, action: str, target_info: dic
         # 레거시 query는 이름 기반 존재 확인, MCP get_actor는 ID 기반.
         if a == "query" and ("actor_id" in target_info or "actorId" in target_info):
             return "query_by_id"
+        # 플래너가 query만 쓰는 경우: 목록/부분검색은 MCP get_actors·search_actors에 맞춤
+        if a == "query":
+            ti = target_info
+            if (
+                ti.get("list_actors")
+                or ti.get("list_all_actors")
+                or ti.get("scope") == "all_actors"
+            ):
+                return "list"
+            has_name = bool(str(ti.get("actor_name") or ti.get("name") or "").strip())
+            sterm = str(
+                ti.get("searchTerm") or ti.get("search_term") or ti.get("query") or ""
+            ).strip()
+            if sterm and not has_name:
+                return "search"
         # 기존 update(클래스 변경)과 MCP update_actor(일반 속성 수정)를 분리.
-        if (
-            a == "update"
-            and "updates" in target_info
-            and ("actor_id" in target_info or "actorId" in target_info)
-        ):
-            return "update_actor"
-        return a
+        # class_name/class_id가 없으면 이름 변경·일반 필드 수정이지 classId 변경이 아님 → update_actor.
+        if a == "update":
+            ti = target_info
+            has_aid = ti.get("actor_id") is not None or ti.get("actorId") is not None
+            has_updates = isinstance(ti.get("updates"), dict) and bool(ti.get("updates"))
+            has_class = (
+                bool(str(ti.get("class_name") or "").strip()) or ti.get("class_id") is not None
+            )
+
+            if has_updates and has_aid:
+                return "update_actor"
+
+            new_nm = str(ti.get("new_name") or ti.get("newName") or "").strip()
+            old_nm = str(
+                ti.get("actor_name") or ti.get("old_name") or ti.get("oldName") or ""
+            ).strip()
+            nm_field = str(ti.get("name") or "").strip()
+
+            if not has_class:
+                if new_nm and (has_aid or old_nm):
+                    return "update_actor"
+                if nm_field and has_aid:
+                    return "update_actor"
+                if new_nm or old_nm or has_updates or has_aid or nm_field:
+                    return "update_actor"
+                return a
+            return a
 
     if target_file == "System.json" and a == "update":
         # 플래너가 광의의 update로 주더라도 MCP 세부 액션으로 자동 분기.
@@ -284,7 +324,264 @@ def _normalize_structured_action(target_file: str, action: str, target_info: dic
             return "update_starting_position"
         return a
 
+    # Items / Enemies: 플래너가 "존재 여부 확인"에 query를 쓰는 경우가 많다.
+    # MCP·레거시는 read에 search(이름)만 있으므로 query → search 로 흡수한다. (Actors의 query/query_by_id 분기와 대칭)
+    if target_file == "Items.json" and a == "query":
+        return "search"
+    if target_file == "Enemies.json" and a == "query":
+        return "search"
+
     return a
+
+
+def _actors_old_name_for_reconcile(target_info: dict[str, Any]) -> str:
+    """플래너가 준 이전 이름(대상 액터 식별).
+
+    우선순위: actor_name > old_name > oldName > previous_name
+    CRITICAL: new_name, newName은 결과 이름이므로 제외!
+    """
+    candidates = [
+        target_info.get("actor_name"),
+        target_info.get("old_name"),
+        target_info.get("oldName"),
+        target_info.get("previous_name"),
+        target_info.get("source_name"),  # 추가적인 기존 이름 필드
+    ]
+    for candidate in candidates:
+        if candidate and str(candidate).strip():
+            result = str(candidate).strip()
+            # new_name과 같으면 사용하지 않음 (혼란 방지)
+            new_names = [
+                str(target_info.get("new_name") or "").strip(),
+                str(target_info.get("newName") or "").strip(),
+            ]
+            if result not in new_names:
+                return result
+    return ""
+
+
+def _actors_reconcile_actor_id_from_name(
+    data_path: Path, target_info: dict[str, Any]
+) -> dict[str, Any]:
+    """이전 이름이 있으면 Actors.json에서 인덱스를 찾아 actor_id를 덮어쓴다.
+
+    플래너가 잘못된 actor_id(예: 세티≠12)를 주는 경우 이름 기준으로 보정한다.
+    """
+    ti = dict(target_info)
+    old_nm = _actors_old_name_for_reconcile(ti)
+
+    # CRITICAL: new_name은 결과 이름이므로 대상 식별에 사용하면 안됨!
+    # 대상 식별은 오직 기존 이름(actor_name, old_name 등)으로만 해야 함
+    if not old_nm:
+        # name 필드만 추가로 확인 (target_name은 제외)
+        name_field = str(ti.get("name") or "").strip()
+        new_name_field = str(ti.get("new_name") or ti.get("newName") or "").strip()
+
+        # name이 new_name과 다르면 name을 기존 이름으로 간주
+        if name_field and name_field != new_name_field:
+            old_nm = name_field
+
+    if not old_nm:
+        return ti
+    try:
+        mgr = ActorManager(data_path, "actor_id_reconcile")
+        data = mgr.load_json_data()
+        if not isinstance(data, list) or not data or data[0] is not None:
+            return ti
+        idx = mgr.find_by_name(data, old_nm)
+        if idx is None:
+            logger.warning("[Executor] 액터 '%s' 이름으로 찾기 실패 - 전체 액터 목록 확인", old_nm)
+            # 디버깅: 현재 액터 목록 출력
+            actors = []
+            for i in range(1, min(len(data), 20)):  # 첫 20개만
+                if isinstance(data[i], dict) and data[i].get("name"):
+                    actors.append(f"id={i}:{data[i]['name']}")
+            logger.info("[Executor] 현재 액터들: %s", ", ".join(actors))
+            return ti
+
+        planned = ti.get("actorId", ti.get("actor_id"))
+        if planned is not None:
+            try:
+                pi = int(planned)
+            except (TypeError, ValueError):
+                pi = None
+            if pi is not None and pi != idx:
+                # 잘못된 매핑인지 실제 확인
+                wrong_actor = data[pi] if pi < len(data) and isinstance(data[pi], dict) else None
+                wrong_name = wrong_actor.get("name") if wrong_actor else "존재하지 않음"
+                logger.error(
+                    "[Executor] CRITICAL actor_id 보정: 이름 '%s' → 올바른 id=%s (Definition/플래너 오류: id=%s는 '%s')",
+                    old_nm,
+                    idx,
+                    pi,
+                    wrong_name,
+                )
+        else:
+            logger.info("[Executor] actor_id 없음 → 이름 '%s'로 id=%s 설정", old_nm, idx)
+
+        ti["actor_id"] = idx
+        ti.pop("actorId", None)
+
+        # 성공적으로 찾은 액터 정보 로깅
+        found_actor = data[idx] if idx < len(data) and isinstance(data[idx], dict) else None
+        if found_actor:
+            logger.info("[Executor] 대상 액터 확인: id=%s, 이름='%s'", idx, found_actor.get("name"))
+
+    except Exception as e:
+        logger.error("[Executor] actor_id 이름 보정 실패: %s", e, exc_info=True)
+    return ti
+
+
+def _actors_validate_actor_id_context(
+    data_path: Path, target_info: dict[str, Any], step: dict, execution_plan: list = None
+) -> dict[str, Any]:
+    """actor_name 없이 actor_id만 있을 때, 요청 맥락으로 올바른 액터인지 검증.
+
+    예: "세티를 정민으로 바꿔줘" 요청에서 actor_id=12가 세티가 아니면 보정.
+    원본 의도를 execution_plan, step 설명, 글로벌 컨텍스트 등에서 추출.
+    """
+    ti = dict(target_info)
+    aid = ti.get("actor_id")
+
+    try:
+        aid_int = int(aid)
+        mgr = ActorManager(data_path, "context_validation")
+        data = mgr.load_json_data()
+
+        # 범위 밖이어도 의도 추출은 시도 (Definition 오류 보정용)
+        current_actor = None
+        current_name = ""
+        is_invalid_id = aid_int < 1 or aid_int >= len(data)
+
+        if not is_invalid_id and isinstance(data[aid_int], dict):
+            current_actor = data[aid_int]
+            current_name = current_actor.get("name", "")
+        else:
+            logger.warning("[Executor] 잘못된/없는 actor_id: %s (범위 밖 또는 null)", aid_int)
+
+        # 스텝 설명에서 원래 의도한 이름 추출 시도
+        description = str(step.get("description") or "").lower()
+        step_info = str(step.get("target_info") or "")
+
+        # 다양한 소스에서 원본 의도 추출
+        original_request = ""
+
+        # 원본 user_input 직접 활용
+        user_input = getattr(_execute_one_structured_step, "_current_user_input", "")
+        if user_input:
+            original_request = str(user_input).lower()
+            print(f"🔧 [DEBUG] 원본 사용자 요청: '{user_input[:100]}'")
+            logger.warning("[Executor] 🔧 원본 사용자 요청 확인: '%s'", user_input[:100])
+
+        # execution_plan 전체의 다른 스텝들에서도 힌트 추출
+        if execution_plan and isinstance(execution_plan, list):
+            for other_step in execution_plan:
+                if isinstance(other_step, dict):
+                    other_desc = str(other_step.get("description") or "").lower()
+                    other_info = str(other_step.get("target_info") or "")
+                    if other_desc:
+                        original_request += " " + other_desc
+                    if other_info:
+                        original_request += " " + other_info
+
+        # 원본 요청과 스텝 설명 모두에서 의도 추출
+        search_texts = [description, step_info, original_request]
+
+        # "세티", "리드" 등 일반적인 이름들 체크
+        common_names = [
+            "세티",
+            "리드",
+            "프리실라",
+            "게일",
+            "미쉘",
+            "알버트",
+            "케이시",
+            "엘리엇",
+            "로자",
+        ]
+        intended_name = None
+
+        for text in search_texts:
+            if not text:
+                continue
+            for name in common_names:
+                if name.lower() in text:
+                    intended_name = name
+                    logger.info("[Executor] 의도한 액터 발견: '%s' (from: %s)", name, text[:50])
+                    break
+            if intended_name:
+                break
+
+        # 의도한 이름이 있고 (현재 actor_id가 다른 액터를 가리키거나 잘못된 ID이면) 보정
+        if intended_name and (is_invalid_id or intended_name != current_name):
+            correct_idx = mgr.find_by_name(data, intended_name)
+            if correct_idx:
+                error_desc = f"잘못된 id={aid_int}"
+                if is_invalid_id:
+                    error_desc += " (범위 밖)"
+                elif current_name:
+                    error_desc += f" (실제: '{current_name}')"
+
+                logger.error(
+                    "[Executor] CRITICAL 맥락 기반 actor_id 보정: 의도='%s' → 올바른 id=%s (%s)",
+                    intended_name,
+                    correct_idx,
+                    error_desc,
+                )
+                ti["actor_id"] = correct_idx
+                ti["_context_corrected"] = True
+            else:
+                logger.error("[Executor] 의도한 액터 '%s'를 찾을 수 없음", intended_name)
+
+        return ti
+
+    except Exception as e:
+        logger.warning("[Executor] 맥락 기반 actor_id 검증 실패: %s", e)
+        return ti
+
+
+def _enrich_actors_target_info_from_deps(
+    step: dict,
+    step_results: dict[int, dict],
+    target_info: dict[str, Any],
+) -> dict[str, Any]:
+    """선행 step(create/query 등)의 actor_id를 이어 받는다."""
+    ti = dict(target_info)
+    if ti.get("actor_id") is not None or ti.get("actorId") is not None:
+        return ti
+    deps = step.get("depends_on") or []
+    for d in reversed(deps):
+        try:
+            did = int(d)
+        except (TypeError, ValueError):
+            continue
+        prev = step_results.get(did)
+        if not isinstance(prev, dict):
+            continue
+        aid = prev.get("actor_id")
+        if aid is not None:
+            ti["actor_id"] = aid
+            break
+    return ti
+
+
+def _coerce_actors_update_actor_target_info(target_info: dict[str, Any]) -> dict[str, Any]:
+    """update_actor용: updates 없이 new_name·name만 온 경우 MCP/매니저가 기대하는 형태로 맞춘다."""
+    ti = dict(target_info)
+    updates = ti.get("updates")
+    if isinstance(updates, dict) and updates:
+        return ti
+    aid = ti.get("actorId", ti.get("actor_id"))
+    new_nm = str(ti.get("new_name") or ti.get("newName") or "").strip()
+    old_nm = str(ti.get("actor_name") or ti.get("old_name") or ti.get("oldName") or "").strip()
+    if new_nm and (aid is not None or old_nm):
+        ti["updates"] = {"name": new_nm}
+        return ti
+    nm = str(ti.get("name") or "").strip()
+    has_class = bool(str(ti.get("class_name") or "").strip()) or ti.get("class_id") is not None
+    if nm and aid is not None and not has_class:
+        ti["updates"] = {"name": nm}
+    return ti
 
 
 def _structured_error(
@@ -311,6 +608,9 @@ def _supports_legacy_fallback(target_file: str, action: str) -> bool:
         ("Classes.json", "create"),
         ("Classes.json", "update"),
         ("Actors.json", "query"),
+        ("Actors.json", "query_by_id"),
+        ("Actors.json", "list"),
+        ("Actors.json", "search"),
         ("Actors.json", "create"),
         ("Actors.json", "update"),
         ("Actors.json", "update_actor"),
@@ -500,9 +800,41 @@ async def _execute_one_structured_step(
     sid = int(step["step_id"])
     target_file = (step.get("target_file") or "").strip()
     target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
+    target_info = dict(target_info)
+    if target_file == "Actors.json":
+        print(f"🔧 [EXECUTOR DEBUG] 액터 스텝 처리 시작: step_id={sid}")
+        logger.warning("🔧 [EXECUTOR DEBUG] 액터 스텝 처리 시작: step_id=%s", sid)
+
+        target_info = _enrich_actors_target_info_from_deps(step, step_results, target_info)
+        target_info = _actors_reconcile_actor_id_from_name(data_path, target_info)
+
+        # CRITICAL: actor_name 없이 actor_id만 있는 경우 추가 검증
+        old_name_check = _actors_old_name_for_reconcile(target_info)
+        aid = target_info.get("actor_id")
+
+        print(f"🔧 [DEBUG] old_name_check='{old_name_check}', actor_id={aid}")
+        logger.warning("🔧 [DEBUG] old_name_check='%s', actor_id=%s", old_name_check, aid)
+
+        if not old_name_check and aid:
+            aid_str = str(aid)
+            print(f"🔧 [DEBUG] 맥락 검증 진입: aid={aid}, isdigit={aid_str.isdigit()}")
+            logger.warning("🔧 [DEBUG] 맥락 검증 진입: aid=%s, isdigit=%s", aid, aid_str.isdigit())
+
+            if aid_str.isdigit():
+                # execution_plan 전체를 맥락 검증에 전달
+                ep = getattr(_execute_one_structured_step, "_current_execution_plan", None)
+                print("🔧 [DEBUG] 맥락 검증 실행 중...")
+                logger.warning("🔧 [DEBUG] 맥락 검증 실행 중...")
+
+                target_info = _actors_validate_actor_id_context(data_path, target_info, step, ep)
+
+                print(f"🔧 [DEBUG] 맥락 검증 완료: {target_info}")
+                logger.warning("🔧 [DEBUG] 맥락 검증 완료: %s", target_info)
     # raw_action은 디버그/에러 메시지에 남기고, 실제 실행 분기는 정규화된 action으로 통일한다.
     raw_action = (step.get("action_type") or "").strip().lower()
     action = _normalize_structured_action(target_file, raw_action, target_info)
+    if target_file == "Actors.json" and action == "update_actor":
+        target_info = _coerce_actors_update_actor_target_info(target_info)
     ts = datetime.now().isoformat()
 
     # 정규화 결과 로깅 (편차가 있을 때만)
@@ -627,6 +959,37 @@ async def _execute_one_structured_step(
                 "timestamp": ts,
             }
 
+        if target_file == "Actors.json" and action == "list":
+            logger.debug("[Executor] 레거시 분기: Actors.list")
+            mgr = ActorManager(data_path, f"struct_{sid}")
+            r = await mgr.execute("list", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_actors_list",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "structured": True,
+                "timestamp": ts,
+            }
+
+        if target_file == "Actors.json" and action == "search":
+            logger.debug("[Executor] 레거시 분기: Actors.search")
+            mgr = ActorManager(data_path, f"struct_{sid}")
+            r = await mgr.execute("search", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_actors_search",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "exists": r.get("exists"),
+                "structured": True,
+                "timestamp": ts,
+            }
+
         if target_file == "Actors.json" and action == "query":
             logger.debug("[Executor] 레거시 분기: Actors.query")
             mgr = ActorManager(data_path, f"struct_{sid}")
@@ -639,6 +1002,24 @@ async def _execute_one_structured_step(
                 "stdout": r.get("message", ""),
                 "stderr": r.get("error") or "",
                 "exists": r.get("exists"),
+                "structured": True,
+                "timestamp": ts,
+            }
+
+        if target_file == "Actors.json" and action == "query_by_id":
+            # MCP get_actor 미구동 시에도 플래너의 ID 조회 스텝이 실패하지 않도록 ActorManager로 처리
+            logger.debug("[Executor] 레거시 분기: Actors.query_by_id")
+            mgr = ActorManager(data_path, f"struct_{sid}")
+            r = await mgr.execute("query_by_id", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_actors_query_by_id",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "exists": r.get("exists"),
+                "actor_id": r.get("actor_id"),
                 "structured": True,
                 "timestamp": ts,
             }
@@ -820,11 +1201,14 @@ async def _execute_one_structured_step(
 
             dispatcher_func = dispatcher_map[target_file]
 
-            # target_info에서 적절한 자연어 입력 구성
+            # target_info에서 적절한 자연어 입력 구성 (query/searchTerm 은 플래너·정규화 편차 흡수)
             name = (
                 target_info.get("name")
                 or target_info.get("item_name")
                 or target_info.get("enemy_name")
+                or target_info.get("query")
+                or target_info.get("searchTerm")
+                or target_info.get("search_term")
                 or ""
             )
 
@@ -876,13 +1260,14 @@ async def _execute_one_structured_step(
             "no mcp/legacy handler",
             hint=f"raw_action={raw_action}",
         )
-        logger.warning("[Executor] 미지원 스텝: %s", err)
+        logger.error("[Executor] 미지원 스텝: %s", err)
         step_results[sid] = {"success": False, "error": err, "step_id": sid}
         return {
             "step_id": sid,
-            "tool_name": f"structured_{target_file}_{action}",
+            "tool_name": f"structured_{target_file}_{action}_UNSUPPORTED",
             "success": False,
-            "stderr": err,
+            "stderr": f"CRITICAL: {err}",
+            "stdout": "",
             "structured": True,
             "timestamp": ts,
         }
@@ -913,6 +1298,7 @@ async def _executor_structured(
     **상태 전달**
     - `current_game_state` / `modified_game_state`는 논리 파일명 → **스냅샷 JSON 파일 절대 경로(str)**.
       내용은 `agent.graph.utils.game_state_json.load_snapshot_payload`로 연다 (2·5단계 공용).
+    - `modified_file_paths`: 스냅샷과 별도로, 이번 실행에서 **실제 수정이 보고된** `data/*.json` 절대 경로 목록.
     """
     ordered = _topological_sort_steps(execution_plan)
     target_files = sorted(_collect_structured_target_files(execution_plan))
@@ -1009,12 +1395,13 @@ async def _executor_structured(
         len(modified_game_state),
     )
 
+    modified_file_paths = _collect_modified_file_paths_from_changes_log(data_path, changes_log)
     return {
-        "current_game_state": current_game_state,
         "modified_game_state": modified_game_state,
+        "current_game_state": current_game_state,
         "changes_log": changes_log,
-        "backup_paths": backup_paths,
-        "retry_count": retry_count,
+        "tool_results": changes_log,  # progress.md 호환성을 위해 changes_log와 동일하게 설정
+        "modified_file_paths": modified_file_paths,
     }
 
 
@@ -1046,8 +1433,12 @@ async def executor(state: AgentState) -> dict:
     execution_plan = state.get("execution_plan", [])
     game_id = state.get("game_id", "game_001")
     retry_count = state.get("retry_count", 0)
+    user_input = state.get("user_input", "")
 
     logger.info("[Executor MVP] 시작: game_id=%s, retry=%d", game_id, retry_count)
+
+    # 맥락 검증을 위해 원본 user_input을 전역에 저장
+    _execute_one_structured_step._current_user_input = user_input
 
     # ── Step 1: 입력 검증 ─────────────────────────────────────
     if retry_count >= 2:
@@ -1059,7 +1450,9 @@ async def executor(state: AgentState) -> dict:
                     "error": "최대 재시도(2) 초과. 수행 불가.",
                     "timestamp": datetime.now().isoformat(),
                 }
-            ]
+            ],
+            "tool_results": [],
+            "modified_file_paths": [],
         }
 
     if not execution_plan:
@@ -1070,8 +1463,41 @@ async def executor(state: AgentState) -> dict:
                     "error": "execution_plan이 비어있습니다.",
                     "timestamp": datetime.now().isoformat(),
                 }
-            ]
+            ],
+            "tool_results": [],
+            "modified_file_paths": [],
         }
+
+    try:
+        ep_json = json.dumps(execution_plan, ensure_ascii=False, default=str)
+        max_len = 16000
+        if len(ep_json) > max_len:
+            ep_json = ep_json[:max_len] + f"... (truncated, full_len={len(ep_json)})"
+        logger.info(
+            "[Executor] 입력 execution_plan (%d steps) JSON: %s",
+            len(execution_plan),
+            ep_json,
+        )
+
+        # 액터 관련 요청인지 확인하고 디버그 정보 추가
+        has_actors = any(
+            step.get("target_file") == "Actors.json"
+            for step in execution_plan
+            if isinstance(step, dict)
+        )
+        if has_actors:
+            logger.info("[Executor] 액터 관련 요청 감지 - 추가 디버깅 활성화")
+            for i, step in enumerate(execution_plan):
+                if isinstance(step, dict) and step.get("target_file") == "Actors.json":
+                    logger.info(
+                        "[Executor] 액터 스텝 %d: action=%s target_info=%s",
+                        i + 1,
+                        step.get("action_type"),
+                        json.dumps(step.get("target_info", {}), ensure_ascii=False),
+                    )
+
+    except (TypeError, ValueError) as je:
+        logger.warning("[Executor] execution_plan JSON 로깅 실패: %s", je)
 
     # ── Step 2: 경로 설정 ─────────────────────────────────────
     data_path = _get_data_path(game_id)
@@ -1082,7 +1508,21 @@ async def executor(state: AgentState) -> dict:
     # 이 포맷이면 LLM 번역 단계(레거시) 없이 곧바로 4단계 구조화 엔진으로 분기한다.
     if _is_structured_execution_plan(execution_plan):
         logger.info("[Executor] 구조화 플랜 분기: %d개 step", len(execution_plan))
-        return await _executor_structured(data_path, execution_plan, game_id, retry_count)
+        result = await _executor_structured(data_path, execution_plan, game_id, retry_count)
+
+        # 액터 관련 요청에서 실패가 있었는지 확인
+        changes_log = result.get("changes_log", [])
+        failed_steps = [log for log in changes_log if not log.get("success")]
+        if failed_steps:
+            logger.error(
+                "[Executor] 실패한 스텝들: %s",
+                [f"step_{s.get('step_id')}:{s.get('tool_name')}" for s in failed_steps],
+            )
+            for failed in failed_steps:
+                if "UNSUPPORTED" in str(failed.get("tool_name", "")):
+                    logger.error("[Executor] CRITICAL 실패: %s", failed.get("stderr"))
+
+        return result
 
     logger.info("[Executor] 비구조화(번역) 경로: %d개 항목", len(execution_plan))
 
@@ -1099,7 +1539,9 @@ async def executor(state: AgentState) -> dict:
                     "error": f"LLM 번역 실패: {e}",
                     "timestamp": datetime.now().isoformat(),
                 }
-            ]
+            ],
+            "tool_results": [],
+            "modified_file_paths": [],
         }
 
     # ── Step 4: 대상 파일 수집 및 백업 ────────────────────────
@@ -1219,12 +1661,13 @@ async def executor(state: AgentState) -> dict:
         len(target_files),
     )
 
+    modified_file_paths = _collect_modified_file_paths_from_changes_log(data_path, changes_log)
     return {
-        "current_game_state": current_game_state,
         "modified_game_state": modified_game_state,
+        "current_game_state": current_game_state,
         "changes_log": changes_log,
-        "backup_paths": backup_paths,
-        "retry_count": retry_count,
+        "tool_results": changes_log,  # progress.md 호환성을 위해 changes_log와 동일하게 설정
+        "modified_file_paths": modified_file_paths,
     }
 
 
@@ -1236,6 +1679,42 @@ async def executor(state: AgentState) -> dict:
 def _get_data_path(game_id: str) -> Path:
     """게임 `data/` 경로. `STORAGE_PATH` 설정과 동일(로컬 개발 vs EC2+S3 동기화 경로)."""
     return get_game_data_path(game_id)
+
+
+def _collect_modified_file_paths_from_changes_log(
+    data_path: Path, changes_log: list[dict[str, Any]]
+) -> list[str]:
+    """성공 스텝의 `modified_files`를 게임 `data/` 기준 절대 경로 리스트로 모은다.
+
+    - **역할**: `current_game_state` / `modified_game_state`는 스냅샷 파일 경로이고,
+      이 필드는 "실제로 쓰인 RPG Maker 데이터 JSON" 경로를 한 줄로 요약해 준다 (보고·추적·테스트).
+    - **출처**: MCP `call_mcp_tool` 결과의 `modified_files`, 또는 매니저가 `changes_log` 항목에 넣은 동일 키.
+    - 조회 전용 스텝은 보통 `modified_files`가 비어 있거나 생략된다.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for entry in changes_log:
+        if not entry.get("success"):
+            continue
+        if entry.get("skipped"):
+            continue
+        names = entry.get("modified_files")
+        if not names:
+            continue
+        if not isinstance(names, (list, tuple)):
+            continue
+        for raw in names:
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            logical = Path(raw).name
+            if not logical.endswith(".json"):
+                continue
+            resolved = str((data_path / logical).resolve())
+            if resolved not in seen:
+                seen.add(resolved)
+                out.append(resolved)
+    out.sort()
+    return out
 
 
 def _executor_snapshot_dir(data_path: Path, run_id: str) -> Path:

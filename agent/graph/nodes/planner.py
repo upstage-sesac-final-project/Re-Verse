@@ -14,6 +14,7 @@
     execution_plan: list[dict]
 """
 
+import json
 import logging
 from typing import Literal, cast
 
@@ -29,7 +30,9 @@ logger = logging.getLogger(__name__)
 class _ExecutionStep(BaseModel):
     step_id: int = Field(description="단계 번호 (1부터 시작)")
     description: str = Field(description="executor가 읽을 자연어 실행 지침")
-    action_type: Literal["query", "create", "update", "delete"] = Field(description="실행 유형")
+    action_type: Literal["query", "create", "update", "delete", "list", "search"] = Field(
+        description='실행 유형. 목록/검색은 "list" 또는 "search" 사용'
+    )
     target_file: str = Field(description="대상 JSON 파일명 (예: Skills.json)")
     target_info: dict = Field(description="이 step에서 다룰 데이터 명세")
     depends_on: list[int] = Field(
@@ -93,6 +96,14 @@ async def planner(state: AgentState) -> dict:
             len(execution_plan),
             result.reasoning,
         )
+        try:
+            plan_json = json.dumps(execution_plan, ensure_ascii=False, default=str)
+            max_len = 16000
+            if len(plan_json) > max_len:
+                plan_json = plan_json[:max_len] + f"... (truncated, full_len={len(plan_json)})"
+            logger.info("[Planner] execution_plan JSON: %s", plan_json)
+        except (TypeError, ValueError) as dump_err:
+            logger.warning("[Planner] execution_plan JSON 로깅 실패: %s", dump_err)
         for step in execution_plan:
             logger.debug(
                 "[Planner] step %d | action=%s | file=%s | depends_on=%s | condition=%s | desc=%s",
