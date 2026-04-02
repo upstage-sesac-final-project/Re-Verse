@@ -15,19 +15,19 @@ class Damage(BaseModel):
     critical: bool = Field(description="피해 > 치명타", default=True)
     variance: int = Field(description="피해 > 분산도", ge=0, le=100)
 
-    @field_validator("formula")
-    @classmethod
-    def validate_formula(cls, v: str) -> str:
-        if v == "0":
-            return v
+    # @field_validator("formula")
+    # @classmethod
+    # def validate_formula(cls, v: str) -> str:
+    #     if v == "0":
+    #         return v
 
-        token_pattern = r"(?:a|b)\.(?:atk|def|mhp|mat)|\d+(?:\.\d+)?|[+\-*/()]|\s+"
-        consumed = "".join(m.group(0) for m in re.finditer(token_pattern, v))
+    #     token_pattern = r"(?:a|b)\.(?:atk|def|mhp|mat)|\d+(?:\.\d+)?|[+\-*/()]|\s+"
+    #     consumed = "".join(m.group(0) for m in re.finditer(token_pattern, v))
 
-        if consumed != v:
-            raise ValueError("허용되지 않은 damage formula 형식입니다.")
+    #     if consumed != v:
+    #         raise ValueError("허용되지 않은 damage formula 형식입니다.")
 
-        return v
+    #     return v
 
 
 class Skill(BaseModel):
@@ -47,7 +47,7 @@ class Skill(BaseModel):
 
     # --------------- 발동
 
-    speed: int = Field(description="발동 > 속도 보정", ge=0, le=2000)
+    speed: int = Field(description="발동 > 속도 보정", le=2000) #ge=0, 
     successRate: int = Field(description="발동 > 성공률", ge=1, le=100)
     repeats: int = Field(description="발동 > 연속 횟수", ge=1, le=9)
     tpGain: int = Field(description="발동 > TP 획득", ge=0, le=100)
