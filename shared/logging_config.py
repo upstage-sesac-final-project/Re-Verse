@@ -232,7 +232,7 @@ class ErrorContextHandler(logging.Handler):
         user_label = getattr(trigger_record, "user_label", "anonymous")
         dt = datetime.fromtimestamp(trigger_record.created)
         date_str = dt.strftime("%Y-%m-%d")
-        time_str = dt.strftime("%Y-%m-%d_%H-%M-%S")
+        time_str = dt.strftime("%Y-%m-%d_%H-%M-%S-") + f"{int(dt.microsecond / 1000):03d}"
         level = trigger_record.levelname
 
         file_path = self.base_dir / date_str / user_label / f"{time_str}_{level}.log"
