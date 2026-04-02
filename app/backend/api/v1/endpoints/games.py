@@ -1,5 +1,7 @@
 """게임 프로젝트 CRUD 엔드포인트."""
 
+import logging
+
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +16,7 @@ from app.backend.schemas.game import (
 )
 from app.backend.services.game_service import game_service
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -23,6 +26,7 @@ async def list_projects(
     db: AsyncSession = Depends(get_db),
 ):
     """현재 사용자의 프로젝트 목록 조회."""
+    logger.debug("[Game] 프로젝트 목록 조회 | user_id=%d", current_user.id)
     projects = await game_service.list_projects(current_user.id, db)
     return ProjectListResponse(
         projects=[ProjectResponse.model_validate(p) for p in projects],
@@ -37,11 +41,18 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
 ):
     """프로젝트 생성 (base_game 복사, game_id 채번)."""
+    logger.info("[Game] 프로젝트 생성 요청 | user_id=%d, name=%s", current_user.id, request.name)
     project = await game_service.create_project(
         user_id=current_user.id,
         name=request.name,
         description=request.description,
         db=db,
+    )
+    logger.info(
+        "[Game] 프로젝트 생성 완료 | user_id=%d, project_id=%d, game_id=%s",
+        current_user.id,
+        project.id,
+        project.game_id,
     )
     return ProjectResponse.model_validate(project)
 
@@ -53,6 +64,7 @@ async def get_project(
     db: AsyncSession = Depends(get_db),
 ):
     """프로젝트 상세 조회 (소유권 확인)."""
+    logger.debug("[Game] 프로젝트 조회 | user_id=%d, project_id=%d", current_user.id, project_id)
     project = await game_service.get_project(project_id, current_user.id, db)
     return ProjectResponse.model_validate(project)
 
@@ -65,6 +77,9 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
 ):
     """프로젝트 이름/설명 수정 (소유권 확인)."""
+    logger.info(
+        "[Game] 프로젝트 수정 요청 | user_id=%d, project_id=%d", current_user.id, project_id
+    )
     project = await game_service.update_project(
         project_id=project_id,
         user_id=current_user.id,
@@ -82,4 +97,8 @@ async def delete_project(
     db: AsyncSession = Depends(get_db),
 ):
     """프로젝트 삭제 (DB cascade + 게임 폴더 삭제)."""
+    logger.info(
+        "[Game] 프로젝트 삭제 요청 | user_id=%d, project_id=%d", current_user.id, project_id
+    )
     await game_service.delete_project(project_id, current_user.id, db)
+    logger.info("[Game] 프로젝트 삭제 완료 | project_id=%d", project_id)
