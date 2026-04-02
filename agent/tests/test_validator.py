@@ -9,11 +9,13 @@ import types
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from agent.graph.nodes.validator import (
     FileValidationResult,
+    StepValidationLLMResult,
     ValidationErrorItem,
     ValidatorOutput,
     validator,
@@ -90,6 +92,21 @@ def build_default_changes_log(modified_files: list[str]) -> list[dict[str, Any]]
     ]
 
 
+def build_default_execution_plan(modified_files: list[str]) -> list[dict[str, Any]]:
+    return [
+        {
+            "step_id": index,
+            "description": f"{file_name} 파일 수동 validator 실행",
+            "action_type": "manual_validate",
+            "target_file": file_name,
+            "target_info": {},
+            "depends_on": [],
+            "condition": "",
+        }
+        for index, file_name in enumerate(modified_files, start=1)
+    ]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -125,6 +142,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         metavar="PATH",
         help="Optional JSON file containing a changes_log array.",
+    )
+    parser.add_argument(
+        "--execution-plan",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Optional JSON file containing an execution_plan array.",
     )
     parser.add_argument(
         "--backup-path",
@@ -168,9 +192,17 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
     else:
         changes_log = build_default_changes_log([path.name for path in modified_paths])
 
+    if args.execution_plan is not None:
+        execution_plan = load_json_file(args.execution_plan.resolve())
+        if not isinstance(execution_plan, list):
+            raise ValueError("--execution-plan must contain a JSON array")
+    else:
+        execution_plan = build_default_execution_plan([path.name for path in modified_paths])
+
     backup_paths = parse_backup_paths(args.backup_path)
 
     state = {
+        "execution_plan": execution_plan,
         "current_game_state": current_game_state,
         "modified_game_state": modified_game_state,
         "changes_log": changes_log,
@@ -313,6 +345,26 @@ def _base_validator_state() -> dict[str, Any]:
     modified_game_state["System.json"]["partyMembers"] = [1, 2]
 
     return {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "Create actor Sofia with classId 1",
+                "action_type": "create",
+                "target_file": "Actors.json",
+                "target_info": {"actor_name": "Sofia", "class_id": 1},
+                "depends_on": [],
+                "condition": "",
+            },
+            {
+                "step_id": 2,
+                "description": "Add Sofia to partyMembers",
+                "action_type": "update",
+                "target_file": "System.json",
+                "target_info": {"actor_name": "Sofia"},
+                "depends_on": [1],
+                "condition": "",
+            },
+        ],
         "current_game_state": current_game_state,
         "modified_game_state": modified_game_state,
         "changes_log": [
@@ -321,14 +373,14 @@ def _base_validator_state() -> dict[str, Any]:
                 "target_file": "Actors.json",
                 "tool_name": "structured_actors_create",
                 "success": True,
-                "description": "Create actor Sofia with classId 1",
+                "description": "Create actor Sofia with classld 1",
             },
             {
                 "step_id": 2,
                 "target_file": "System.json",
                 "tool_name": "structured_system_update",
                 "success": True,
-                "description": "Add Sofia to partyMembers",
+                "description": "Add Sofia as a member of party",
             },
         ],
         "backup_paths": {},
@@ -432,6 +484,30 @@ def _write_snapshot_files(snapshot: dict[str, Any], directory: Path, prefix: str
     return written
 
 
+def _print_debug_block(title: str, value: Any) -> None:
+    print(f"\n=== {title} ===")
+    print(json.dumps(value, ensure_ascii=False, indent=2))
+
+
+@pytest.fixture(autouse=True)
+def mock_step_validation_llm():
+    async def _mock_invoke(_messages, structured_output=None):
+        if structured_output is None:
+            return "ok"
+        return structured_output.model_validate(
+            {
+                "is_match": True,
+                "reasoning": "planner step and executor log are aligned",
+            }
+        )
+
+    with patch(
+        "agent.graph.nodes.validator.invoke_llm",
+        new=AsyncMock(side_effect=_mock_invoke),
+    ):
+        yield
+
+
 @pytest.mark.asyncio
 async def test_validator_validates_all_modified_game_state_files():
     state = _base_validator_state()
@@ -509,6 +585,24 @@ async def test_validator_schema_failure_increments_retry_count():
 
 
 @pytest.mark.asyncio
+async def test_validator_validates_only_files_present_in_modified_game_state():
+    state = _base_validator_state()
+    state["current_game_state"]["Unknown.json"] = {"foo": "bar"}
+    state["modified_game_state"] = {
+        "Actors.json": deepcopy(state["modified_game_state"]["Actors.json"]),
+    }
+
+    result = await validator(state)
+    contract = ValidatorOutput.model_validate(result)
+
+    assert contract.success is True
+    assert contract.retry_count is None
+    assert [item.target for item in contract.validation_results] == ["Actors.json"]
+    assert "Unknown.json" not in [item.target for item in contract.validation_results]
+    assert result["validation_summary"] == "총 1개 파일이 모두 스키마 검증을 통과했습니다."
+
+
+@pytest.mark.asyncio
 async def test_validator_unsupported_schema_returns_standard_shape():
     state = _base_validator_state()
     state["modified_game_state"]["Unknown.json"] = {"foo": "bar"}
@@ -525,6 +619,133 @@ async def test_validator_unsupported_schema_returns_standard_shape():
     assert result["retry_count"] == 1
     assert "validation_result" not in result
     assert result["validation_summary"] == "총 4개 파일 중 1개 파일 검증에 실패했습니다."
+
+
+@pytest.mark.asyncio
+async def test_validator_empty_modified_game_state_increments_retry_count():
+    state = _base_validator_state()
+    state["modified_game_state"] = {}
+    state["retry_count"] = 2
+
+    result = await validator(state)
+    contract = ValidatorOutput.model_validate(result)
+
+    assert contract.success is False
+    assert contract.retry_count == 3
+    assert contract.validation_summary == "modified_game_state is missing or empty."
+    assert len(contract.validation_results) == 1
+    assert contract.validation_results[0].target == "state"
+    assert (
+        contract.validation_results[0].errors[0].msg == "modified_game_state is missing or empty."
+    )
+
+
+@pytest.mark.asyncio
+async def test_validator_missing_execution_plan_returns_state_error():
+    state = _base_validator_state()
+    state.pop("execution_plan")
+
+    result = await validator(state)
+    contract = ValidatorOutput.model_validate(result)
+
+    assert contract.success is False
+    assert contract.retry_count == 1
+    assert contract.validation_summary == "execution_plan is missing or empty."
+    assert len(contract.validation_results) == 1
+    assert contract.validation_results[0].target == "state"
+    assert contract.validation_results[0].errors[0].msg == "execution_plan is missing or empty."
+
+
+@pytest.mark.asyncio
+async def test_validator_step_validation_missing_executor_log_adds_failure():
+    state = _base_validator_state()
+    state["changes_log"] = [state["changes_log"][0]]
+
+    result = await validator(state)
+
+    assert result["success"] is False
+    assert result["retry_count"] == 1
+    step_result = next(item for item in result["validation_results"] if item["target"] == "step:2")
+    assert step_result["success"] is False
+    assert "changes_log에 없습니다" in step_result["errors"][0]["msg"]
+
+
+@pytest.mark.asyncio
+async def test_validator_step_validation_executor_failure_adds_failure():
+    state = _base_validator_state()
+    state["changes_log"][1] = {
+        "step_id": 2,
+        "tool_name": "structured_system_update",
+        "success": False,
+        "error": "executor failed",
+    }
+
+    result = await validator(state)
+
+    assert result["success"] is False
+    assert result["retry_count"] == 1
+    step_result = next(item for item in result["validation_results"] if item["target"] == "step:2")
+    assert "executor failed" in step_result["errors"][0]["msg"]
+
+
+@pytest.mark.asyncio
+async def test_validator_step_validation_llm_mismatch_adds_failure():
+    state = _base_validator_state()
+
+    with patch("agent.graph.nodes.validator.invoke_llm", new_callable=AsyncMock) as mock_llm:
+        mock_llm.return_value = StepValidationLLMResult(
+            is_match=False,
+            reasoning="planner step은 System.json update인데 executor tool_name이 다른 작업으로 판정됨",
+        )
+        result = await validator(state)
+
+    assert result["success"] is False
+    assert result["retry_count"] == 1
+    step_result = next(item for item in result["validation_results"] if item["target"] == "step:1")
+    assert "planner step은" in step_result["errors"][0]["msg"]
+
+
+@pytest.mark.asyncio
+async def test_validator_query_step_allows_empty_modified_files_when_llm_matches():
+    state = _base_validator_state()
+    state["execution_plan"] = [
+        {
+            "step_id": 1,
+            "description": "Actors.json에서 Sofia 존재 여부 조회",
+            "action_type": "query",
+            "target_file": "Actors.json",
+            "target_info": {"actor_name": "Sofia"},
+            "depends_on": [],
+            "condition": "",
+        }
+    ]
+    state["changes_log"] = [
+        {
+            "step_id": 1,
+            "tool_name": "structured_actors_query",
+            "success": True,
+            "modified_files": [],
+        }
+    ]
+
+    result = await validator(state)
+
+    assert result["success"] is True
+    assert "retry_count" not in result
+    assert all(item["target"] != "step:1" for item in result["validation_results"])
+
+
+@pytest.mark.asyncio
+async def test_validator_debug_print_execution_plan_changes_log_and_result():
+    state = _base_validator_state()
+
+    result = await validator(state)
+
+    _print_debug_block("execution_plan", state["execution_plan"])
+    _print_debug_block("changes_log", state["changes_log"])
+    _print_debug_block("validator_result", result)
+
+    assert result["success"] is True
 
 
 if __name__ == "__main__":
