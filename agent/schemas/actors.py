@@ -22,19 +22,21 @@ class Actor(BaseModel):
 
     # --------------- 이미지
 
-    faceName: str = Field(description="읽어올 페이스 파일명") # pattern=r"^Actor\d+$" 여기
+    faceName: str = Field(description="읽어올 페이스 파일명")  # pattern=r"^Actor\d+$" 여기
     faceIndex: int = Field(
         description="인덱스 = 얼굴 이미지 결정, faceName보다 값 1 줄어야 함",
         ge=0,
         le=7,
     )
-    characterName: str = Field(description="읽어올 보행 캐릭터 파일명") # pattern=r"^Actor\d+$" 여기
+    characterName: str = Field(
+        description="읽어올 보행 캐릭터 파일명"
+    )  # pattern=r"^Actor\d+$" 여기
     characterIndex: int = Field(
         description="인덱스 = 보행 캐릭터 결정, characterName보다 값 1 줄어야 함",
         ge=0,
         le=7,
     )
-    battlerName: str = Field(description="전투 캐릭터 결정") # pattern=r"^Actor\d+_\d+$" 여기
+    battlerName: str = Field(description="전투 캐릭터 결정")  # pattern=r"^Actor\d+_\d+$" 여기
 
     # --------------- 초기 장비
 
