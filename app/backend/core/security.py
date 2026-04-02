@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.backend.core.config import settings
 from app.backend.db.session import get_db
 from app.backend.models.user import User
+from shared.log_context import set_current_user
 
 logger = logging.getLogger(__name__)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -117,6 +118,8 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="사용자를 찾을 수 없습니다.",
         )
+    # 로깅 컨텍스트에 유저 정보 설정 (이후 로그에 username_id 자동 포함)
+    set_current_user(user.username, user.id)
     return user
 
 
