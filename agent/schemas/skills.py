@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import re
 from typing import Annotated
 
-from pydantic import BaseModel, Field, RootModel, field_validator, model_validator
+from pydantic import BaseModel, Field, RootModel, model_validator  # field_validator,
 
 from .effects import Effect
 
@@ -47,7 +46,7 @@ class Skill(BaseModel):
 
     # --------------- 발동
 
-    speed: int = Field(description="발동 > 속도 보정", le=2000) #ge=0, 
+    speed: int = Field(description="발동 > 속도 보정", le=2000)  # ge=0,
     successRate: int = Field(description="발동 > 성공률", ge=1, le=100)
     repeats: int = Field(description="발동 > 연속 횟수", ge=1, le=9)
     tpGain: int = Field(description="발동 > TP 획득", ge=0, le=100)
