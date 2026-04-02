@@ -427,6 +427,225 @@ async def test_structured_mcp_alias_system_update_starting_position(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_actors_query_by_id_legacy_when_mcp_off(monkeypatch):
+    """MCP 비활성 시 Actors query+actor_id(query_by_id)가 ActorManager 레거시로 동작해야 한다."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: False)
+
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "액터 ID 조회 (레거시)",
+                "action_type": "query",
+                "target_file": "Actors.json",
+                "target_info": {"actor_id": 1},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+    log = result["changes_log"][0]
+    assert log["tool_name"] == "structured_actors_query_by_id"
+    assert log["success"] is True
+    assert log.get("exists") is True
+
+
+@pytest.mark.asyncio
+async def test_actors_list_search_legacy_when_mcp_off(monkeypatch):
+    """MCP 비활성 시 Actors list/search가 ActorManager 레거시로 동작해야 한다."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: False)
+
+    state_list: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "액터 목록",
+                "action_type": "list",
+                "target_file": "Actors.json",
+                "target_info": {},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+    result_list = await executor(state_list)
+    log1 = result_list["changes_log"][0]
+    assert log1["tool_name"] == "structured_actors_list"
+    assert log1["success"] is True
+    assert "id=1:" in (log1.get("stdout") or "")
+
+    state_search: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "이름 검색",
+                "action_type": "search",
+                "target_file": "Actors.json",
+                "target_info": {"searchTerm": "리드"},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+    result_search = await executor(state_search)
+    log2 = result_search["changes_log"][0]
+    assert log2["tool_name"] == "structured_actors_search"
+    assert log2["success"] is True
+    assert log2.get("exists") is True
+
+
+@pytest.mark.asyncio
+async def test_actors_update_class_inherits_actor_id_from_create(monkeypatch):
+    """생성 step 직후 update에 actor_id가 없어도 depends_on으로 classId 변경이 되어야 한다."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: False)
+
+    unique_name = f"ZZZ_UPD_CLS_{uuid.uuid4().hex[:8]}"
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "액터 생성",
+                "action_type": "create",
+                "target_file": "Actors.json",
+                "target_info": {"actor_name": unique_name},
+                "depends_on": [],
+                "condition": "",
+            },
+            {
+                "step_id": 2,
+                "description": "classId만 변경 (actor_id 생략)",
+                "action_type": "update",
+                "target_file": "Actors.json",
+                "target_info": {"class_id": 2},
+                "depends_on": [1],
+                "condition": "",
+            },
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+    result = await executor(state)
+    logs = result.get("changes_log", [])
+    assert len(logs) == 2
+    assert logs[0].get("tool_name") == "structured_actors_create"
+    assert logs[0].get("success") is True
+    assert logs[1].get("tool_name") == "structured_actors_update"
+    assert logs[1].get("success") is True
+
+    data_path = Path(__file__).resolve().parents[2] / "storage" / "games" / "game_001" / "data"
+    mgr = ActorManager(data_path, "verify_upd_cls")
+    verify = await mgr.execute("query", actor_name=unique_name)
+    assert verify.get("exists") is True
+    data = mgr.load_json_data()
+    idx = verify.get("actor_id")
+    assert idx is not None and isinstance(data[idx], dict)
+    assert int(data[idx].get("classId") or 0) == 2
+
+
+@pytest.mark.asyncio
+async def test_actors_update_rename_by_new_name_after_create(monkeypatch):
+    """actor_id + new_name만으로 update_actor(이름 변경)가 되어야 한다."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: False)
+
+    old_name = f"ZZZ_REN_{uuid.uuid4().hex[:8]}"
+    new_name = f"{old_name}_NEW"
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "액터 생성",
+                "action_type": "create",
+                "target_file": "Actors.json",
+                "target_info": {"actor_name": old_name},
+                "depends_on": [],
+                "condition": "",
+            },
+            {
+                "step_id": 2,
+                "description": "이름 변경",
+                "action_type": "update",
+                "target_file": "Actors.json",
+                "target_info": {"new_name": new_name},
+                "depends_on": [1],
+                "condition": "",
+            },
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+    result = await executor(state)
+    logs = result.get("changes_log", [])
+    assert logs[1].get("tool_name") == "structured_actors_update_general"
+    assert logs[1].get("success") is True
+
+    data_path = Path(__file__).resolve().parents[2] / "storage" / "games" / "game_001" / "data"
+    mgr = ActorManager(data_path, "verify_ren")
+    assert (await mgr.execute("query", actor_name=old_name)).get("exists") is False
+    assert (await mgr.execute("query", actor_name=new_name)).get("exists") is True
+
+
+@pytest.mark.asyncio
+async def test_actors_rename_reconciles_wrong_planner_actor_id(monkeypatch):
+    """actor_name이 있으면 플래너의 잘못된 actor_id를 무시하고 이름으로 행을 찾는다."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: False)
+
+    unique = f"ZZZ_RID_{uuid.uuid4().hex[:8]}"
+    new_name = f"{unique}_REN"
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "액터 생성",
+                "action_type": "create",
+                "target_file": "Actors.json",
+                "target_info": {"actor_name": unique},
+                "depends_on": [],
+                "condition": "",
+            },
+            {
+                "step_id": 2,
+                "description": "이름 변경(잘못된 actor_id 포함)",
+                "action_type": "update",
+                "target_file": "Actors.json",
+                "target_info": {
+                    "actor_name": unique,
+                    "actor_id": 99999,
+                    "new_name": new_name,
+                },
+                "depends_on": [1],
+                "condition": "",
+            },
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+    result = await executor(state)
+    logs = result.get("changes_log", [])
+    assert logs[1].get("tool_name") == "structured_actors_update_general"
+    assert logs[1].get("success") is True
+
+    data_path = Path(__file__).resolve().parents[2] / "storage" / "games" / "game_001" / "data"
+    mgr = ActorManager(data_path, "verify_rid")
+    assert (await mgr.execute("query", actor_name=unique)).get("exists") is False
+    assert (await mgr.execute("query", actor_name=new_name)).get("exists") is True
+
+
+@pytest.mark.asyncio
 async def test_structured_mcp_alias_actor_query_by_id(monkeypatch):
     """Actors query + actor_id가 MCP get_actor(query_by_id)로 정규화되는지 검증."""
     executor_module = importlib.import_module("agent.graph.nodes.executor")
@@ -610,6 +829,43 @@ async def test_mcp_failure_abort_policy_system_update_game_title(monkeypatch):
     assert log["tool_name"] == "structured_system_update_game_title"
     assert log["success"] is True  # 이제 레거시 폴백으로 성공
     # MCP 실패 후 레거시로 성공했으므로 MCP_ABORT_NO_FALLBACK 에러는 없음
+
+
+@pytest.mark.asyncio
+async def test_items_query_normalizes_to_search_for_planner(monkeypatch):
+    """플래너가 Items.json 에 query(존재 확인)를 주면 search_items 로 흡수되어 미지원이 되지 않아야 한다."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+        calls.append((tool_name, dict(arguments or {})))
+        return {"success": True, "data": {"found": False}, "modified_files": []}
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
+
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "아이템 존재 확인",
+                "action_type": "query",
+                "target_file": "Items.json",
+                "target_info": {"name": "만병통치약"},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+    assert len(calls) == 1
+    assert calls[0][0] == "search_items"
+    assert calls[0][1].get("searchTerm") == "만병통치약"
+    assert result["changes_log"][0]["success"] is True
 
 
 @pytest.mark.asyncio

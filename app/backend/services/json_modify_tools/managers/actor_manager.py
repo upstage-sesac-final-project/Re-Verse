@@ -28,9 +28,19 @@ class ActorManager(BaseManager):
                 actor_id = ti.get("actor_id") or ti.get("actorId")
                 updates = ti.get("updates")
                 if actor_id is None:
+                    lookup = str(
+                        ti.get("actor_name") or ti.get("old_name") or ti.get("oldName") or ""
+                    ).strip()
+                    if lookup:
+                        data = self.load_json_data()
+                        if isinstance(data, list) and data and data[0] is None:
+                            idx = self.find_by_name(data, lookup)
+                            if idx is not None:
+                                actor_id = idx
+                if actor_id is None:
                     return {
                         "success": False,
-                        "error": "update_general에는 actor_id가 필요합니다.",
+                        "error": "update_general에는 actor_id 또는 actor_name(이전 이름)이 필요합니다.",
                         "category": "actors",
                     }
                 if not isinstance(updates, dict):
@@ -40,6 +50,79 @@ class ActorManager(BaseManager):
                         "category": "actors",
                     }
                 return self._handle_update_general(actor_id, updates)
+
+        # Executor: query + actor_id → query_by_id (MCP get_actor 미사용 시 레거시로 동일 의미 제공)
+        if action == "query_by_id":
+            ti = kwargs.get("target_info") if isinstance(kwargs.get("target_info"), dict) else {}
+            aid = ti.get("actor_id", ti.get("actorId"))
+            if aid is None:
+                return {
+                    "success": False,
+                    "error": "query_by_id에는 actor_id(또는 actorId)가 필요합니다.",
+                    "category": "actors",
+                }
+            try:
+                aid_int = int(aid)
+            except (TypeError, ValueError):
+                return {
+                    "success": False,
+                    "error": f"유효하지 않은 actor_id: {aid!r}",
+                    "category": "actors",
+                }
+            return self._handle_query_by_id(aid_int)
+
+        # MCP get_actors / search_actors 미사용 시 동일 의미의 레거시 조회
+        if action == "list":
+            return self._handle_list_actors()
+        if action == "search":
+            ti = kwargs.get("target_info") if isinstance(kwargs.get("target_info"), dict) else {}
+            term = str(
+                ti.get("searchTerm") or ti.get("search_term") or ti.get("query") or ""
+            ).strip()
+            if not term:
+                return {
+                    "success": False,
+                    "error": "search에는 searchTerm, search_term 또는 query가 필요합니다.",
+                    "category": "actors",
+                }
+            return self._handle_search_actors(term)
+
+        # classId 변경: actor_id가 있으면 이름 없이 인덱스로 처리 (플래너가 생성 직후 id만 넘기는 경우)
+        if action == "update_class":
+            ti = kwargs.get("target_info") if isinstance(kwargs.get("target_info"), dict) else {}
+            class_name = (ti.get("class_name") or kwargs.get("class_name") or "").strip()
+            class_id_raw = ti.get("class_id", kwargs.get("class_id"))
+            class_id: int | None = None
+            if class_id_raw is not None:
+                try:
+                    class_id = int(class_id_raw)
+                except (TypeError, ValueError):
+                    class_id = None
+            actor_label = str(
+                ti.get("actor_name") or ti.get("old_name") or kwargs.get("actor_name") or ""
+            ).strip()
+            aid = ti.get("actor_id", ti.get("actorId"))
+            if aid is not None:
+                try:
+                    aid_int = int(aid)
+                except (TypeError, ValueError):
+                    return {
+                        "success": False,
+                        "error": f"유효하지 않은 actor_id: {aid!r}",
+                        "category": "actors",
+                    }
+                return self._handle_update_class(
+                    actor_label, class_name, class_id, actor_row_index=aid_int
+                )
+            if not actor_label:
+                return {
+                    "success": False,
+                    "error": "update_class에는 actor_id 또는 actor_name(또는 old_name)이 필요합니다.",
+                    "category": "actors",
+                }
+            return self._handle_update_class(
+                actor_label, class_name, class_id, actor_row_index=None
+            )
 
         actor_name = (kwargs.get("actor_name") or "").strip()
         if not actor_name:
@@ -62,19 +145,6 @@ class ActorManager(BaseManager):
             if action == "create":
                 template_class_id = int(kwargs.get("class_id", 1))
                 return self._handle_create(actor_name, template_class_id)
-            if action == "update_class":
-                ti = (
-                    kwargs.get("target_info") if isinstance(kwargs.get("target_info"), dict) else {}
-                )
-                class_name = (ti.get("class_name") or kwargs.get("class_name") or "").strip()
-                class_id_raw = ti.get("class_id", kwargs.get("class_id"))
-                class_id: int | None = None
-                if class_id_raw is not None:
-                    try:
-                        class_id = int(class_id_raw)
-                    except (TypeError, ValueError):
-                        class_id = None
-                return self._handle_update_class(actor_name, class_name, class_id)
             return {
                 "success": False,
                 "error": f"MVP에서 지원하지 않는 액션: {action}",
@@ -105,6 +175,107 @@ class ActorManager(BaseManager):
             "message": (
                 f"액터 '{actor_name}' 존재 (id={idx})" if exists else f"액터 '{actor_name}' 없음"
             ),
+            "category": "actors",
+        }
+
+    def _handle_query_by_id(self, actor_id: int) -> dict[str, Any]:
+        """인덱스(=RPG Maker 액터 id) 기준으로 슬롯 존재·이름을 반환한다. MCP get_actor 폴백용."""
+        data = self.load_json_data()
+        if not isinstance(data, list) or not data or data[0] is not None:
+            return {
+                "success": False,
+                "error": "Actors.json 형식이 예상과 다릅니다 ([null, ...] 필요).",
+                "category": "actors",
+            }
+        if actor_id < 1 or actor_id >= len(data):
+            return {
+                "success": True,
+                "action": "query_by_id",
+                "exists": False,
+                "actor_id": actor_id,
+                "actor_name": "",
+                "message": f"액터 id={actor_id} 슬롯 없음(범위 밖)",
+                "category": "actors",
+            }
+        item = data[actor_id]
+        if item is None or not isinstance(item, dict):
+            return {
+                "success": True,
+                "action": "query_by_id",
+                "exists": False,
+                "actor_id": actor_id,
+                "actor_name": "",
+                "message": f"액터 id={actor_id} 비어 있음",
+                "category": "actors",
+            }
+        name = str(item.get("name") or "")
+        return {
+            "success": True,
+            "action": "query_by_id",
+            "exists": True,
+            "actor_id": actor_id,
+            "actor_name": name,
+            "message": f"액터 id={actor_id} 존재 (이름: {name})",
+            "category": "actors",
+        }
+
+    def _handle_list_actors(self) -> dict[str, Any]:
+        data = self.load_json_data()
+        if not isinstance(data, list) or not data or data[0] is not None:
+            return {
+                "success": False,
+                "error": "Actors.json 형식이 예상과 다릅니다 ([null, ...] 필요).",
+                "category": "actors",
+            }
+        lines: list[str] = []
+        for idx in range(1, len(data)):
+            item = data[idx]
+            if isinstance(item, dict):
+                nm = str(item.get("name") or "")
+                lines.append(f"id={idx}:{nm}")
+        msg = "\n".join(lines) if lines else "(등록된 액터 없음)"
+        return {
+            "success": True,
+            "action": "list",
+            "message": msg,
+            "count": len(lines),
+            "category": "actors",
+        }
+
+    def _handle_search_actors(self, term: str) -> dict[str, Any]:
+        data = self.load_json_data()
+        if not isinstance(data, list) or not data or data[0] is not None:
+            return {
+                "success": False,
+                "error": "Actors.json 형식이 예상과 다릅니다 ([null, ...] 필요).",
+                "category": "actors",
+            }
+        t = term.lower()
+        matches: list[tuple[int, str]] = []
+        for idx in range(1, len(data)):
+            item = data[idx]
+            if not isinstance(item, dict):
+                continue
+            nm = str(item.get("name") or "")
+            if t in nm.lower():
+                matches.append((idx, nm))
+        exists = len(matches) > 0
+        if not exists:
+            return {
+                "success": True,
+                "action": "search",
+                "exists": False,
+                "message": f"'{term}'와 이름이 일치·포함되는 액터 없음",
+                "category": "actors",
+            }
+        detail = ", ".join(f"{i}:{n}" for i, n in matches[:20])
+        if len(matches) > 20:
+            detail += f" … 외 {len(matches) - 20}건"
+        return {
+            "success": True,
+            "action": "search",
+            "exists": True,
+            "message": f"검색 '{term}': {detail}",
             "category": "actors",
         }
 
@@ -188,12 +359,15 @@ class ActorManager(BaseManager):
         actor_name: str,
         class_name: str,
         class_id: int | None,
+        *,
+        actor_row_index: int | None = None,
     ) -> dict[str, Any]:
         """액터의 `classId`를 갱신한다.
 
         MVP 제약:
         - class_id가 들어오면 바로 사용
         - 없으면 `Classes.json`에서 class_name으로 classId를 resolve한 뒤 갱신
+        - actor_row_index가 있으면 배열 인덱스로 대상 행을 고른다 (actor_name 조회 생략)
         """
         actors_data = self.load_json_data()
         if not isinstance(actors_data, list) or not actors_data or actors_data[0] is not None:
@@ -203,13 +377,36 @@ class ActorManager(BaseManager):
                 "category": "actors",
             }
 
-        actor_id = self.find_by_name(actors_data, actor_name)
-        if actor_id is None:
-            return {
-                "success": False,
-                "error": f"액터 '{actor_name}' 없음",
-                "category": "actors",
-            }
+        if actor_row_index is not None:
+            try:
+                ar = int(actor_row_index)
+            except (TypeError, ValueError):
+                return {
+                    "success": False,
+                    "error": f"유효하지 않은 actor_row_index: {actor_row_index!r}",
+                    "category": "actors",
+                }
+            if ar < 1 or ar >= len(actors_data):
+                return {
+                    "success": False,
+                    "error": f"actor_id {ar} 범위 밖",
+                    "category": "actors",
+                }
+            actor_id = ar
+        else:
+            if not (actor_name or "").strip():
+                return {
+                    "success": False,
+                    "error": "액터를 지정하려면 actor_id 또는 actor_name이 필요합니다.",
+                    "category": "actors",
+                }
+            actor_id = self.find_by_name(actors_data, actor_name)
+            if actor_id is None:
+                return {
+                    "success": False,
+                    "error": f"액터 '{actor_name}' 없음",
+                    "category": "actors",
+                }
 
         resolved_class_id = class_id
         if resolved_class_id is None:
@@ -259,14 +456,15 @@ class ActorManager(BaseManager):
 
         target["classId"] = int(resolved_class_id)
         self.save_json_data(actors_data)
+        display = str(target.get("name") or actor_name or f"id={actor_id}")
         return {
             "success": True,
             "action": "update_class",
             "actor_id": actor_id,
-            "actor_name": actor_name,
+            "actor_name": display,
             "class_id": int(resolved_class_id),
             "modified_files": ["Actors.json"],
-            "message": f"액터 '{actor_name}' classId를 {int(resolved_class_id)}로 수정",
+            "message": f"액터 '{display}' classId를 {int(resolved_class_id)}로 수정",
             "category": "actors",
         }
 

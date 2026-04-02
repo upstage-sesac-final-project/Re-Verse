@@ -188,6 +188,7 @@ state["extracted_ids"]   # 실제 ID 매핑
 
 Planner가 만든 실행 계획대로 실제 JSON 파일을 수정합니다.
 `app/backend/services/json_modify_tools/` 에 있는 함수들을 호출하면 됩니다.
+지원 액션·MCP/레거시 매트릭스는 `docs/project/executor_capabilities.md` 를 참고하세요.
 
 ```python
 # 입력
