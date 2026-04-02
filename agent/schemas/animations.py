@@ -73,10 +73,11 @@ class AnimationsFile(RootModel[Annotated[list[Animation | None], Field(min_lengt
         for idx, animation in enumerate(self.root):
             if animation is None:
                 continue
-
+            """
+            여기
             if "timings" in animation.model_fields_set and idx != 1:
                 raise ValueError(
                     f"Animations.json[{idx}].timings는 허용되지 않음. timings는 첫 번째 실제 애니메이션(인덱스 1)에서만 허용됨"
                 )
-
+            """
         return self

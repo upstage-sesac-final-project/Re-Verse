@@ -10,8 +10,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
+from agent.core.llm_client import invoke_llm
 from agent.graph.state import AgentState
 from agent.graph.utils.game_state_json import load_snapshot_payload
+from agent.prompts.validator_prompt import build_prompt as build_validator_prompt
 from agent.schemas.actors import ActorsFile
 from agent.schemas.animations import AnimationsFile
 from agent.schemas.armors import ArmorsFile
@@ -64,6 +66,11 @@ class ValidatorOutput(BaseModel):
     validation_summary: str
     success: bool
     retry_count: int | None = None
+
+
+class StepValidationLLMResult(BaseModel):
+    is_match: bool
+    reasoning: str
 
 
 def to_jsonable(value: Any) -> Any:
@@ -141,8 +148,8 @@ def build_validation_summary(validation_results: list[FileValidationResult]) -> 
     return f"총 {len(validation_results)}개 파일 중 {failed_count}개 파일 검증에 실패했습니다."
 
 
-def build_state_error(message: str, retry_count: int | None = None) -> ValidatorOutput:
-    logger.warning("[Validator] 조기 종료: %s (retry=%s)", message, retry_count)
+def build_state_error(message: str) -> ValidatorOutput:
+    logger.warning("[Validator] 조기 종료: %s", message)
     validation_results = [
         build_file_result(
             target="state",
@@ -154,15 +161,22 @@ def build_state_error(message: str, retry_count: int | None = None) -> Validator
         validation_results=validation_results,
         validation_summary=message,
         success=False,
-        retry_count=retry_count,
     )
 
 
 def extract_validation_inputs(
     state: AgentState,
-) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], dict[str, str], int]:
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    dict[str, str],
+    int,
+]:
     current_game_state = state.get("current_game_state", {})
     modified_game_state = state.get("modified_game_state", {})
+    execution_plan = state.get("execution_plan", [])
     changes_log = state.get("changes_log", [])
     backup_paths = state.get("backup_paths", {})
     retry_count = state.get("retry_count", 0)
@@ -171,8 +185,12 @@ def extract_validation_inputs(
         current_game_state = {}
     if not isinstance(modified_game_state, dict):
         modified_game_state = {}
+    if not isinstance(execution_plan, list):
+        execution_plan = []
     if not isinstance(changes_log, list):
         changes_log = []
+    execution_plan = [item for item in execution_plan if isinstance(item, dict)]
+    changes_log = [item for item in changes_log if isinstance(item, dict)]
     if not isinstance(backup_paths, dict):
         backup_paths = {}
     try:
@@ -180,7 +198,14 @@ def extract_validation_inputs(
     except (TypeError, ValueError):
         retry_count = 0
 
-    return current_game_state, modified_game_state, changes_log, backup_paths, retry_count
+    return (
+        current_game_state,
+        modified_game_state,
+        execution_plan,
+        changes_log,
+        backup_paths,
+        retry_count,
+    )
 
 
 def load_validation_payload(file_name: str, value: Any) -> tuple[Any, list[dict[str, Any]]]:
@@ -217,6 +242,201 @@ def summarize_modified_files(
 
         unchanged_count += 1
     return detected_count, unchanged_count
+
+
+def select_validation_targets(
+    modified_entries: dict[str, tuple[Any, list[dict[str, Any]]]],
+) -> list[tuple[str, Any, list[dict[str, Any]]]]:
+    return [
+        (file_name, payload, payload_errors)
+        for file_name, (payload, payload_errors) in modified_entries.items()
+    ]
+
+
+def calculate_schema_success(validation_results: list[FileValidationResult]) -> bool:
+    return all(item.success for item in validation_results)
+
+
+def calculate_final_success(schema_success: bool, step_success: bool) -> bool:
+    return schema_success and step_success
+
+
+def calculate_retry_count(retry_count: int, success: bool) -> int | None:
+    return None if success else retry_count + 1
+
+
+def finalize_output(result: ValidatorOutput) -> dict[str, Any]:
+    validated_result = ValidatorOutput.model_validate(result.model_dump(mode="python"))
+    return validated_result.model_dump(mode="json", exclude_none=True)
+
+
+def _coerce_step_id(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_step_id_map(entries: list[dict[str, Any]], source: str) -> dict[int, dict[str, Any]]:
+    by_id: dict[int, dict[str, Any]] = {}
+    for entry in entries:
+        step_id = _coerce_step_id(entry.get("step_id"))
+        if step_id is None:
+            logger.warning("[Validator] %s step_id 누락 또는 형식 오류: %s", source, entry)
+            continue
+        if step_id in by_id:
+            logger.warning("[Validator] %s duplicate step_id=%s", source, step_id)
+            continue
+        by_id[step_id] = entry
+    return by_id
+
+
+def build_step_failure_result(step_id: int, message: str) -> FileValidationResult:
+    return build_file_result(
+        target=f"step:{step_id}",
+        success=False,
+        errors=[{"loc": "$", "msg": message}],
+    )
+
+
+def _normalize_modified_files(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
+def _build_step_validation_prompt_state(
+    planner_step: dict[str, Any],
+    executor_log: dict[str, Any],
+) -> dict[str, Any]:
+    planner_step_id = _coerce_step_id(planner_step.get("step_id")) or -1
+    executor_step_id = _coerce_step_id(executor_log.get("step_id")) or -1
+    return {
+        "_validator_prompt_mode": "step_validation",
+        "planner_step": {
+            "step_id": planner_step_id,
+            "description": str(planner_step.get("description", "")),
+            "action_type": str(planner_step.get("action_type", "")),
+            "target_file": str(planner_step.get("target_file", "")),
+        },
+        "executor_log": {
+            "step_id": executor_step_id,
+            "tool_name": str(executor_log.get("tool_name", "")),
+            "success": bool(executor_log.get("success")),
+            "modified_files": _normalize_modified_files(executor_log.get("modified_files")),
+        },
+    }
+
+
+async def judge_step_match_with_llm(
+    planner_step: dict[str, Any],
+    executor_log: dict[str, Any],
+) -> StepValidationLLMResult:
+    step_id = _coerce_step_id(planner_step.get("step_id")) or -1
+    messages = build_validator_prompt(
+        _build_step_validation_prompt_state(planner_step, executor_log)
+    )
+
+    try:
+        result = await invoke_llm(messages, structured_output=StepValidationLLMResult)
+    except Exception as error:
+        logger.warning("[Validator] step validation LLM 실패: step_id=%s err=%s", step_id, error)
+        return StepValidationLLMResult(
+            is_match=False,
+            reasoning=f"step validation LLM error: {error}",
+        )
+
+    if isinstance(result, StepValidationLLMResult):
+        return result
+    return StepValidationLLMResult.model_validate(result)
+
+
+async def validate_execution_steps(
+    execution_plan: list[dict[str, Any]],
+    changes_log: list[dict[str, Any]],
+) -> tuple[list[FileValidationResult], bool]:
+    planner_steps = build_step_id_map(execution_plan, "planner step")
+    executor_candidates = [entry for entry in changes_log if entry.get("step_id") is not None]
+    executor_logs = build_step_id_map(executor_candidates, "executor log")
+    failures: list[FileValidationResult] = []
+    extra_step_ids = sorted(set(executor_logs) - set(planner_steps))
+
+    logger.info(
+        "[Validator] step 검증 시작: planner_steps=%d, executor_candidates=%d, executor_steps=%d",
+        len(planner_steps),
+        len(executor_candidates),
+        len(executor_logs),
+    )
+    if extra_step_ids:
+        logger.info("[Validator] step 검증 보류: extra executor steps=%s", extra_step_ids)
+
+    for step_id in sorted(planner_steps):
+        planner_step = planner_steps[step_id]
+        executor_log = executor_logs.get(step_id)
+        logger.info(
+            "[Validator] step 검증: step_id=%d, action=%s, target=%s",
+            step_id,
+            str(planner_step.get("action_type", "")),
+            str(planner_step.get("target_file", "")),
+        )
+        if executor_log is None:
+            logger.warning(
+                "[Validator] step 검증 실패: step_id=%d reason=missing executor log",
+                step_id,
+            )
+            failures.append(
+                build_step_failure_result(
+                    step_id,
+                    f"planner step {step_id}에 대응하는 executor log가 changes_log에 없습니다.",
+                )
+            )
+            continue
+
+        if executor_log.get("success") is not True:
+            tool_name = str(executor_log.get("tool_name", ""))
+            reason = str(
+                executor_log.get("stderr")
+                or executor_log.get("error")
+                or executor_log.get("skip_reason")
+                or "executor step failed"
+            )
+            logger.warning(
+                "[Validator] step 검증 실패: step_id=%d tool=%s reason=%s",
+                step_id,
+                tool_name,
+                reason,
+            )
+            failures.append(
+                build_step_failure_result(
+                    step_id,
+                    f"executor step {step_id} failed: tool={tool_name}, reason={reason}",
+                )
+            )
+            continue
+
+        llm_result = await judge_step_match_with_llm(planner_step, executor_log)
+        if not llm_result.is_match:
+            logger.warning(
+                "[Validator] step 검증 실패: step_id=%d tool=%s reason=%s",
+                step_id,
+                str(executor_log.get("tool_name", "")),
+                llm_result.reasoning,
+            )
+            failures.append(build_step_failure_result(step_id, llm_result.reasoning))
+            continue
+
+        logger.info(
+            "[Validator] step 검증 통과: step_id=%d tool=%s",
+            step_id,
+            str(executor_log.get("tool_name", "")),
+        )
+
+    logger.info(
+        "[Validator] step 검증 종료: success=%s, failed=%d",
+        not failures,
+        len(failures),
+    )
+    return failures, not failures
 
 
 def _format_first_error(errors: list[dict[str, Any]] | list[ValidationErrorItem]) -> str:
@@ -275,7 +495,8 @@ async def validator(state: AgentState) -> dict[str, Any]:
     (
         current_game_state,
         modified_game_state,
-        _changes_log,
+        execution_plan,
+        changes_log,
         _backup_paths,
         retry_count,
     ) = extract_validation_inputs(state)
@@ -283,43 +504,47 @@ async def validator(state: AgentState) -> dict[str, Any]:
     logger.info("[Validator] 시작: files=%d, retry=%d", len(modified_game_state), retry_count)
 
     if not modified_game_state:
-        result = build_state_error(
-            "modified_game_state is missing or empty.",
-            retry_count=retry_count + 1,
+        result = build_state_error("modified_game_state is missing or empty.")
+    elif not execution_plan:
+        result = build_state_error("execution_plan is missing or empty.")
+    else:
+        current_entries = load_validation_entries(current_game_state)
+        modified_entries = load_validation_entries(modified_game_state)
+        detected_count, unchanged_count = summarize_modified_files(
+            current_entries, modified_entries
         )
-        return result.model_dump(mode="json", exclude_none=True)
+        logger.info(
+            "[Validator] 변경 감지 요약: detected=%d, unchanged=%d, total=%d",
+            detected_count,
+            unchanged_count,
+            len(modified_entries),
+        )
 
-    current_entries = load_validation_entries(current_game_state)
-    modified_entries = load_validation_entries(modified_game_state)
-    detected_count, unchanged_count = summarize_modified_files(current_entries, modified_entries)
-    logger.info(
-        "[Validator] 변경 감지 요약: detected=%d, unchanged=%d, total=%d",
-        detected_count,
-        unchanged_count,
-        len(modified_entries),
-    )
+        validation_targets = select_validation_targets(modified_entries)
+        validation_results = [
+            validate_single_file(file_name, payload, payload_errors)
+            for file_name, payload, payload_errors in validation_targets
+        ]
+        schema_success = calculate_schema_success(validation_results)
+        step_failures, step_success = await validate_execution_steps(execution_plan, changes_log)
+        final_validation_results = validation_results + step_failures
+        success = calculate_final_success(schema_success, step_success)
+        result = build_output(
+            validation_results=final_validation_results,
+            validation_summary=build_validation_summary(final_validation_results),
+            success=success,
+        )
 
-    validation_results = [
-        validate_single_file(file_name, payload, payload_errors)
-        for file_name, (payload, payload_errors) in modified_entries.items()
-    ]
-    success = all(item.success for item in validation_results)
-    validation_summary = build_validation_summary(validation_results)
-    next_retry_count = retry_count + 1 if not success else None
-    failed_count = sum(1 for item in validation_results if not item.success)
+    next_retry_count = calculate_retry_count(retry_count, result.success)
+    result = result.model_copy(update={"retry_count": next_retry_count})
+    failed_count = sum(1 for item in result.validation_results if not item.success)
 
     logger.info(
         "[Validator] 종료: success=%s, validated=%d, failed=%d, retry_count=%s",
-        success,
-        len(validation_results),
+        result.success,
+        len(result.validation_results),
         failed_count,
-        next_retry_count,
+        result.retry_count,
     )
 
-    result = build_output(
-        validation_results=validation_results,
-        validation_summary=validation_summary,
-        success=success,
-        retry_count=next_retry_count,
-    )
-    return result.model_dump(mode="json", exclude_none=True)
+    return finalize_output(result)

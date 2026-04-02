@@ -1,4 +1,4 @@
-"""Validator prompts for summary and content consistency checks."""
+"""Validator prompts for summary, content consistency, and step validation checks."""
 
 from __future__ import annotations
 
@@ -47,6 +47,27 @@ _CONTENT_VALIDATION_SYSTEM = """\
 - reasoning은 짧고 구체적으로 작성합니다.
 """
 
+_STEP_VALIDATION_SYSTEM = """\
+당신은 planner step과 executor 실행 로그가 같은 작업을 의미하는지 판정하는 검증기입니다.
+
+입력으로 아래 두 항목이 제공됩니다.
+- planner_step: step_id, description, action_type, target_file
+- executor_log: step_id, tool_name, success, modified_files
+
+판정 목표:
+- 같은 step_id로 이미 대응된 planner step 1개와 executor log 1개가 의미상 맞는지 판단합니다.
+
+판단 규칙:
+- tool_name을 주 비교 근거로 사용합니다.
+- modified_files는 보조 근거로만 사용합니다.
+- query step은 modified_files가 비어 있어도 불일치로 단정하지 않습니다.
+- create/update/delete step도 modified_files만으로 성공/실패를 단정하지 않습니다.
+- tool_name이 planner의 action_type, target_file, description과 명백히 어긋나면 is_match=false입니다.
+- structured_skip_* 같은 tool_name은 planner step의 의도와 설명상 자연스러우면 일치로 볼 수 있습니다.
+- reasoning은 짧고 구체적으로 작성합니다.
+- 출력은 is_match와 reasoning만 제공합니다.
+"""
+
 
 def _json_dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
@@ -89,8 +110,24 @@ def _build_content_validation_prompt(state: AgentState) -> list[BaseMessage]:
     ]
 
 
+def _build_step_validation_prompt(state: AgentState) -> list[BaseMessage]:
+    user_content = f"""## planner_step
+{_json_dumps(state.get("planner_step", {}))}
+
+## executor_log
+{_json_dumps(state.get("executor_log", {}))}
+"""
+
+    return [
+        SystemMessage(content=_STEP_VALIDATION_SYSTEM),
+        HumanMessage(content=user_content),
+    ]
+
+
 def build_prompt(state: AgentState) -> list[BaseMessage]:
     mode = str(state.get("_validator_prompt_mode", "summary")).lower()
     if mode == "content_validation":
         return _build_content_validation_prompt(state)
+    if mode == "step_validation":
+        return _build_step_validation_prompt(state)
     return _build_summary_prompt(state)
