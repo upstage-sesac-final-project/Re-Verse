@@ -19,7 +19,7 @@ agent 단독 테스트 시에도 직접 import하여 호출 가능.
     └── error/                                # ERROR/WARNING 전용 (±3분 컨텍스트)
         └── {YYYY-MM-DD}/
             └── {username}_{user_id}/
-                └── {YYYY-MM-DD_HH-MM-SS}_{LEVEL}.log
+                └── {YYYY-MM-DD_HH-MM-SS-mmm}_{LEVEL}.log
 
 상세 설정 문서: docs/backend/logging.md
 """
@@ -172,7 +172,7 @@ class ErrorContextHandler(logging.Handler):
         3. 캡처 윈도우 종료 시 파일로 저장
         4. 백그라운드 타이머가 flush_interval_sec 마다 완료된 캡처를 플러시
 
-    경로: {base_dir}/error/{YYYY-MM-DD}/{user_label}/{YYYY-MM-DD_HH-MM-SS}_{LEVEL}.log
+    경로: {base_dir}/error/{YYYY-MM-DD}/{user_label}/{YYYY-MM-DD_HH-MM-SS-mmm}_{LEVEL}.log
     """
 
     def __init__(

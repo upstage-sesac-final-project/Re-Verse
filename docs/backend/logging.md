@@ -25,7 +25,7 @@ logs/
 └── error/                                      # ERROR/WARNING 전용 (영구 보존)
     └── {YYYY-MM-DD}/
         └── {username}_{user_id}/
-            └── {YYYY-MM-DD_HH-MM-SS}_{LEVEL}.log
+            └── {YYYY-MM-DD_HH-MM-SS-mmm}_{LEVEL}.log
 ```
 
 ### 예시
@@ -40,8 +40,8 @@ logs/
 └── error/
     └── 2026-04-02/
         └── genie_1/
-            ├── 2026-04-02_14-30-25_ERROR.log
-            └── 2026-04-02_15-10-42_WARNING.log
+            ├── 2026-04-02_14-30-25-038_ERROR.log
+            └── 2026-04-02_15-10-42-512_WARNING.log
 ```
 
 ## 환경변수
@@ -78,7 +78,7 @@ logs/
 
 ### 에러/워닝 로그 (ErrorContextHandler)
 
-- 경로: `{LOG_DIR}/error/{YYYY-MM-DD}/{username}_{user_id}/{YYYY-MM-DD_HH-MM-SS}_{LEVEL}.log`
+- 경로: `{LOG_DIR}/error/{YYYY-MM-DD}/{username}_{user_id}/{YYYY-MM-DD_HH-MM-SS-mmm}_{LEVEL}.log`
 - WARNING 또는 ERROR 발생 시 **전후 3분(±3분) 컨텍스트**를 포함한 로그 파일 생성
 - **영구 보존** — 자동 삭제 없음
 - 백그라운드 타이머가 30초 주기로 완료된 캡처를 플러시
