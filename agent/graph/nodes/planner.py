@@ -46,8 +46,10 @@ class _ExecutionStep(BaseModel):
 
 
 class _PlannerOutput(BaseModel):
+    reasoning: str = Field(
+        description="계획 수립 전 사고 과정: 사용자 요청에서 실제로 필요한 작업이 무엇인지, 불필요한 엔티티는 무엇인지 먼저 정리"
+    )
     execution_plan: list[_ExecutionStep] = Field(description="순서 있는 실행 단계 목록")
-    reasoning: str = Field(description="계획 수립 근거 (로깅용)")
 
 
 async def planner(state: AgentState) -> dict:
