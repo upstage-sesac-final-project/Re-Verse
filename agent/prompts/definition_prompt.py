@@ -27,7 +27,7 @@ def build_step1_prompt(state: AgentState) -> list[BaseMessage]:
     return [SystemMessage(content=STEP1_SYSTEM_PROMPT), HumanMessage(content=human_message)]
 
 
-STEP2_SYSTEM_PROMPT = """당신은 주어진 단어들이 RPG Maker MZ의 어떤 데이터 카테고리에 속하는지 분류하는 전문가입니다.
+STEP2_SYSTEM_PROMPT = """당신은 사용자의 요청에서 대상(Subject)이 RPG Maker MZ의 어떤 데이터 카테고리에 속하는지 판별하는 전문가입니다.
 
 ### [허용 카테고리 목록]
 - **Actor, Enemy, Item, Skill, Weapon, Armor, Class, State, Element, System, None**
@@ -39,10 +39,21 @@ STEP2_SYSTEM_PROMPT = """당신은 주어진 단어들이 RPG Maker MZ의 어떤
    - "슬라임", "포션"과 같이 구체적인 고유 명칭은 `false`입니다.
 3. **주인공 처리**: "주인공", "쥔공" 등은 category: Actor, system_ref: hero, is_category_label: false로 고정하십시오.
 4. 이 단계에서는 분류 정보만 제공하며, 어떠한 실행 계획도 세우지 마십시오.
+
+### [분류 핵심 원칙 - 엄격 준수]
+1. **지시어(Category Indicator) 우선**: 사용자가 대상을 지칭하는 명사(예: '스킬', '캐릭터', '아이템', '적/몬스터', '무기', '방어구')를 함께 사용했다면, 해당 명사에 대응하는 카테고리를 **절대적**으로 선택하십시오.
+   - **예시**: "체력 포션 스킬" -> '포션'이라는 이름 때문에 Item으로 분류하지 마십시오. 사용자가 '스킬'이라고 명시했으므로 카테고리는 반드시 **Skill**입니다.
+   - **예시**: "리드라는 캐릭터" -> 이름이 적군 같더라도 사용자가 '캐릭터'라고 했으므로 카테고리는 **Actor**입니다.
+2. **System 값 검색 배제**: 수정 대상이 '게임 제목', '통화 단위' 등 **System** 카테고리의 속성인 경우, 설정하려는 **값(Value)**(예: '냥냥펀치')은 별도의 엔티티로 분류하거나 검색할 필요가 없습니다. 이는 단순 문자열/숫자 값입니다.
+3. **이름-카테고리 충돌 해결**: 대상 이름이 다른 카테고리와 혼동될지라도(예: '불 검' 아이템 vs '불 검' 무기), 사용자가 명시한 카테고리 지시어를 절대적으로 신뢰하십시오.
+4. **지시어가 없는 경우에만 추론**: 사용자가 이름을 단독으로 사용한 경우(예: "리드 수정해줘")에만 이름의 의미를 통해 가장 확률이 높은 카테고리를 추론하십시오.
+
+### [출력 규칙]
+- 사용자가 명시한 카테고리 지시어가 문장에 포함되어 있다면, 해당 카테고리에 높은 점수를 부여하고 `reason`에 "사용자 지시어(예: 스킬) 기반 분류"라고 명시하십시오.
 """
 
 
-def build_step2_prompt(extractions: list[dict]) -> list[BaseMessage]:
+def build_step2_prompt(extractions: list[dict], user_input: str = "") -> list[BaseMessage]:
     targets = set()
     for ext in extractions:
         if ext.get("subject"):
@@ -53,7 +64,7 @@ def build_step2_prompt(extractions: list[dict]) -> list[BaseMessage]:
             targets.add(val)
 
     targets_str = ", ".join(list(targets))
-    human_message = f"대상 목록: {targets_str}\n\n위 대상들의 카테고리를 분류하고 지칭어 여부 및 system_ref를 확인하십시오."
+    human_message = f'원문 입력: "{user_input}"\n대상 목록: {targets_str}\n\n위 원문을 참고하여 각 대상들의 카테고리를 분류하고 지칭어 여부 및 system_ref를 확인하십시오.'
     return [SystemMessage(content=STEP2_SYSTEM_PROMPT), HumanMessage(content=human_message)]
 
 
