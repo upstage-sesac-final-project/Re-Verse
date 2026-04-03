@@ -42,6 +42,10 @@ class AgentConfig(BaseSettings):
     AGENT_TIMEOUT: int = 30
     MAX_RETRIES: int = 3
 
+    # ── 대화 이력 ────────────────────────────────────────────
+    HISTORY_WINDOW_SIZE: int = 10  # 최근 N턴 그대로 전달
+    HISTORY_SUMMARY_WINDOW: int = 10  # 그 이전 N턴 요약 압축
+
     model_config = {
         "env_file": str(_ROOT_ENV),
         "env_file_encoding": "utf-8",
