@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import shutil
+import time
 import uuid
 from collections import defaultdict
 from datetime import datetime
@@ -1262,7 +1263,7 @@ async def _execute_one_structured_step(
         )
         logger.error("[Executor] 미지원 스텝: %s", err)
         step_results[sid] = {"success": False, "error": err, "step_id": sid}
-        return {
+        result = {
             "step_id": sid,
             "tool_name": f"structured_{target_file}_{action}_UNSUPPORTED",
             "success": False,
@@ -1271,10 +1272,11 @@ async def _execute_one_structured_step(
             "structured": True,
             "timestamp": ts,
         }
+        return result
     except Exception as e:
         logger.exception("[Executor] 구조화 스텝 실행 실패 step_id=%s", sid)
         step_results[sid] = {"success": False, "error": str(e), "step_id": sid}
-        return {
+        result = {
             "step_id": sid,
             "tool_name": "structured_error",
             "success": False,
@@ -1282,6 +1284,7 @@ async def _execute_one_structured_step(
             "structured": True,
             "timestamp": ts,
         }
+        return result
 
 
 async def _executor_structured(
@@ -1396,13 +1399,14 @@ async def _executor_structured(
     )
 
     modified_file_paths = _collect_modified_file_paths_from_changes_log(data_path, changes_log)
-    return {
+    result = {
         "modified_game_state": modified_game_state,
         "current_game_state": current_game_state,
         "changes_log": changes_log,
         "tool_results": changes_log,  # progress.md 호환성을 위해 changes_log와 동일하게 설정
         "modified_file_paths": modified_file_paths,
     }
+    return result
 
 
 # ────────────────────────────────────────────────────────────
@@ -1434,6 +1438,32 @@ async def executor(state: AgentState) -> dict:
     game_id = state.get("game_id", "game_001")
     retry_count = state.get("retry_count", 0)
     user_input = state.get("user_input", "")
+    _t0 = time.perf_counter()
+
+    logger.info("─── 🛠️ Executor START ───────────────────────────────")
+
+    def _finish(result: dict[str, Any], *, mode: str, icon: str | None = None) -> dict[str, Any]:
+        changes_log = result.get("changes_log", [])
+        if not isinstance(changes_log, list):
+            changes_log = []
+
+        modified_file_paths = result.get("modified_file_paths", [])
+        if not isinstance(modified_file_paths, list):
+            modified_file_paths = []
+
+        failed = sum(1 for entry in changes_log if not entry.get("success"))
+        ok = sum(1 for entry in changes_log if entry.get("success"))
+        logger.info(
+            "─── %s Executor END (elapsed=%.2fs, mode=%s, steps=%d, ok=%d, failed=%d, files=%d) ──",
+            icon or ("⚠️" if failed else "✅"),
+            time.perf_counter() - _t0,
+            mode,
+            len(changes_log),
+            ok,
+            failed,
+            len(modified_file_paths),
+        )
+        return result
 
     logger.info("[Executor MVP] 시작: game_id=%s, retry=%d", game_id, retry_count)
 
@@ -1443,7 +1473,7 @@ async def executor(state: AgentState) -> dict:
     # ── Step 1: 입력 검증 ─────────────────────────────────────
     if retry_count >= 2:
         logger.warning("최대 재시도 초과")
-        return {
+        result = {
             "changes_log": [
                 {
                     "success": False,
@@ -1454,10 +1484,11 @@ async def executor(state: AgentState) -> dict:
             "tool_results": [],
             "modified_file_paths": [],
         }
+        return _finish(result, mode="guard", icon="\u26a0\ufe0f")
 
     if not execution_plan:
         logger.warning("execution_plan이 비어있음")
-        return {
+        result = {
             "changes_log": [
                 {
                     "error": "execution_plan이 비어있습니다.",
@@ -1467,6 +1498,7 @@ async def executor(state: AgentState) -> dict:
             "tool_results": [],
             "modified_file_paths": [],
         }
+        return _finish(result, mode="guard", icon="\u26a0\ufe0f")
 
     try:
         ep_json = json.dumps(execution_plan, ensure_ascii=False, default=str)
@@ -1522,7 +1554,7 @@ async def executor(state: AgentState) -> dict:
                 if "UNSUPPORTED" in str(failed.get("tool_name", "")):
                     logger.error("[Executor] CRITICAL 실패: %s", failed.get("stderr"))
 
-        return result
+        return _finish(result, mode="structured")
 
     logger.info("[Executor] 비구조화(번역) 경로: %d개 항목", len(execution_plan))
 
@@ -1532,7 +1564,7 @@ async def executor(state: AgentState) -> dict:
         logger.info("[Executor MVP] 번역 완료: %d개 툴", len(translated_plan.tools))
     except Exception as e:
         logger.error("[Executor MVP] 번역 실패: %s", e)
-        return {
+        result = {
             "changes_log": [
                 {
                     "success": False,
@@ -1543,6 +1575,7 @@ async def executor(state: AgentState) -> dict:
             "tool_results": [],
             "modified_file_paths": [],
         }
+        return _finish(result, mode="legacy", icon="\u274c")
 
     # ── Step 4: 대상 파일 수집 및 백업 ────────────────────────
     target_files = set()
@@ -1662,13 +1695,14 @@ async def executor(state: AgentState) -> dict:
     )
 
     modified_file_paths = _collect_modified_file_paths_from_changes_log(data_path, changes_log)
-    return {
+    result = {
         "modified_game_state": modified_game_state,
         "current_game_state": current_game_state,
         "changes_log": changes_log,
         "tool_results": changes_log,  # progress.md 호환성을 위해 changes_log와 동일하게 설정
         "modified_file_paths": modified_file_paths,
     }
+    return _finish(result, mode="legacy")
 
 
 # ────────────────────────────────────────────────────────────

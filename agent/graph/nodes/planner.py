@@ -16,6 +16,7 @@
 
 import json
 import logging
+import time
 from typing import Literal, cast
 
 from pydantic import BaseModel, Field
@@ -61,7 +62,8 @@ async def planner(state: AgentState) -> dict:
     Returns:
         execution_plan 을 담은 dict.
     """
-    logger.info("=" * 60)
+    _t0 = time.perf_counter()
+    logger.info("─── 🗺️ Planner START ────────────────────────────────")
     logger.info("[Planner] 노드 진입")
     logger.info(
         "[Planner] 입력 state | intent=%s | target_files=%s",
@@ -121,6 +123,11 @@ async def planner(state: AgentState) -> dict:
         execution_plan = []
 
     logger.info("[Planner] 노드 종료 | 반환 step 수=%d", len(execution_plan))
-    logger.info("=" * 60)
 
+    logger.info(
+        "─── %s Planner END (elapsed=%.2fs, steps=%d) ─────────────────",
+        "✅" if execution_plan else "⚠️",
+        time.perf_counter() - _t0,
+        len(execution_plan),
+    )
     return {"execution_plan": execution_plan}

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -501,6 +502,9 @@ async def validator(state: AgentState) -> dict[str, Any]:
         retry_count,
     ) = extract_validation_inputs(state)
 
+    _t0 = time.perf_counter()
+    logger.info("─── 🔎 Validator START ──────────────────────────────")
+
     logger.info("[Validator] 시작: files=%d, retry=%d", len(modified_game_state), retry_count)
 
     if not modified_game_state:
@@ -547,4 +551,12 @@ async def validator(state: AgentState) -> dict[str, Any]:
         result.retry_count,
     )
 
+    logger.info(
+        "─── %s Validator END (elapsed=%.2fs, validated=%d, failed=%d, retry_count=%s) ──",
+        "✅" if result.success else "⚠️",
+        time.perf_counter() - _t0,
+        len(result.validation_results),
+        failed_count,
+        result.retry_count,
+    )
     return finalize_output(result)
