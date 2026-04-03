@@ -6,7 +6,8 @@ import Header from '../components/layout/Header'
 import Modal from '../components/common/Modal'
 
 function relativeTime(dateStr) {
-  const diff = Date.now() - new Date(dateStr).getTime()
+  const utcStr = dateStr && !dateStr.endsWith('Z') && !dateStr.includes('+') ? dateStr + 'Z' : dateStr
+  const diff = Date.now() - new Date(utcStr).getTime()
   const minutes = Math.floor(diff / 60000)
   if (minutes < 1) return '방금 전'
   if (minutes < 60) return `${minutes}분 전`
