@@ -436,7 +436,7 @@ async def definition(state: AgentState) -> dict:
 
         if action_type == "create" or params.get(id_field) == "NEW":
             if target not in next_id_cache:
-                next_id_cache[target] = get_next_entity_id(game_id, target, strategy="append")
+                next_id_cache[target] = get_next_entity_id(game_id, target)
 
             assigned_id = next_id_cache[target]
             params[id_field] = assigned_id
