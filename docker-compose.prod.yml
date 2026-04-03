@@ -13,6 +13,7 @@ services:
     environment:
       - ENVIRONMENT=production
       - DEBUG=false
+      # STORAGE_BACKEND, DATABASE_URL, S3_* 는 EC2의 .env(또는 GitHub ENV_FILE)에서 주입 권장
     volumes: []  # 프로덕션에서는 볼륨 마운트 제거 (override)
     restart: unless-stopped
 

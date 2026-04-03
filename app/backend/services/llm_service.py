@@ -1,167 +1,237 @@
-"""
-LLM Service
-Agent 호출을 담당하는 서비스 레이어
-"""
+"""LLM Service — LangGraph Agent 호출 + Synthesizer 응답 전달."""
 
 import asyncio
+import logging
+import shutil
+import time
+from pathlib import Path
+from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from agent.core.config import agent_config
 from app.backend.core.config import settings
-from app.backend.schemas.llm import AgentResponse, ToolCall, UserInputRequest
-from app.backend.services.json_modify_tools.dispatcher import (
-    run_enemies,
-    run_items,
-    run_levels,
-    run_map_villager,
-    run_skills,
-)
+from app.backend.repositories.project_repository import project_repository
+from app.backend.schemas.llm import ChangeLog, ProcessResponse
+from app.backend.services.game_service import game_service
+from app.backend.services.s3_game_storage import sync_game_from_s3, sync_game_to_s3
+
+logger = logging.getLogger(__name__)
+
+# ── Game-Level Lock (동시성 제어) ────────────────────────
+_game_locks: dict[str, asyncio.Lock] = {}
+
+
+async def _get_game_lock(game_id: str) -> asyncio.Lock:
+    if game_id not in _game_locks:
+        _game_locks[game_id] = asyncio.Lock()
+    return _game_locks[game_id]
+
+
+def remove_game_lock(game_id: str) -> None:
+    """프로젝트 삭제 시 해당 lock 정리."""
+    _game_locks.pop(game_id, None)
 
 
 class LLMService:
     """LLM Agent 호출 서비스"""
 
-    def __init__(self):
-        self.timeout = settings.AGENT_TIMEOUT
-        self.max_retries = settings.MAX_RETRIES
+    def __init__(self) -> None:
+        self.timeout = agent_config.AGENT_TIMEOUT
+        self.max_retries = agent_config.MAX_RETRIES
 
-    async def process_user_input(self, user_request: UserInputRequest) -> AgentResponse:
-        """
-        사용자 입력을 Agent에 전달하고 결과를 받아옴
+    async def process_chat(
+        self,
+        project_id: int,
+        message: str,
+        user_id: int,
+        db: AsyncSession,
+    ) -> ProcessResponse:
+        """프로젝트 소유권 확인 -> Agent 호출 -> DB 저장 -> 응답 반환."""
 
-        Args:
-            user_request: 사용자 입력 요청
+        # ① Project 조회 + 권한 확인
+        project = await game_service.get_project(project_id, user_id, db)
+        game_id = project.game_id
+        logger.info(
+            "[LLMService] 처리 시작 | project_id=%d, game_id=%s, user_id=%d",
+            project_id,
+            game_id,
+            user_id,
+        )
 
-        Returns:
-            AgentResponse: Agent 처리 결과
-        """
-        try:
-            # Agent 호출 (현재는 mock, 실제로는 agent 모듈 호출)
-            agent_result = await self._call_agent(user_request)
+        # ② Game-Level Lock
+        lock = await _get_game_lock(game_id)
+        async with lock:
+            start_time = time.time()
+            logger.debug("[LLMService] game lock 획득 | game_id=%s", game_id)
 
-            return agent_result
+            # ③ S3 동기화 (프로덕션)
+            if settings.STORAGE_BACKEND == "s3":
+                logger.info("[LLMService] S3 → 로컬 동기화 시작 | game_id=%s", game_id)
+                await asyncio.to_thread(sync_game_from_s3, game_id)
 
-        except TimeoutError:
-            return AgentResponse(
-                intent="error",
-                tool_calls=[],
-                result={"error": "Agent timeout"},
-                message="요청 처리 시간이 초과되었습니다.",
-                success=False,
-            )
-        except Exception as e:
-            return AgentResponse(
-                intent="error",
-                tool_calls=[],
-                result={"error": str(e)},
-                message=f"처리 중 오류가 발생했습니다: {str(e)}",
-                success=False,
-            )
+            # ④ Agent 호출
+            try:
+                logger.info("[LLMService] Agent 호출 시작 | game_id=%s", game_id)
+                from agent.memory.conversation_manager import build_conversation_history
 
-    async def _call_agent(self, request: UserInputRequest) -> AgentResponse:
-        """
-        실제 Agent 호출 (MVP: Mock 구현)
-        TODO: agent 모듈과 연동
-        """
-        # MVP: 간단한 키워드 기반 의도 파악 (임시)
-        user_input = request.request.lower()
-
-        # 의도 분류 + 편집 함수 호출
-        tool_calls = []
-
-        # 1. 레벨 수정 (가장 먼저 체크 - 숫자가 포함될 수 있어서)
-        if any(keyword in user_input for keyword in ["레벨", "level", "초기레벨", "초기 레벨"]):
-            intent = "modify_level"
-            tool_name = "edit_levels"
-            message = "레벨을 수정하는 중입니다..."
-            tool_result = await asyncio.to_thread(run_levels, request.request)
-
-        # 2. 스킬 수정
-        elif any(
-            keyword in user_input
-            for keyword in [
-                "스킬",
-                "skill",
-                "기술",
-                "최후의일격",
-                "전체공격",
-                "회복마법",
-                "버프",
-                "필살기",
-                "강화",
-                "공격력강화",
-            ]
-        ):
-            intent = "modify_skill"
-            tool_name = "edit_skills"
-            message = "스킬을 수정하는 중입니다..."
-            tool_result = await asyncio.to_thread(run_skills, request.request)
-
-        # 3. 몬스터/적 수정
-        elif any(
-            keyword in user_input
-            for keyword in ["적", "몬스터", "몹", "보스", "boss", "적군", "에너미"]
-        ):
-            intent = "modify_enemy"
-            tool_name = "edit_enemies"
-            message = "몬스터를 수정하는 중입니다..."
-            tool_result = await asyncio.to_thread(run_enemies, request.request)
-
-        # 4. 아이템 수정
-        elif any(
-            keyword in user_input
-            for keyword in ["아이템", "템", "item", "장비", "소비템", "소모품"]
-        ):
-            intent = "modify_item"
-            tool_name = "edit_items"
-            message = "아이템을 수정하는 중입니다..."
-            tool_result = await asyncio.to_thread(run_items, request.request)
-
-        # 5. 맵/지형 수정
-        elif any(
-            keyword in user_input
-            for keyword in ["맵", "지형", "타일", "지도", "건물", "배경", "환경", "마을"]
-        ):
-            intent = "modify_map"
-            tool_name = "edit_map_villager"
-            message = "맵을 수정하는 중입니다..."
-            tool_result = await asyncio.to_thread(run_map_villager, request.request)
-
-        else:
-            intent = "unknown"
-            tool_name = "none"
-            tool_result = None
-            message = "요청을 이해하지 못했습니다. 더 구체적으로 말씀해주세요."
-
-        if tool_result is not None:
-            tool_calls.append(
-                ToolCall(
-                    tool_name=tool_name,
-                    parameters={
-                        "user_input": request.request,
-                        "game_id": request.game_id,
-                    },
-                    result=tool_result,
+                conversation_history = await build_conversation_history(project_id, db)
+                result = await self._call_graph_agent(message, game_id, conversation_history)
+                logger.info(
+                    "[LLMService] Agent 호출 완료 | success=%s, intent=%s, affected_files=%s",
+                    result["success"],
+                    result["intent"],
+                    result.get("affected_files", []),
                 )
+            except TimeoutError:
+                processing_time = time.time() - start_time
+                logger.error(
+                    "[LLMService] Agent 타임아웃 | game_id=%s, elapsed=%.1fs",
+                    game_id,
+                    processing_time,
+                )
+                await self._save_log(
+                    db,
+                    project_id,
+                    message,
+                    None,
+                    "timeout",
+                    False,
+                    processing_time,
+                    "요청 처리 시간 초과",
+                )
+                return ProcessResponse(
+                    code=504,
+                    message="요청 처리 시간이 초과되었습니다.",
+                    intent="timeout",
+                    success=False,
+                )
+            except Exception as e:
+                processing_time = time.time() - start_time
+                logger.error(
+                    "[LLMService] Agent 호출 실패 | game_id=%s, error=%s",
+                    game_id,
+                    e,
+                    exc_info=True,
+                )
+                await self._save_log(
+                    db,
+                    project_id,
+                    message,
+                    None,
+                    "error",
+                    False,
+                    processing_time,
+                    str(e),
+                )
+                return ProcessResponse(
+                    code=500,
+                    message=f"처리 중 오류가 발생했습니다: {e!s}",
+                    intent="error",
+                    success=False,
+                )
+
+            # ⑤ S3 업로드 (성공 시) + 로컬 정리
+            if settings.STORAGE_BACKEND == "s3":
+                if result["success"]:
+                    logger.info("[LLMService] 로컬 → S3 업로드 시작 | game_id=%s", game_id)
+                    await asyncio.to_thread(sync_game_to_s3, game_id)
+                local_game_dir = Path(settings.STORAGE_PATH).resolve() / game_id
+                if local_game_dir.is_dir():
+                    await asyncio.to_thread(shutil.rmtree, local_game_dir)
+                    logger.info("[LLMService] 로컬 게임 폴더 정리 완료 | %s", local_game_dir)
+
+            processing_time = time.time() - start_time
+            logger.info(
+                "[LLMService] 처리 완료 | project_id=%d, processing_time=%.2fs",
+                project_id,
+                processing_time,
             )
 
-        # tool_result 기반으로 실제 성공 여부 판단
-        edit_success = tool_result.get("success", False) if tool_result else False
+            # ⑥ ConversationLog DB 저장
+            await self._save_log(
+                db=db,
+                project_id=project_id,
+                user_input=message,
+                agent_response=result.get("message", ""),
+                intent=result.get("intent"),
+                success=result["success"],
+                processing_time=processing_time,
+                error_message=result.get("error"),
+            )
 
-        return AgentResponse(
+            # ⑦ ProcessResponse 반환
+            return ProcessResponse(
+                code=201 if result.get("success", False) else 400,
+                message=result.get("message", ""),
+                intent=result.get("intent"),
+                success=result.get("success", False),
+                affected_files=result.get("affected_files", []),
+                reload_required=result.get("reload_required", False),
+                changes_log=[
+                    ChangeLog(**log) if isinstance(log, dict) else log
+                    for log in result.get("changes_log", [])
+                ],
+            )
+
+    # ── Agent 호출 ────────────────────────────────────────
+
+    async def _call_graph_agent(
+        self, message: str, game_id: str, conversation_history: list[dict] | None = None
+    ) -> dict[str, Any]:
+        """LangGraph 워크플로우 호출 (Synthesizer 포함)."""
+        from agent.graph.workflow import graph
+
+        initial_state: dict[str, Any] = {
+            "user_input": message,
+            "game_id": game_id,
+            "conversation_history": conversation_history or [],
+        }
+        final_state = await asyncio.wait_for(
+            graph.ainvoke(initial_state),  # type: ignore[attr-defined]
+            timeout=self.timeout,
+        )
+
+        modified = final_state.get("modified_game_state", {})
+        success = final_state.get("success", True)
+
+        return {
+            # Synthesizer(6단계)가 생성한 사용자 대상 최종 자연어 응답
+            "message": final_state.get("final_response", ""),
+            # Router(1단계)가 분류한 사용자 의도 (예: "게임_요소_생성", "게임_요소_수정" 등)
+            "intent": final_state.get("intent", ""),
+            # Validator(5단계) 전체 검증 통과 여부
+            "success": success,
+            # Executor(4단계)가 수정한 게임 JSON 파일명 목록 (예: ["Skills.json"])
+            "affected_files": list(modified.keys()) if modified else [],
+            # 수정된 파일이 있으면 True → 프론트엔드 게임 리로드 필요
+            "reload_required": bool(modified),
+            # Executor(4단계)가 누적한 단계별 변경 이력 리스트
+            "changes_log": final_state.get("changes_log", []),
+        }
+
+    # ── 대화 이력 저장 ────────────────────────────────────
+
+    async def _save_log(
+        self,
+        db: AsyncSession,
+        project_id: int,
+        user_input: str,
+        agent_response: str | None,
+        intent: str | None,
+        success: bool,
+        processing_time: float,
+        error_message: str | None = None,
+    ) -> None:
+        await project_repository.save_conversation_log(
+            db=db,
+            project_id=project_id,
+            user_input=user_input,
+            agent_response=agent_response,
             intent=intent,
-            tool_calls=tool_calls,
-            result={
-                "intent": intent,
-                "processed": edit_success,
-                "user_input": request.request,
-                "modifications": [tool_name] if edit_success else [],
-                "error": tool_result.get("stderr") if tool_result and not edit_success else None,
-            },
-            message=message
-            if edit_success
-            else tool_result.get("stderr", message)
-            if tool_result
-            else message,
-            success=edit_success if intent != "unknown" else False,
+            success=success,
+            processing_time=processing_time,
+            error_message=error_message,
         )
 
 

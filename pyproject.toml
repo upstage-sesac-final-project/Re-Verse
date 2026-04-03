@@ -11,13 +11,28 @@ dependencies = [
     "pydantic-settings>=2.5.0",
     "python-dotenv>=1.0.0",
     "httpx>=0.27.0",
-    "loguru>=0.7.0",
     "websockets>=13.0",
     "supabase>=2.7.0",
     "langgraph>=0.2.0",
     "langchain>=0.3.0",
     "langchain-community>=0.3.0",
+    "langchain-openai>=0.2.0",
     "langsmith>=0.1.0",
+    "langchain-upstage>=0.7.7",
+    "langchain-chroma>=1.1.0",
+    "sentence-transformers>=5.3.0",
+    "langchain-text-splitters>=1.1.1",
+    "boto3>=1.42.77",
+    "sqlalchemy>=2.0.48",
+    "psycopg[binary]>=3.3.3",
+    "python-jose[cryptography]>=3.3.0",
+    "bcrypt>=4.0.0",
+    "python-multipart>=0.0.9",
+    "aiosqlite>=0.20.0",
+    "greenlet>=3.0.0",
+    "email-validator>=2.1.0",
+    "mcp>=1.26.0",
+    "ijson>=3.3.0",
 ]
 
 [project.optional-dependencies]
@@ -58,6 +73,7 @@ follow_imports = "skip"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["app/backend/tests", "agent/tests"]
+markers = ["integration: 실제 LLM API 호출이 필요한 통합 테스트 (API 키 필요)"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["agent", "app/backend", "shared"]
@@ -65,3 +81,10 @@ packages = ["agent", "app/backend", "shared"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.5.1",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+]

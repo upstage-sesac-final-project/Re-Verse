@@ -1,21 +1,21 @@
 """
 LLM Request/Response Schemas
-Frontend ↔ Backend ↔ Agent 간 데이터 교환 스키마
+Frontend <-> Backend <-> Agent 간 데이터 교환 스키마
 """
 
+from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-# ==================== Frontend → Backend ====================
+# ==================== Frontend -> Backend ====================
 
 
 class UserInputRequest(BaseModel):
-    """사용자 입력 요청 (Frontend → Backend)"""
+    """사용자 입력 요청 (Frontend -> Backend)"""
 
-    request: str = Field(..., description="유저 입력 프롬프트", min_length=1)
-    game_id: str | None = Field(None, description="게임 ID (선택)")
-    session_id: str | None = Field(None, description="세션 ID (선택)")
+    project_id: int = Field(..., description="프로젝트 DB ID")
+    message: str = Field(..., description="유저 입력 프롬프트", min_length=1)
 
 
 # ==================== Agent Response ====================
@@ -30,26 +30,53 @@ class ToolCall(BaseModel):
 
 
 class AgentResponse(BaseModel):
-    """Agent 응답 (Agent → Backend)"""
+    """Agent 응답 (Agent -> Backend)"""
 
-    intent: str = Field(..., description="의도 분류 (예: modify_map, modify_npc, create_event)")
-    tool_calls: list[ToolCall] = Field(default_factory=list, description="호출된 도구 목록")
-    result: dict[str, Any] = Field(default_factory=dict, description="처리 결과")
+    intent: str = Field(..., description="의도 분류")
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    result: dict[str, Any] = Field(default_factory=dict)
     message: str = Field("", description="사용자에게 보여줄 메시지")
-    success: bool = Field(True, description="성공 여부")
+    success: bool = Field(True)
 
 
-# ==================== Backend → Frontend ====================
+# ==================== Backend -> Frontend ====================
+
+
+class ChangeLog(BaseModel):
+    """단일 변경 로그 항목"""
+
+    step_id: int = Field(..., description="실행 순서")
+    tool_name: str = Field(..., description="호출된 도구 이름")
+    description: str = Field("", description="작업 설명")
+    success: bool = Field(True)
+    result_summary: str = Field("", description="결과 요약")
 
 
 class ProcessResponse(BaseModel):
     """프로세스 처리 응답"""
 
     code: int = Field(201, description="성공 시 201")
-    message: str = Field("", description="처리 메시지")
-    result: dict[str, Any] = Field(default_factory=dict, description="처리 결과")
+    message: str = Field("", description="Synthesizer가 생성한 최종 응답")
+    intent: str | None = Field(None, description="Router가 분류한 사용자 의도")
+    success: bool = Field(True, description="Validator 전체 검증 통과 여부")
+    affected_files: list[str] = Field(
+        default_factory=list, description="Executor가 수정한 파일 목록"
+    )
+    reload_required: bool = Field(False, description="프론트엔드 게임 리로드 필요 여부")
+    changes_log: list[ChangeLog] = Field(
+        default_factory=list, description="Executor 단계별 변경 이력"
+    )
 
-    # 추가 정보
-    intent: str | None = Field(None, description="파악된 의도")
-    modifications: list[str] | None = Field(None, description="수정된 항목 목록")
-    affected_files: list[str] | None = Field(None, description="영향받은 파일 목록")
+
+class ConversationLogResponse(BaseModel):
+    """대화 이력 응답"""
+
+    id: int
+    user_input: str
+    agent_response: str | None
+    intent: str | None
+    success: bool
+    processing_time: float | None
+    timestamp: datetime
+
+    model_config = ConfigDict(from_attributes=True)

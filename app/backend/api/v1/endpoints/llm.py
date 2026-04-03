@@ -1,75 +1,87 @@
-"""
-LLM API Endpoints
-사용자 입력을 받아 Agent로 전달하고 결과를 반환
-"""
+"""LLM API Endpoints — 인증 적용 + 대화 이력 조회."""
 
-from fastapi import APIRouter, HTTPException, status
+import logging
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.backend.core.security import get_current_user
+from app.backend.db.session import get_db
+from app.backend.models.game import ConversationLog
+from app.backend.models.user import User
 from app.backend.schemas.llm import (
+    ConversationLogResponse,
     ProcessResponse,
     UserInputRequest,
 )
+from app.backend.services.game_service import game_service
 from app.backend.services.llm_service import llm_service
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.post("/process", response_model=ProcessResponse)
-async def process_user_input(request: UserInputRequest) -> ProcessResponse:
-    """
-    사용자 입력을 처리하는 메인 엔드포인트
-
-    Flow:
-    1. Frontend에서 {"request": "유저 프롬프트"} 전달
-    2. Backend가 Agent에 전달
-    3. Agent가 의도 분류 및 tool 호출
-    4. Backend가 Frontend에 결과 반환
-
-    Args:
-        request: 사용자 입력 요청
-
-    Returns:
-        ProcessResponse: 처리 결과
-
-    Raises:
-        HTTPException: 처리 실패 시
-    """
+async def process_user_input(
+    request: UserInputRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ProcessResponse:
+    """사용자 입력을 처리하는 메인 엔드포인트 (인증 필수)."""
+    logger.info(
+        "[LLM] 요청 수신 | user_id=%d, project_id=%d, message=%s",
+        current_user.id,
+        request.project_id,
+        request.message[:50],
+    )
     try:
-        # Agent 호출
-        agent_response = await llm_service.process_user_input(request)
-
-        # 실패한 경우
-        if not agent_response.success:
-            return ProcessResponse(
-                code=400,
-                message=agent_response.message,
-                result=agent_response.result,
-                intent=agent_response.intent,
-                modifications=[],
-                affected_files=[],
-            )
-
-        # 성공한 경우
-        # tool_calls에서 수정된 파일 목록 추출
-        affected_files = []
-        modifications = []
-
-        for tool_call in agent_response.tool_calls:
-            modifications.append(tool_call.tool_name)
-            if tool_call.result and "modified_files" in tool_call.result:
-                affected_files.extend(tool_call.result["modified_files"])
-
-        return ProcessResponse(
-            code=201,
-            message=agent_response.message,
-            result=agent_response.result,
-            intent=agent_response.intent,
-            modifications=modifications if modifications else [],
-            affected_files=affected_files if affected_files else [],
+        response = await llm_service.process_chat(
+            project_id=request.project_id,
+            message=request.message,
+            user_id=current_user.id,
+            db=db,
         )
-
-    except Exception as e:
-        # 예상치 못한 에러
+        logger.info(
+            "[LLM] 요청 완료 | user_id=%d, project_id=%d, success=%s, intent=%s",
+            current_user.id,
+            request.project_id,
+            response.success,
+            response.intent,
+        )
+        return response
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "[LLM] 처리 오류 | user_id=%d, project_id=%d",
+            current_user.id,
+            request.project_id,
+        )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"서버 내부 오류: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="요청 처리 중 오류가 발생했습니다.",
         )
+
+
+@router.get("/history/{project_id}", response_model=list[ConversationLogResponse])
+async def get_conversation_history(
+    project_id: int,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """대화 이력 조회 (인증 + 소유권 확인)."""
+    logger.debug("[LLM] 대화 이력 조회 | user_id=%d, project_id=%d", current_user.id, project_id)
+    await game_service.get_project(project_id, current_user.id, db)
+
+    result = await db.execute(
+        select(ConversationLog)
+        .where(ConversationLog.project_id == project_id)
+        .order_by(ConversationLog.timestamp.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    logs = result.scalars().all()
+    return [ConversationLogResponse.model_validate(log) for log in logs]

@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { resolve, join, extname } from 'path'
+import { resolve, join, extname, sep } from 'path'
 import { createReadStream, existsSync, statSync } from 'fs'
 
 const MIME_TYPES = {
@@ -28,7 +28,13 @@ function serveGameFiles() {
     name: 'serve-game-files',
     configureServer(server) {
       server.middlewares.use('/game', (req, res, next) => {
-        const filePath = join(storagePath, decodeURIComponent(req.url))
+        // Strip query string before resolving path
+        const urlPath = decodeURIComponent(req.url.split('?')[0])
+        const filePath = resolve(join(storagePath, urlPath))
+        // Guard against path traversal (e.g. ../../etc/passwd)
+        if (!filePath.startsWith(storagePath + sep) && filePath !== storagePath) {
+          return next()
+        }
         if (existsSync(filePath) && statSync(filePath).isFile()) {
           const ext = extname(filePath)
           res.setHeader('Content-Type', MIME_TYPES[ext] || 'application/octet-stream')
@@ -49,6 +55,11 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      // 새로 추가 - docker로 프론트/백엔드 같이 띄울 때 필요한 설정
+      '/game': {
+        target: 'http://backend:8000',
         changeOrigin: true,
       },
     },

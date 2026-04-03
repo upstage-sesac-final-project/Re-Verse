@@ -1,0 +1,28 @@
+# .coderabbit.yaml
+language: "ko-KR"
+
+reviews:
+  profile: "chill"
+
+  # 봇이 깐깐하게 'Request Changes' 상태를 만들어 PR 병합(Merge)을 막는 것을 방지합니다. (팀 프로젝트 시 권장)
+  request_changes_workflow: false
+
+  # PR의 핵심 변경 사항을 팀원들이 한눈에 파악하기 쉽게 상단에 요약해 줍니다.
+  high_level_summary: true
+
+  # 봇이 리뷰를 달 때 사용할 어조를 설정합니다. (친절하고 건설적인 피드백)
+  tone: "helpful and encouraging"
+
+  # ★ 중요: 리뷰가 필요 없는 파일들을 제외하여 봇이 엉뚱한 곳에 코멘트를 다는 것을 막습니다.
+  path_filters:
+    - "!package-lock.json"
+    - "!yarn.lock"
+    - "!dist/**"
+    - "!build/**"
+    - "!node_modules/**"
+    - "!.github/**"
+    - "!*.md" # README 등 마크다운 파일 리뷰 제외 (선택 사항)
+
+chat:
+  # PR 코멘트 창에서 @coderabbitai 태그하여 대화하는 기능 활성화
+  enabled: true
