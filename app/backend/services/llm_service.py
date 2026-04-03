@@ -73,7 +73,10 @@ class LLMService:
             # ④ Agent 호출
             try:
                 logger.info("[LLMService] Agent 호출 시작 | game_id=%s", game_id)
-                result = await self._call_graph_agent(message, game_id)
+                from agent.memory.conversation_manager import build_conversation_history
+
+                conversation_history = await build_conversation_history(project_id, db)
+                result = await self._call_graph_agent(message, game_id, conversation_history)
                 logger.info(
                     "[LLMService] Agent 호출 완료 | success=%s, intent=%s, affected_files=%s",
                     result["success"],
@@ -173,12 +176,19 @@ class LLMService:
 
     # ── Agent 호출 ────────────────────────────────────────
 
-    async def _call_graph_agent(self, message: str, game_id: str) -> dict[str, Any]:
+    async def _call_graph_agent(
+        self, message: str, game_id: str, conversation_history: list[dict] | None = None
+    ) -> dict[str, Any]:
         """LangGraph 워크플로우 호출 (Synthesizer 포함)."""
         from agent.graph.workflow import graph
 
+        initial_state: dict[str, Any] = {
+            "user_input": message,
+            "game_id": game_id,
+            "conversation_history": conversation_history or [],
+        }
         final_state = await asyncio.wait_for(
-            graph.ainvoke({"user_input": message, "game_id": game_id}),  # type: ignore[attr-defined]
+            graph.ainvoke(initial_state),  # type: ignore[attr-defined]
             timeout=self.timeout,
         )
 
