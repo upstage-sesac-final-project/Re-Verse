@@ -6,6 +6,7 @@ Docker(EC2)에서 `uvicorn app.backend.main:app` 으로 실행됩니다.
 `/api` -> `https://api.re-verse.ai.kr` 로 프록시합니다.
 """
 
+# ruff: noqa: E402
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,6 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+# Agent config를 먼저 로드하여 load_dotenv() 실행
+from agent.core.config import agent_config  # noqa: F401
 from agent.monitoring.langsmith_setup import setup_langsmith
 from app.backend.api.v1 import api_router
 from app.backend.core.config import settings

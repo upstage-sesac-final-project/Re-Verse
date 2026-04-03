@@ -86,7 +86,7 @@ def get_mcp_server_args() -> list[str]:
     return [raw]
 
 
-def build_stdio_server_parameters() -> Any | None:
+def build_stdio_server_parameters(extra_env: dict[str, str] | None = None) -> Any | None:
     """`mcp.client.stdio.StdioServerParameters` 인스턴스 또는 설정 불가 시 None.
 
     우선순위:
@@ -107,7 +107,7 @@ def build_stdio_server_parameters() -> Any | None:
     elif not cmd:
         return None
 
-    merged_env = {**os.environ, **get_mcp_stdio_env()}
+    merged_env = {**os.environ, **get_mcp_stdio_env(), **(extra_env or {})}
     cwd = os.environ.get("MCP_CWD", "").strip() or None
     return StdioServerParameters(command=cmd, args=args, env=merged_env, cwd=cwd)
 
@@ -151,7 +151,10 @@ async def call_mcp_tool(
             "data": {},
         }
 
-    params = build_stdio_server_parameters()
+    # MCP 서버는 RPGMAKER_PROJECT_PATH 환경변수로 게임 루트를 읽는다.
+    # game_data_path는 data/ 폴더이므로 .parent가 게임 루트.
+    game_root = game_data_path.resolve().parent
+    params = build_stdio_server_parameters(extra_env={"RPGMAKER_PROJECT_PATH": str(game_root)})
     if params is None:
         return {
             "success": False,
@@ -160,11 +163,7 @@ async def call_mcp_tool(
             "data": {},
         }
 
-    key = (path_arg_name or os.environ.get("MCP_PATH_ARG_NAME", "targetDir")).strip()
     safe_args = dict(arguments)
-    # Executor가 계산한 game_id별 data 경로를 MCP 호출 인자에 강제 주입한다.
-    # (서버 구현에 따라 실제 반영 방식은 다를 수 있으므로, 운영 시 MCP 서버 스펙과 함께 검증 필요)
-    safe_args[key] = str(game_data_path.resolve())
 
     # per-call 타임아웃: 응답 지연 시 전체 워크플로우가 장시간 블로킹되는 것을 방지한다.
     timeout = float(os.environ.get("MCP_TIMEOUT", "30"))
@@ -203,6 +202,16 @@ async def call_mcp_tool(
         }
 
     raw_text = "".join(c.text for c in result.content if hasattr(c, "text"))
+
+    # MCP 서버가 에러를 plain text "Error: ..." 형태로 반환하는 경우 (isError 없이)
+    if raw_text.strip().startswith("Error:"):
+        return {
+            "success": False,
+            "error": raw_text.strip(),
+            "modified_files": [],
+            "data": {},
+        }
+
     parsed: dict[str, Any] = {}
     try:
         parsed = json.loads(raw_text) if raw_text.strip() else {}

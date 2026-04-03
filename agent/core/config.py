@@ -2,10 +2,14 @@
 
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 
 # 루트 .env 경로 (어느 디렉토리에서 실행해도 동일하게 참조)
 _ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"
+
+# 환경 변수를 os.environ에 로드 (MCP_ENABLED 등 직접 os.environ 접근용)
+load_dotenv(_ROOT_ENV)
 
 
 class AgentConfig(BaseSettings):
