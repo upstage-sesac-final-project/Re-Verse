@@ -12,15 +12,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
 
-from dotenv import load_dotenv
-
-load_dotenv()  # pydantic-settings가 os.environ에 넣지 않는 MCP_ENABLED 등을 위해
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+# Agent config를 먼저 로드하여 load_dotenv() 실행
+from agent.core.config import agent_config  # noqa: F401
 from agent.monitoring.langsmith_setup import setup_langsmith
 from app.backend.api.v1 import api_router
 from app.backend.core.config import settings
