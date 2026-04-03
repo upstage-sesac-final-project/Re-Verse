@@ -91,34 +91,59 @@ def _format_to_progress_spec(modifications: list[dict], classifications: list[di
         # 3. 해당 타겟의 ID 필드명 결정
         id_field = CATEGORY_TO_ID_FIELD.get(target, f"{target}_id")
 
-        # 4. 파라미터 정제
+        # 4. 파라미터 정제 (기존 ID 필드들을 대소문자 구분 없이 찾아서 추출)
         raw_params = mod.get("params", {})
         clean_params = {}
+        llm_provided_id = None
+
+        # ID로 추정되는 필드들 (id, Actor_id, actor_id 등)
+        potential_id_keys = [
+            "id",
+            "target_id",
+            id_field,
+            f"{target}_id".lower(),
+            f"{target}_id".capitalize(),
+        ]
+
         for k, v in raw_params.items():
-            if k not in ["id", "target_id", id_field]:
+            # 대소문자 무시하고 ID 필드인지 확인
+            is_id_field = any(k.lower() == p.lower() for p in potential_id_keys)
+            if is_id_field:
+                if v and v != "NEW":
+                    llm_provided_id = v
+            else:
                 clean_params[k] = v
 
         # 5. ID 값 확정
-        llm_provided_id = raw_params.get(id_field) or raw_params.get("id")
-        if llm_provided_id == "NEW":
-            llm_provided_id = None
-
-        target_name = clean_params.get("name")
         mapped_id = None
+        target_name = clean_params.get("name")
 
-        for cls in classifications:
-            if target_name and (cls["name"] == target_name or target_name in cls["name"]):
-                mapped_id = cls.get("mapped_id")
-                break
+        # UPDATE인 경우, LLM이 제공한 ID를 최우선으로 함 (이름이 바뀌었을 수 있으므로 이름 매핑보다 우선)
+        if action_type == "update" and llm_provided_id is not None:
+            final_id = llm_provided_id
+        else:
+            # 이름 기반 매핑 시도
+            for cls in classifications:
+                if target_name and (cls["name"] == target_name or target_name in cls["name"]):
+                    mapped_id = cls.get("mapped_id")
+                    break
 
-        if mapped_id is None:
-            category_matches = [
-                cls for cls in classifications if cls["category"].lower() == target.lower()
-            ]
-            if len(category_matches) == 1:
-                mapped_id = category_matches[0].get("mapped_id")
+            if mapped_id is None:
+                category_matches = [
+                    cls for cls in classifications if cls["category"].lower() == target.lower()
+                ]
+                if len(category_matches) == 1:
+                    mapped_id = category_matches[0].get("mapped_id")
 
-        final_id = mapped_id or llm_provided_id or "NEW"
+            final_id = mapped_id or llm_provided_id or "NEW"
+
+            # UPDATE인데 여전히 NEW라면, 매핑되지 않은 대상을 수정하려 하는 것이므로
+            # 분류 단계에서 찾았던 subject의 ID를 재검색 시도
+            if action_type == "update" and final_id == "NEW":
+                # classifications에서 "subject"에 해당하는 ID가 있는지 확인 (Step 1의 subject와 일치하는 name 찾기)
+                # 여기서는 단순화를 위해 llm_provided_id가 없고 mapped_id도 없으면 일단 NEW 유지
+                pass
+
         if action_type == "create" and not mapped_id:
             final_id = "NEW"
 
@@ -133,6 +158,7 @@ async def definition(state: AgentState) -> dict:
     game_id = state.get("game_id", "game_001")
     user_input = state.get("user_input", "")
 
+    logger.info("=" * 60)
     logger.info("[Definition] 노드 시작 - game_id: %s, user_input: %s", game_id, user_input)
 
     # --- [1단계: 핵심 키워드 추출] ---

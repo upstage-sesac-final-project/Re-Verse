@@ -5,7 +5,7 @@ import logging
 import sys
 import traceback
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from agent.core.llm_client import reset_llm
 from agent.graph.nodes.definition import definition
@@ -13,6 +13,7 @@ from agent.graph.nodes.executor import executor
 from agent.graph.nodes.planner import planner
 from agent.graph.nodes.router import router
 from agent.graph.nodes.validator import validator
+from agent.graph.state import AgentState
 
 ROOT_PATH = str(Path(__file__).resolve().parents[2])
 if ROOT_PATH not in sys.path:
@@ -27,7 +28,7 @@ SUPPORTED_INTENTS = {
 }
 
 
-def build_validation_result_compat(state: dict[str, Any]) -> dict[str, Any]:
+def build_validation_result_compat(state: AgentState) -> dict[str, Any]:
     validation_results = state.get("validation_results", [])
     flattened_errors = [error for item in validation_results for error in item.get("errors", [])]
     error_count = sum(int(item.get("error_count", 0)) for item in validation_results)
@@ -38,7 +39,7 @@ def build_validation_result_compat(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def print_router_result(state: dict[str, Any]) -> None:
+def print_router_result(state: AgentState) -> None:
     print("\n[1. Router Result]")
     print(f"  [*] intent: {state.get('intent')} (confidence={state.get('confidence', 0.0):.2f})")
     if state.get("intent") not in SUPPORTED_INTENTS:
@@ -47,7 +48,7 @@ def print_router_result(state: dict[str, Any]) -> None:
         )
 
 
-def print_definition_result(state: dict[str, Any]) -> None:
+def print_definition_result(state: AgentState) -> None:
     print("\n[2. Definition Result]")
     print(f"  [*] params_sufficient: {state.get('params_sufficient', False)}")
 
@@ -66,7 +67,7 @@ def print_definition_result(state: dict[str, Any]) -> None:
     print(f"  [*] Extracted IDs: {state.get('extracted_ids')}")
 
 
-def print_planner_result(state: dict[str, Any]) -> None:
+def print_planner_result(state: AgentState) -> None:
     print("\n[3. Planner Result]")
     execution_plan = state.get("execution_plan", [])
     print(f"  [*] Planned steps: {len(execution_plan)}")
@@ -83,7 +84,7 @@ def print_planner_result(state: dict[str, Any]) -> None:
         )
 
 
-def print_executor_result(state: dict[str, Any]) -> None:
+def print_executor_result(state: AgentState) -> None:
     changes = state.get("changes_log", [])
     print("\n[4. Executor Result]")
 
@@ -110,7 +111,7 @@ def print_executor_result(state: dict[str, Any]) -> None:
         print(f"  [*] Backup files: {len(backup_paths)}")
 
 
-def print_validator_result(state: dict[str, Any]) -> None:
+def print_validator_result(state: AgentState) -> None:
     print("\n[5. Validator Result]")
     print(f"  [*] Summary: {state.get('validation_summary', '(missing summary)')}")
     print(f"  [*] Success: {state.get('success', False)}")
@@ -160,7 +161,7 @@ async def main() -> None:
             reset_llm()
             print(f"[*] Starting pipeline for: {user_input}")
 
-            state: dict[str, Any] = {
+            state: AgentState = {
                 "user_input": user_input,
                 "game_id": game_id,
                 "conversation_history": [],
@@ -169,7 +170,7 @@ async def main() -> None:
 
             print("\n[Step 1] Router")
             router_output = await router(state)
-            state.update(router_output)
+            state.update(cast(AgentState, router_output))
             print(
                 f"  [Router] intent={state.get('intent')} "
                 f"(confidence={state.get('confidence', 0.0):.2f})"
@@ -184,7 +185,7 @@ async def main() -> None:
 
             print("\n[Step 2] Definition")
             definition_output = await definition(state)
-            state.update(definition_output)
+            state.update(cast(AgentState, definition_output))
 
             if not state.get("params_sufficient"):
                 print("\n" + "-" * 50)
@@ -206,7 +207,7 @@ async def main() -> None:
 
             print("\n[Step 3] Planner")
             planner_output = await planner(state)
-            state.update(planner_output)
+            state.update(cast(AgentState, planner_output))
 
             execution_plan = state.get("execution_plan", [])
             print(f"  [*] Planned steps: {len(execution_plan)}")
@@ -219,12 +220,11 @@ async def main() -> None:
 
             print("\n[Step 4] Executor")
             executor_output = await executor(state)
-            state.update(executor_output)
+            state.update(cast(AgentState, executor_output))
 
             print("\n[Step 5] Validator")
             validator_output = await validator(state)
-            state.update(validator_output)
-            state["validation_result"] = build_validation_result_compat(state)
+            state.update(cast(AgentState, validator_output))
 
             print("\n" + "-" * 50)
             print(" [Integration Test Result]")
