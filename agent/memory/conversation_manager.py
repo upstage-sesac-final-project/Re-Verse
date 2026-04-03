@@ -11,7 +11,13 @@ from app.backend.repositories.project_repository import project_repository
 logger = logging.getLogger(__name__)
 
 # 게임 관련 인텐트만 history에 포함 (#3)
-_GAME_INTENTS = {"게임_요소_생성", "게임_요소_수정", "게임_요소_조회", "복합_의도"}
+_GAME_INTENTS = {
+    "게임_요소_생성",
+    "게임_요소_수정",
+    "게임_요소_조회",
+    "복합_의도",
+    "추가_정보_필요",
+}
 
 _SUMMARY_SYSTEM = """\
 아래는 RPG Maker 게임 제작 AI 'Re:Verse'와 사용자의 이전 대화 목록이다.
