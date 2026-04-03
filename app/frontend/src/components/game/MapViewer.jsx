@@ -257,12 +257,21 @@ function Tag({ color, children }) {
   )
 }
 
-// ── 이벤트 종류 → 색상 ────────────────────────────────────────
+// ── 이벤트 종류 판별 (커맨드 코드 기반) ──────────────────────
+function getEventType(event) {
+  for (const page of (event.pages ?? [])) {
+    for (const cmd of (page.list ?? [])) {
+      if (cmd.code === 201) return 'warp'
+      if (cmd.code === 301) return 'battle'
+      if (cmd.code === 101 || cmd.code === 102 || cmd.code === 302) return 'npc'
+    }
+  }
+  return 'other'
+}
+
+const EVENT_COLOR = { warp: '#5b8dee', npc: '#4caf82', battle: '#e05252', other: '#f0a500' }
 function getEventColor(event) {
-  const name = event.name ?? ''
-  if (/위치.?이동|워프|warp/i.test(name)) return '#5b8dee'
-  if (/npc|상인|마을|촌장|노인|여자|남자|병사/i.test(name)) return '#4caf82'
-  return '#f0a500'
+  return EVENT_COLOR[getEventType(event)]
 }
 
 // ── 이미지 로드 헬퍼 ──────────────────────────────────────────
@@ -503,7 +512,7 @@ export default function MapViewer({ gameId, refreshKey }) {
                   >
                     {cellSize >= 16 && (
                       <span style={{ fontSize: Math.max(8, cellSize * 0.4), lineHeight: 1, color }}>
-                        {/위치.?이동|워프/i.test(ev.name ?? '') ? '⬡' : '●'}
+                        {getEventType(ev) === 'warp' ? '⬡' : '●'}
                       </span>
                     )}
                   </div>
@@ -571,8 +580,9 @@ export default function MapViewer({ gameId, refreshKey }) {
         className="flex items-center gap-4 px-3 py-1.5 flex-shrink-0 text-xs"
         style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}
       >
-        <Legend color="#5b8dee" label="워프" />
-        <Legend color="#4caf82" label="NPC" />
+        <Legend color="#5b8dee" label="워프(201)" />
+        <Legend color="#4caf82" label="NPC(101·102·302)" />
+        <Legend color="#e05252" label="전투(301)" />
         <Legend color="#f0a500" label="기타 이벤트" />
         <span style={{ marginLeft: 'auto' }}>클릭 시 상세 보기</span>
       </div>
