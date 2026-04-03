@@ -44,6 +44,19 @@ class ProjectRepository:
         await db.delete(project)
         await db.commit()
 
+    async def get_recent_conversation_logs(
+        self, project_id: int, limit: int, db: AsyncSession
+    ) -> list[ConversationLog]:
+        """최근 대화 로그를 시간순(오래된 것 먼저)으로 반환."""
+        result = await db.execute(
+            select(ConversationLog)
+            .where(ConversationLog.project_id == project_id)
+            .order_by(ConversationLog.timestamp.desc())
+            .limit(limit)
+        )
+        logs = list(result.scalars().all())
+        return list(reversed(logs))
+
     async def save_conversation_log(
         self,
         db: AsyncSession,
