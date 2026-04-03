@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 from typing import cast
 
 from agent.core.llm_client import invoke_llm
@@ -157,6 +158,9 @@ async def definition(state: AgentState) -> dict:
     """사용자 입력에서 핵심 파라미터 추출(1단계) 후 최종 명세 생성(5단계) 수행."""
     game_id = state.get("game_id", "game_001")
     user_input = state.get("user_input", "")
+    _t0 = time.perf_counter()
+
+    logger.info("─── 🧩 Definition START ───────────────────────────────")
 
     logger.info("=" * 60)
     logger.info("[Definition] 노드 시작 - game_id: %s, user_input: %s", game_id, user_input)
@@ -450,10 +454,19 @@ async def definition(state: AgentState) -> dict:
 
     logger.info("[Definition] 노드 완료 - 생성된 modification 수: %d", len(strictly_formatted_mods))
     # 최종 결과 반환
-    return {
+    result = {
         "target_files": final_response.target_files,
         "modifications": strictly_formatted_mods,
         "extracted_ids": final_extracted_ids,
         "params_sufficient": final_response.params_sufficient,
         # "final_response": final_response.message_for_user,
     }
+    logger.info(
+        "─── ✅ Definition END (elapsed=%.2fs, targets=%d, mods=%d, ids=%d, params_ok=%s) ──",
+        time.perf_counter() - _t0,
+        len(final_response.target_files),
+        len(strictly_formatted_mods),
+        len(final_extracted_ids),
+        final_response.params_sufficient,
+    )
+    return result
