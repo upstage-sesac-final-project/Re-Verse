@@ -410,7 +410,7 @@ export default function MapViewer({ gameId, refreshKey }) {
     drawCanvas()
   }, [drawCanvas])
 
-  const events = mapData ? mapData.events.filter(Boolean) : []
+  const events = mapData ? (mapData.events ?? []).filter(Boolean) : []
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
