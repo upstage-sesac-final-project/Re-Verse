@@ -6,10 +6,15 @@ Docker(EC2)에서 `uvicorn app.backend.main:app` 으로 실행됩니다.
 `/api` -> `https://api.re-verse.ai.kr` 로 프록시합니다.
 """
 
+# ruff: noqa: E402
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
+
+from dotenv import load_dotenv
+
+load_dotenv()  # pydantic-settings가 os.environ에 넣지 않는 MCP_ENABLED 등을 위해
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
