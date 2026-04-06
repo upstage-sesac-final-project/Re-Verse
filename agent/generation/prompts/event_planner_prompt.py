@@ -155,6 +155,7 @@ def build_event_planner_prompt(
     id_table: IdTable,
     switch_table: SwitchTable,
     connection_info: MapConnectionInfo,
+    rag_context: str = "",
 ) -> list[BaseMessage]:
     exit_lines: list[str] = []
     for tile in connection_info.exit_tiles:
@@ -208,7 +209,7 @@ def build_event_planner_prompt(
 ## 이벤트 생성 가이드
 
 {_describe_required_events(map_spec, game_spec, id_table)}
-
+{f"{chr(10)}## RPG Maker MZ 기술 참고{chr(10)}{rag_context}{chr(10)}" if rag_context else ""}
 YAML 출력:
 """
     return [SystemMessage(content=_SYSTEM), HumanMessage(content=human)]

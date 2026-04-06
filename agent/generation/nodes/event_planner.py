@@ -20,6 +20,7 @@ from agent.generation.compilers.dsl_models import (
 from agent.generation.models import GameSpec, MapConnectionInfo, MapSpec
 from agent.generation.progress import publish_progress
 from agent.generation.prompts.event_planner_prompt import build_event_planner_prompt
+from agent.generation.rag_context import get_event_planner_context
 from agent.generation.registry.id_table import IdTable
 from agent.generation.registry.switch_table import SwitchTable
 from agent.generation.state import GenerationState
@@ -90,10 +91,11 @@ async def _plan_single_map(
     switch_table: SwitchTable,
     connection_info: MapConnectionInfo,
 ) -> list:
+    rag_context = get_event_planner_context(map_spec.map_type)
     for attempt in range(3):
         try:
             prompt = build_event_planner_prompt(
-                map_spec, game_spec, id_table, switch_table, connection_info
+                map_spec, game_spec, id_table, switch_table, connection_info, rag_context
             )
             raw = cast(str, await invoke_llm(prompt))
             events = _parse_dsl_safe(raw, map_spec.map_id)
