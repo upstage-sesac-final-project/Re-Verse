@@ -16,11 +16,15 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.generation.progress import publish_progress, subscribe_generation_events
 from agent.generation.workflow import run_generation_workflow
+from app.backend.core.config import settings
 from app.backend.core.security import get_current_user
+from app.backend.db.session import get_db
 from app.backend.models.user import User
+from app.backend.repositories.project_repository import project_repository
 from app.backend.schemas.generation import (
     GenerationRequest,
     GenerationStartResponse,
@@ -37,13 +41,11 @@ _generation_states: dict[str, GenerationStatusResponse] = {}
 
 async def _run_generation_in_background(
     generation_id: str,
-    project_id: int,
+    game_id: str,
     prompt: str,
     options: dict,
 ) -> None:
     """백그라운드 생성 태스크."""
-    game_id = str(project_id)
-
     _generation_states[generation_id] = GenerationStatusResponse(
         generation_id=generation_id,
         status="in_progress",
@@ -61,6 +63,16 @@ async def _run_generation_in_background(
         )
 
         is_success = final_state.get("is_success", False)
+
+        if final_state.get("final_project"):
+            from agent.generation.writer import write_project_to_disk
+
+            await write_project_to_disk(game_id, final_state["final_project"])
+            if settings.STORAGE_BACKEND == "s3":
+                from app.backend.services.s3_game_storage import sync_game_to_s3
+
+                sync_game_to_s3(game_id)
+
         _generation_states[generation_id] = GenerationStatusResponse(
             generation_id=generation_id,
             status="completed" if is_success else "completed_with_warnings",
@@ -92,20 +104,26 @@ async def start_generation(
     req: GenerationRequest,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> GenerationStartResponse:
     """게임 생성 시작 → generation_id 즉시 반환."""
+    project = await project_repository.find_by_id(req.project_id, db)
+    if not project or project.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
+
     generation_id = f"gen_{uuid4().hex[:8]}"
     logger.info(
-        "start_generation: user_id=%d project_id=%d gen_id=%s",
+        "start_generation: user_id=%d project_id=%d game_id=%s gen_id=%s",
         current_user.id,
         req.project_id,
+        project.game_id,
         generation_id,
     )
 
     background_tasks.add_task(
         _run_generation_in_background,
         generation_id=generation_id,
-        project_id=req.project_id,
+        game_id=project.game_id,
         prompt=req.prompt,
         options=req.options.model_dump(),
     )

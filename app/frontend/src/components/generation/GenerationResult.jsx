@@ -92,7 +92,7 @@ export default function GenerationResult({ onRetry, onGoToEditor }) {
             className="flex-1 py-3 rounded-lg font-semibold text-sm"
             style={{ background: 'var(--accent)', color: '#fff' }}
           >
-            에디터에서 열기
+            게임 플레이 →
           </button>
         )}
         <button
