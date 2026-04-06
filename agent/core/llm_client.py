@@ -1,5 +1,6 @@
 """LLM 클라이언트 — Upstage Solar 및 OpenAI 호환 API를 지원한다."""
 
+import asyncio
 import logging
 import os
 from typing import Any, cast
@@ -75,13 +76,14 @@ async def invoke_llm(
         structured_output 미지정 시 str, 지정 시 해당 Pydantic 인스턴스
     """
     llm = get_llm()
+    timeout = agent_config.LLM_TIMEOUT
 
     try:
         if structured_output is not None:
             # function_calling 방식을 유지하면서 구조화된 출력 반환
             logger.info("구조화된 응답 생성 시작 (%s)", structured_output.__name__)
             bound = llm.with_structured_output(structured_output, method="function_calling")
-            result = await bound.ainvoke(messages)
+            result = await asyncio.wait_for(bound.ainvoke(messages), timeout=timeout)
             logger.info("구조화된 응답 수신 완료")
             if result is None:
                 raise ValueError(
@@ -89,9 +91,12 @@ async def invoke_llm(
                 )
             return cast(BaseModel, result)
 
-        response = await llm.ainvoke(messages)
+        response = await asyncio.wait_for(llm.ainvoke(messages), timeout=timeout)
         return cast(str, response.content)
 
+    except TimeoutError:
+        logger.error("LLM 호출 타임아웃 (%ds 초과) [%s]", timeout, agent_config.LLM_MODEL)
+        raise
     except Exception as e:
         logger.error("LLM 호출 실패 [%s]: %s", agent_config.LLM_MODEL, e)
         raise
