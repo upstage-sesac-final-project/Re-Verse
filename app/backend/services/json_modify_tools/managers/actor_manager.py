@@ -51,6 +51,25 @@ class ActorManager(BaseManager):
                     }
                 return self._handle_update_general(actor_id, updates)
 
+        if action == "update_general_bulk":
+            ti = kwargs.get("target_info", {})
+            if isinstance(ti, dict):
+                selector = ti.get("selector")
+                updates = ti.get("updates")
+                if not (isinstance(selector, dict) and selector.get("mode") == "all"):
+                    return {
+                        "success": False,
+                        "error": "update_general_bulk requires selector.mode=all",
+                        "category": "actors",
+                    }
+                if not isinstance(updates, dict):
+                    return {
+                        "success": False,
+                        "error": "update_general_bulk requires updates dict",
+                        "category": "actors",
+                    }
+                return self._handle_update_general_bulk(updates)
+
         # Executor: query + actor_id → query_by_id (MCP get_actor 미사용 시 레거시로 동일 의미 제공)
         if action == "query_by_id":
             ti = kwargs.get("target_info") if isinstance(kwargs.get("target_info"), dict) else {}
@@ -564,3 +583,113 @@ class ActorManager(BaseManager):
             "modified_files": ["Actors.json"],
             "category": "actors",
         }
+
+    def _handle_update_general_bulk(self, updates: dict[str, Any]) -> dict[str, Any]:
+        data = self.load_json_data()
+        if not isinstance(data, list) or not data or data[0] is not None:
+            return {
+                "success": False,
+                "error": "Actors.json has unexpected format; expected [null, ...].",
+                "category": "actors",
+            }
+
+        updatable_fields = {
+            "name": str,
+            "nickname": str,
+            "profile": str,
+            "classId": int,
+            "characterName": str,
+            "characterIndex": int,
+            "faceName": str,
+            "faceIndex": int,
+            "initialLevel": int,
+            "expParams": list,
+            "params": list,
+        }
+
+        normalized_updates: dict[str, Any] = {}
+        skipped_fields: list[str] = []
+        for field, value in updates.items():
+            if field not in updatable_fields:
+                skipped_fields.append(field)
+                logger.warning(
+                    "[%s] unsupported bulk actor field ignored: %s", self.operation_id, field
+                )
+                continue
+
+            expected_type = updatable_fields[field]
+            try:
+                if expected_type is int:
+                    normalized_updates[field] = int(value)
+                elif expected_type is str:
+                    normalized_updates[field] = str(value)
+                elif expected_type is list:
+                    if not isinstance(value, list):
+                        skipped_fields.append(field)
+                        logger.warning(
+                            "[%s] bulk actor field requires list and was ignored: %s",
+                            self.operation_id,
+                            field,
+                        )
+                        continue
+                    normalized_updates[field] = value
+                else:
+                    normalized_updates[field] = value
+            except (TypeError, ValueError):
+                skipped_fields.append(field)
+                logger.warning(
+                    "[%s] failed to normalize bulk actor field and ignored it: %s",
+                    self.operation_id,
+                    field,
+                )
+
+        if not normalized_updates:
+            return {
+                "success": False,
+                "error": "bulk actor update has no supported fields",
+                "category": "actors",
+            }
+
+        updated_actor_ids: list[int] = []
+        original_values: dict[int, dict[str, Any]] = {}
+
+        for actor_id in range(1, len(data)):
+            actor = data[actor_id]
+            if not isinstance(actor, dict):
+                continue
+            original_values[actor_id] = {field: actor.get(field) for field in normalized_updates}
+            for field, value in normalized_updates.items():
+                actor[field] = value
+            updated_actor_ids.append(actor_id)
+
+        if not updated_actor_ids:
+            return {
+                "success": True,
+                "action": "update_general_bulk",
+                "updated_actor_ids": [],
+                "updated_count": 0,
+                "updated_fields": list(normalized_updates.keys()),
+                "original_values": {},
+                "modified_files": [],
+                "message": "No actors were available to update.",
+                "category": "actors",
+            }
+
+        self.save_json_data(data)
+
+        result: dict[str, Any] = {
+            "success": True,
+            "action": "update_general_bulk",
+            "updated_actor_ids": updated_actor_ids,
+            "updated_count": len(updated_actor_ids),
+            "updated_fields": list(normalized_updates.keys()),
+            "original_values": original_values,
+            "modified_files": ["Actors.json"],
+            "message": (
+                f"Updated {len(updated_actor_ids)} actors: {', '.join(normalized_updates.keys())}"
+            ),
+            "category": "actors",
+        }
+        if skipped_fields:
+            result["skipped_fields"] = skipped_fields
+        return result
