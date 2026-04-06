@@ -45,9 +45,26 @@ async def event_compiler_node(state: GenerationState) -> dict:
         compiled: list[dict] = []
         event_index = 1  # index 0 = null (RPG Maker MZ 규칙)
 
+        used_positions: set[tuple[int, int]] = set()
         for dsl_event in dsl_list:
             try:
                 event_dict = compiler.compile(dsl_event)
+                # 좌표 중복 방지: 같은 위치에 다른 이벤트가 있으면 X 방향으로 밀기
+                x, y = event_dict.get("x", 0), event_dict.get("y", 0)
+                while (x, y) in used_positions:
+                    x += 1
+                if x != event_dict.get("x", 0):
+                    logger.warning(
+                        "Map%d 이벤트 '%s' 좌표 중복 (%d,%d) → (%d,%d)으로 이동",
+                        map_id,
+                        event_dict.get("name", "?"),
+                        event_dict["x"],
+                        event_dict["y"],
+                        x,
+                        y,
+                    )
+                    event_dict["x"] = x
+                used_positions.add((x, y))
                 event_dict["id"] = event_index
                 event_index += 1
                 compiled.append(event_dict)
