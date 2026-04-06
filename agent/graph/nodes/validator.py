@@ -164,7 +164,7 @@ def build_validation_summary(validation_results: list[FileValidationResult]) -> 
 
 
 def build_state_error(message: str, *, category: str = "query_consistency") -> ValidatorOutput:
-    logger.warning("[Validator] early exit: %s", message)
+    logger.warning("[Validator] 조기 종료: %s", message)
     validation_results = [
         build_file_result(
             target="state",
@@ -223,7 +223,7 @@ def extract_validation_inputs(
 def load_validation_payload(file_name: str, value: Any) -> tuple[Any, list[dict[str, Any]]]:
     payload = load_snapshot_payload(value)
     if isinstance(payload, dict) and payload.get("_snapshot_error"):
-        logger.warning("[Validator] snapshot load error: target=%s err=%s", file_name, payload)
+        logger.warning("[Validator] 스냅샷 로드 실패: target=%s err=%s", file_name, payload)
         return None, [{"loc": "$", "msg": str(payload["_snapshot_error"])}]
     return payload, []
 
@@ -974,7 +974,7 @@ def validate_single_file(
 ) -> FileValidationResult:
     model = resolve_schema(file_name)
     if model is None:
-        logger.warning("[Validator] unsupported schema target=%s", file_name)
+        logger.warning("[Validator] 미지원 스키마: target=%s", file_name)
         return build_file_result(
             target=file_name,
             category="schema",
@@ -995,7 +995,7 @@ def validate_single_file(
     except ValidationError as error:
         validation_errors = to_jsonable(error.errors())
         logger.warning(
-            "[Validator] validation failed: target=%s, error=%s",
+            "[Validator] 검증 실패: target=%s, error=%s",
             file_name,
             _format_first_error(validation_errors),
         )
@@ -1024,8 +1024,8 @@ async def validator(state: AgentState) -> dict[str, Any]:
     ) = extract_validation_inputs(state)
 
     _t0 = time.perf_counter()
-    logger.info("=== Validator START ===")
-    logger.info("[Validator] start: files=%d retry=%d", len(modified_game_state), retry_count)
+    logger.info("─── 🔎 Validator START ──────────────────────────────")
+    logger.info("[Validator] 시작: files=%d, retry=%d", len(modified_game_state), retry_count)
 
     if not modified_game_state:
         result = build_state_error("modified_game_state is missing or empty.")
@@ -1058,14 +1058,15 @@ async def validator(state: AgentState) -> dict[str, Any]:
     failed_count = sum(1 for item in result.validation_results if not item.success)
 
     logger.info(
-        "[Validator] end: success=%s validated=%d failed=%d retry_count=%s",
+        "[Validator] 종료: success=%s, validated=%d, failed=%d, retry_count=%s",
         result.success,
         len(result.validation_results),
         failed_count,
         result.retry_count,
     )
     logger.info(
-        "=== Validator END (elapsed=%.2fs validated=%d failed=%d retry_count=%s) ===",
+        "─── %s Validator END (elapsed=%.2fs, validated=%d, failed=%d, retry_count=%s) ──",
+        "✅" if result.success else "⚠️",
         time.perf_counter() - _t0,
         len(result.validation_results),
         failed_count,
