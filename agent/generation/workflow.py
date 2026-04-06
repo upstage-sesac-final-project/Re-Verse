@@ -16,6 +16,8 @@ from langgraph.graph import END, START, StateGraph
 
 from agent.generation.nodes.asset_generator import asset_generator
 from agent.generation.nodes.asset_planner import asset_planner
+from agent.generation.nodes.event_compiler_node import event_compiler_node
+from agent.generation.nodes.event_planner import event_planner
 from agent.generation.nodes.game_designer import game_designer
 from agent.generation.nodes.generation_responder import generation_responder
 from agent.generation.nodes.generation_validator import generation_validator, route_after_validation
@@ -35,12 +37,20 @@ def _route_after_asset_generator(state: GenerationState) -> str:
     return "map_phase"
 
 
+def _route_after_tile_generator(state: GenerationState) -> str:
+    """E 노드 이후 라우팅: phase_limit에 따라 분기."""
+    phase_limit = state.get("phase_limit")
+    if phase_limit == "maps":
+        return "skip_to_integrate"
+    return "event_phase"
+
+
 def build_generation_graph() -> Any:
     """Full Generation 그래프 조립.
 
     phase_limit="assets"  → A→B→C→H→I→J
     phase_limit="maps"    → A→B→C→D→E→H→I→J
-    phase_limit=None      → A→B→C→D→E→F→G→H→I→J (Phase 4 미구현)
+    phase_limit=None      → A→B→C→D→E→F→G→H→I→J
     """
     builder: StateGraph = StateGraph(GenerationState)
 
@@ -50,6 +60,8 @@ def build_generation_graph() -> Any:
     builder.add_node("asset_generator", asset_generator)
     builder.add_node("map_designer", map_designer)
     builder.add_node("tile_generator", tile_generator)
+    builder.add_node("event_planner", event_planner)
+    builder.add_node("event_compiler", event_compiler_node)
     builder.add_node("integrator", integrator)
     builder.add_node("validator", generation_validator)
     builder.add_node("responder", generation_responder)
@@ -59,7 +71,7 @@ def build_generation_graph() -> Any:
     builder.add_edge("game_designer", "asset_planner")
     builder.add_edge("asset_planner", "asset_generator")
 
-    # asset_generator 이후: phase_limit에 따라 분기
+    # C → (assets → H) or (maps/events → D)
     builder.add_conditional_edges(
         "asset_generator",
         _route_after_asset_generator,
@@ -70,16 +82,29 @@ def build_generation_graph() -> Any:
     )
 
     builder.add_edge("map_designer", "tile_generator")
-    builder.add_edge("tile_generator", "integrator")
+
+    # E → (maps → H) or (events → F)
+    builder.add_conditional_edges(
+        "tile_generator",
+        _route_after_tile_generator,
+        {
+            "skip_to_integrate": "integrator",
+            "event_phase": "event_planner",
+        },
+    )
+
+    builder.add_edge("event_planner", "event_compiler")
+    builder.add_edge("event_compiler", "integrator")
     builder.add_edge("integrator", "validator")
 
-    # validator → respond / retry_assets
+    # validator → respond / retry_assets / retry_events
     builder.add_conditional_edges(
         "validator",
         route_after_validation,
         {
             "respond": "responder",
-            "retry_assets": "asset_generator",  # C 노드부터 재시도
+            "retry_assets": "asset_generator",
+            "retry_events": "event_planner",
         },
     )
 

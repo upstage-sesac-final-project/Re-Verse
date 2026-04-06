@@ -1,1 +1,1 @@
-"""DSL → RPG Maker MZ 커맨드 컴파일러 — Phase 4에서 구현."""
+"""compilers — DSL 이벤트 모델 및 RPG Maker MZ 커맨드 컴파일러."""

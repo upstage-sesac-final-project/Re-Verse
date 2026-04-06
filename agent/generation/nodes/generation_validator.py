@@ -1,15 +1,18 @@
 """I 노드 — generation_validator: RPG Maker MZ 프로젝트 검증.
 
-Phase 2: 에셋 관련 검증만 (R1, null-at-0, array lengths).
-Phase 3+에서 맵/이벤트 검증 추가.
+11개 검증 함수 (error: 재시도 대상, warning: 통과 후 메시지 포함).
 canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §4.I
 canonical: docs/The_world/risks_and_mitigations.md
+canonical: docs/The_world/additional_risks.md
+canonical: docs/The_world/game_ending_design.md §check_ending_reachable
 """
 
 import logging
 
+from agent.generation.models import MapSpec
 from agent.generation.progress import publish_progress
 from agent.generation.registry.id_table import IdTable
+from agent.generation.registry.switch_table import SwitchTable
 from agent.generation.state import GenerationState
 
 logger = logging.getLogger(__name__)
@@ -86,8 +89,179 @@ def _check_array_lengths(final_project: dict) -> list[str]:
     return errors
 
 
+def _check_start_position(final_project: dict, map_tiles: dict[int, list[int]]) -> list[str]:
+    """System.json startMapId/startX/Y가 walkable 위치인지 검증 (R16)."""
+    errors = []
+    system = final_project.get("System.json", {})
+    start_map_id = system.get("startMapId", 1)
+    start_x = system.get("startX", 0)
+    start_y = system.get("startY", 0)
+
+    tile_data = map_tiles.get(start_map_id)
+    if tile_data is None:
+        return errors  # 맵 타일 없으면 skip
+
+    map_file = final_project.get(f"Map{start_map_id:03d}.json", {})
+    w = map_file.get("width", 30)
+    h = map_file.get("height", 30)
+
+    if not (0 <= start_x < w and 0 <= start_y < h):
+        errors.append(
+            f"[R16] System.json startPos ({start_x},{start_y}) 맵 크기 초과 (width={w}, height={h})"
+        )
+        return errors
+
+    # layer 5: 0=walkable, 1=impassable
+    idx = 5 * w * h + start_y * w + start_x
+    if idx < len(tile_data) and tile_data[idx] != 0:
+        errors.append(f"[R16] System.json startPos ({start_x},{start_y})이 통행 불가 타일")
+    return errors
+
+
+def _check_troop_positions(final_project: dict) -> list[str]:
+    """Troops.json members 좌표가 valid range 내인지 검증 (R17)."""
+    errors = []
+    troops = final_project.get("Troops.json", [])
+    for troop in troops:
+        if troop is None:
+            continue
+        for member in troop.get("members", []):
+            x, y = member.get("x", 0), member.get("y", 0)
+            if not (0 <= x <= 816 and 0 <= y <= 816):
+                errors.append(
+                    f"[R17] Troops '{troop.get('name', '?')}' member 좌표 ({x},{y}) 범위 초과"
+                )
+    return errors
+
+
+def _check_map_id_consistency(final_project: dict) -> list[str]:
+    """MapInfos.json 키와 Map*.json 파일명 일치 여부 검증 (R18)."""
+    errors = []
+    map_infos = final_project.get("MapInfos.json", {})
+    if not isinstance(map_infos, dict):
+        return errors
+
+    map_file_ids = {
+        int(fname[3:6])
+        for fname in final_project
+        if fname.startswith("Map")
+        and fname.endswith(".json")
+        and fname != "MapInfos.json"
+        and fname[3:6].isdigit()
+    }
+    info_ids = {int(k) for k in map_infos if k.isdigit()}
+
+    for mid in info_ids - map_file_ids:
+        errors.append(f"[R18] MapInfos.json에 Map{mid:03d}.json 파일 없음")
+    for mid in map_file_ids - info_ids:
+        errors.append(f"[R18] Map{mid:03d}.json이 MapInfos.json에 없음")
+
+    return errors
+
+
+def _check_resource_filenames(final_project: dict) -> list[str]:
+    """Actors.json/Enemies.json 리소스 파일명이 공백 없는지 검증 (R19)."""
+    errors = []
+    actors = final_project.get("Actors.json", [])
+    for actor in actors:
+        if actor is None:
+            continue
+        for field in ("characterName", "faceName", "battlerName"):
+            val = actor.get(field, "")
+            if val and (" " in val or "\t" in val):
+                errors.append(f"[R19] Actors '{actor.get('name', '?')}' {field}='{val}' 공백 포함")
+    return errors
+
+
+def _check_ending_reachable(
+    map_specs: list[MapSpec],
+    compiled_events: dict[int, list[dict]],
+    id_table: IdTable,
+    switch_table: SwitchTable,
+) -> list[str]:
+    """보스 맵에 도달 가능한 엔딩 이벤트(code 353/354) 존재 여부 검증 (R23)."""
+    errors = []
+    boss_maps = [m for m in map_specs if m.map_type == "boss"]
+    if not boss_maps:
+        errors.append("[R23] 보스 맵 없음 — 게임 엔딩 불가")
+        return errors
+
+    for boss_map in boss_maps:
+        mid = id_table.get_id("maps", boss_map.name)
+        if mid is None:
+            continue
+        events = compiled_events.get(mid, [])
+        has_ending = any(
+            any(cmd.get("code") in (353, 354) for cmd in page.get("list", []))
+            for event in events
+            for page in event.get("pages", [])
+        )
+        if not has_ending:
+            errors.append(f"[R23] 보스 맵 '{boss_map.name}'에 엔딩 이벤트(code 353/354) 없음")
+
+    boss_switches = [n for n in switch_table.switches if "_defeated" in n]
+    if not boss_switches:
+        errors.append("[R23] 보스 처치 스위치(_defeated)가 SwitchTable에 없음")
+
+    return errors
+
+
+# ── 경고 전용 검증 ────────────────────────────────────────────────────────────
+
+
+def _check_balance(final_project: dict) -> list[str]:
+    """적 HP/ATK 밸런스 범위 검증 (경고)."""
+    warnings = []
+    enemies = final_project.get("Enemies.json", [])
+    for enemy in enemies:
+        if enemy is None:
+            continue
+        params = enemy.get("params", [0] * 8)
+        hp = params[0] if len(params) > 0 else 0
+        name = enemy.get("name", "?")
+        # 이름에서 tier 추측 (간단 휴리스틱)
+        if hp > 5000:
+            warnings.append(f"[BALANCE] {name} HP={hp} 매우 높음 (권장 boss최대=4000)")
+        elif hp == 0:
+            warnings.append(f"[BALANCE] {name} HP=0")
+    return warnings
+
+
+def _check_event_coordinate_conflicts(compiled_events: dict[int, list[dict]]) -> list[str]:
+    """같은 맵에 동일 좌표에 이벤트 2개 이상 배치 여부 검증 (R22, 경고)."""
+    warnings = []
+    for map_id, events in compiled_events.items():
+        seen: set[tuple[int, int]] = set()
+        for event in events:
+            if event is None:
+                continue
+            pos = (event.get("x", 0), event.get("y", 0))
+            if pos in seen:
+                warnings.append(f"[R22] Map{map_id}: 좌표 {pos}에 이벤트 중복 배치")
+            seen.add(pos)
+    return warnings
+
+
+def _check_switch_semantic_conflicts(switch_table: SwitchTable) -> list[str]:
+    """같은 의미인데 다른 이름으로 중복 스위치 등록 여부 검증 (R20, 경고)."""
+    warnings = []
+    switch_names = list(switch_table.switches.keys())
+    # 이름이 거의 같은 스위치 탐지 (예: boss_defeated vs boss_defeat)
+    for i, name_a in enumerate(switch_names):
+        for name_b in switch_names[i + 1 :]:
+            # 편집 거리 비슷 → 단순 prefix 체크
+            if (
+                name_a != name_b
+                and len(name_a) > 3
+                and len(name_b) > 3
+                and (name_a.startswith(name_b[:5]) or name_b.startswith(name_a[:5]))
+            ):
+                warnings.append(f"[R20] 유사한 스위치 이름: '{name_a}' vs '{name_b}' — 중복 가능성")
+    return warnings
+
+
 async def generation_validator(state: GenerationState) -> dict:
-    """I 노드: 생성된 프로젝트 파일 검증."""
+    """I 노드: 생성된 프로젝트 파일 검증 (11개 함수)."""
     gen_id = state["generation_id"]
     await publish_progress(
         gen_id,
@@ -101,15 +275,32 @@ async def generation_validator(state: GenerationState) -> dict:
 
     final_project: dict = state.get("final_project", {})
     id_table: IdTable = state["id_table"]  # type: ignore[assignment]
+    switch_table: SwitchTable = state["switch_table"]  # type: ignore[assignment]
+    map_specs: list[MapSpec] = state.get("map_specs") or []
+    map_tiles: dict[int, list[int]] = state.get("map_tiles") or {}
+    compiled_events: dict[int, list[dict]] = state.get("compiled_events") or {}
     retry_count: int = state.get("retry_count", 0)
 
     errors: list[str] = []
     warnings: list[str] = []
 
-    # 검증 실행
+    # ── error 검증 (재시도 대상) ─────────────────────────────────────────────
     errors.extend(_check_null_at_index_0(final_project))
     errors.extend(_check_id_references(final_project, id_table))
     errors.extend(_check_array_lengths(final_project))
+    errors.extend(_check_start_position(final_project, map_tiles))
+    errors.extend(_check_troop_positions(final_project))
+    errors.extend(_check_map_id_consistency(final_project))
+    errors.extend(_check_resource_filenames(final_project))
+    if map_specs and compiled_events:
+        errors.extend(_check_ending_reachable(map_specs, compiled_events, id_table, switch_table))
+
+    # ── warning 검증 (통과, 메시지만) ────────────────────────────────────────
+    warnings.extend(_check_balance(final_project))
+    if compiled_events:
+        warnings.extend(_check_event_coordinate_conflicts(compiled_events))
+    if switch_table:
+        warnings.extend(_check_switch_semantic_conflicts(switch_table))
 
     validation_passed = len(errors) == 0
 
@@ -155,5 +346,7 @@ def route_after_validation(state: GenerationState) -> str:
     tags = {err.split("]")[0].lstrip("[") for err in errors if "]" in err}
     if "R1" in tags or "R_NULL" in tags:
         return "retry_assets"
+    if "R23" in tags or "R22" in tags:
+        return "retry_events"
 
     return "respond"
