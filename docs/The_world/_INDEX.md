@@ -31,10 +31,12 @@ agent/tests/generation/
 
 | 페이즈 | 문서 | 우선순위 | 내용 |
 |--------|------|---------|------|
-| **Phase 6** | `phase6_download.md` | **긴급** | 생성된 게임 ZIP 다운로드 API + 프론트엔드 버튼 |
-| **Phase 7** | `phase7_db_persistence.md` | **높음** | `generations` 테이블 DB 영속성 (현재 in-memory) |
-| **Phase 8** | `phase8_rag_integration.md` | 중간 | F 노드 RAG 컨텍스트 주입으로 이벤트 품질 향상 |
-| **Phase 9** | `phase9_testing.md` | 중간 | 이벤트 컴파일러 + 통합 테스트 (mock LLM) |
+| **Phase 6** | `phase6_save_to_disk.md` | **긴급** | `final_project` 디스크 저장 → 기존 플레이 환경 연결 |
+| **Phase 7** | `phase7_rag_integration.md` | 중간 | F 노드 RAG 컨텍스트 주입으로 이벤트 품질 향상 |
+| **Phase 8** | `phase8_testing.md` | 중간 | 이벤트 컴파일러 + 통합 테스트 (mock LLM) |
+
+> **DB 영속성 불필요**: Phase 6에서 게임 파일이 디스크에 저장되므로 서버 재시작 후에도 플레이 가능.
+> 대화이력은 이미 localStorage에 저장 중. `_generation_states` in-memory 손실은 허용 가능.
 
 ---
 
