@@ -1,0 +1,549 @@
+"""C 노드 — asset_generator: LLM 6회 병렬 → Actors~Enemies.json.
+
+canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §4.C
+canonical: docs/The_world/asset_generation.md
+canonical: docs/The_world/classes_params_generation.md
+"""
+
+import asyncio
+import logging
+from typing import Any, cast
+
+from pydantic import BaseModel
+
+from agent.core.llm_client import invoke_llm
+from agent.generation.models import GameSpec
+from agent.generation.progress import publish_progress
+from agent.generation.prompts.asset_generator_prompt import (
+    build_actors_prompt,
+    build_armors_prompt,
+    build_classes_prompt,
+    build_enemies_prompt,
+    build_items_prompt,
+    build_skills_prompt,
+    build_weapons_prompt,
+)
+from agent.generation.registry.id_table import IdTable
+from agent.generation.state import GenerationState
+
+logger = logging.getLogger(__name__)
+
+# ── 역할 정규화 ──────────────────────────────────────────────────────────────
+
+_ROLE_KEYWORDS: dict[str, list[str]] = {
+    "warrior": ["warrior", "전사", "근접", "검사", "기사", "파이터"],
+    "mage": ["mage", "마법사", "마도사", "wizard", "소서러"],
+    "healer": ["healer", "힐러", "성직자", "치유", "priest", "클레릭"],
+    "thief": ["thief", "도적", "ninja", "닌자", "rogue", "어쌔신"],
+}
+
+
+def _normalize_role(raw: str) -> str:
+    lower = raw.lower()
+    for role, keywords in _ROLE_KEYWORDS.items():
+        if any(k in lower for k in keywords):
+            return role
+    return "default"
+
+
+# ── Classes.json 알고리즘 params ─────────────────────────────────────────────
+
+_CLASS_STAT_TEMPLATE: dict[str, dict[str, tuple[int, int]]] = {
+    "warrior": {
+        "mhp": (180, 2500),
+        "mmp": (60, 800),
+        "atk": (18, 280),
+        "def": (10, 150),
+        "mat": (8, 135),
+        "mdf": (8, 110),
+        "agi": (9, 110),
+        "luk": (8, 80),
+    },
+    "mage": {
+        "mhp": (130, 1600),
+        "mmp": (100, 1400),
+        "atk": (10, 140),
+        "def": (6, 90),
+        "mat": (18, 280),
+        "mdf": (12, 160),
+        "agi": (10, 120),
+        "luk": (9, 90),
+    },
+    "healer": {
+        "mhp": (150, 2000),
+        "mmp": (90, 1200),
+        "atk": (10, 150),
+        "def": (8, 120),
+        "mat": (14, 200),
+        "mdf": (14, 200),
+        "agi": (9, 110),
+        "luk": (10, 100),
+    },
+    "thief": {
+        "mhp": (140, 1800),
+        "mmp": (50, 700),
+        "atk": (15, 220),
+        "def": (7, 110),
+        "mat": (8, 100),
+        "mdf": (8, 100),
+        "agi": (18, 280),
+        "luk": (15, 200),
+    },
+    "default": {
+        "mhp": (150, 2000),
+        "mmp": (70, 1000),
+        "atk": (14, 200),
+        "def": (8, 120),
+        "mat": (12, 160),
+        "mdf": (8, 120),
+        "agi": (10, 140),
+        "luk": (9, 90),
+    },
+}
+
+_STAT_ORDER = ["mhp", "mmp", "atk", "def", "mat", "mdf", "agi", "luk"]
+
+
+def _generate_class_params(lv1: int, lv99: int, growth: str = "linear") -> list[int]:
+    """lv1~lv99 값의 99개 정수 배열 생성."""
+    result = []
+    for lv in range(1, 100):
+        t = (lv - 1) / 98.0
+        if growth == "accelerate":
+            t = t * t
+        val = round(lv1 + (lv99 - lv1) * t)
+        result.append(val)
+    assert len(result) == 99, f"params row length error: {len(result)}"
+    return result
+
+
+def _build_params_2d(role: str) -> list[list[int]]:
+    """8 × 99 params 2D 배열 생성."""
+    template = _CLASS_STAT_TEMPLATE.get(role, _CLASS_STAT_TEMPLATE["default"])
+    params_2d = []
+    for stat in _STAT_ORDER:
+        lv1, lv99 = template[stat]
+        growth = "accelerate" if stat in ("mhp", "mmp") else "linear"
+        params_2d.append(_generate_class_params(lv1, lv99, growth=growth))
+    return params_2d
+
+
+def _validate_exp_params(ep: list[int]) -> list[int]:
+    if len(ep) != 4:
+        return [30, 20, 30, 30]
+    return [
+        max(10, min(50, ep[0])),
+        max(10, min(40, ep[1])),
+        max(15, min(50, ep[2])),
+        max(20, min(50, ep[3])),
+    ]
+
+
+# ── LLM 응답 스키마 ──────────────────────────────────────────────────────────
+
+
+class LlmLearning(BaseModel):
+    level: int
+    skillId: int
+
+
+class LlmClass(BaseModel):
+    id: int
+    name: str
+    expParams: list[int]
+    learnings: list[LlmLearning]
+    note: str = ""
+
+
+class LlmClassList(BaseModel):
+    classes: list[LlmClass]
+
+
+class RpgSkillDamage(BaseModel):
+    type: int = 1
+    elementId: int = 0
+    formula: str = "a.atk * 2 - b.def"
+    variance: int = 20
+    critical: bool = False
+
+
+class RpgSkill(BaseModel):
+    id: int
+    name: str
+    description: str = ""
+    iconIndex: int = 0
+    stypeId: int = 1
+    scope: int = 1
+    occasion: int = 1
+    mpCost: int = 0
+    tpCost: int = 0
+    damage: RpgSkillDamage = RpgSkillDamage()
+    effects: list[dict] = []
+    note: str = ""
+
+
+class SkillListOutput(BaseModel):
+    items: list[RpgSkill]
+
+
+class RpgItem(BaseModel):
+    id: int
+    name: str
+    description: str = ""
+    iconIndex: int = 0
+    itypeId: int = 1
+    price: int = 100
+    consumable: bool = True
+    scope: int = 7
+    occasion: int = 0
+    effects: list[dict] = []
+    note: str = ""
+
+
+class ItemListOutput(BaseModel):
+    items: list[RpgItem]
+
+
+class RpgWeapon(BaseModel):
+    id: int
+    name: str
+    description: str = ""
+    iconIndex: int = 0
+    wtypeId: int = 1
+    price: int = 500
+    params: list[int] = [0] * 8
+    traits: list[dict] = []
+    animationId: int = 0
+    note: str = ""
+
+
+class WeaponListOutput(BaseModel):
+    items: list[RpgWeapon]
+
+
+class RpgArmor(BaseModel):
+    id: int
+    name: str
+    description: str = ""
+    iconIndex: int = 0
+    atypeId: int = 1
+    etypeId: int = 4
+    price: int = 300
+    params: list[int] = [0] * 8
+    traits: list[dict] = []
+    note: str = ""
+
+
+class ArmorListOutput(BaseModel):
+    items: list[RpgArmor]
+
+
+class RpgEnemyAction(BaseModel):
+    conditionParam1: int = 0
+    conditionParam2: int = 0
+    conditionType: int = 0
+    rating: int = 5
+    skillId: int = 1
+
+
+class RpgEnemy(BaseModel):
+    id: int
+    name: str
+    battlerName: str = "Slime"
+    battlerHue: int = 0
+    params: list[int]
+    exp: int = 50
+    gold: int = 20
+    dropItems: list[dict] = []
+    actions: list[RpgEnemyAction] = [RpgEnemyAction()]
+    traits: list[dict] = []
+    note: str = ""
+
+
+class EnemyListOutput(BaseModel):
+    items: list[RpgEnemy]
+
+
+class RpgActor(BaseModel):
+    id: int
+    name: str
+    nickname: str = ""
+    classId: int
+    initialLevel: int = 1
+    maxLevel: int = 99
+    characterName: str = "Actor1"
+    characterIndex: int = 0
+    faceName: str = "Actor1"
+    faceIndex: int = 0
+    equips: list[int] = [0, 0, 0, 0, 0]
+    traits: list[dict] = []
+    note: str = ""
+    profile: str = ""
+
+
+class ActorListOutput(BaseModel):
+    items: list[RpgActor]
+
+
+# ── 배틀 포지션 ──────────────────────────────────────────────────────────────
+
+_BATTLE_POSITIONS = {
+    1: [(400, 280)],
+    2: [(250, 280), (550, 280)],
+    3: [(150, 280), (400, 280), (650, 280)],
+}
+_BOSS_POSITION = (400, 200)
+
+
+def _ensure_null_at_0(lst: list) -> list:
+    """index 0을 None으로 보장."""
+    if not lst:
+        return [None]
+    if lst[0] is not None:
+        lst.insert(0, None)
+    return lst
+
+
+# ── 개별 에셋 생성 함수 ──────────────────────────────────────────────────────
+
+
+async def generate_classes(spec: GameSpec, id_table: IdTable) -> list:
+    messages = build_classes_prompt(spec, id_table)
+    result = cast(LlmClassList, await invoke_llm(messages, structured_output=LlmClassList))
+
+    class_roles: dict[str, str] = {c.class_name: _normalize_role(c.role) for c in spec.characters}
+    llm_by_name = {cls.name: cls for cls in result.classes}
+    valid_skill_ids = set(id_table.skills.values())
+
+    output: list[Any] = [None]
+    for cls_name, cid in sorted(id_table.classes.items(), key=lambda x: x[1]):
+        role = class_roles.get(cls_name, "default")
+        llm_cls = llm_by_name.get(cls_name)
+        if llm_cls is None:
+            logger.warning("LLM이 직업 '%s'를 누락, 기본값 사용", cls_name)
+            llm_cls = LlmClass(id=cid, name=cls_name, expParams=[30, 20, 30, 30], learnings=[])
+
+        learnings = [
+            {"level": lr.level, "skillId": lr.skillId, "note": ""}
+            for lr in llm_cls.learnings
+            if lr.skillId in valid_skill_ids
+        ]
+        output.append(
+            {
+                "id": cid,
+                "name": cls_name,
+                "expParams": _validate_exp_params(llm_cls.expParams),
+                "params": _build_params_2d(role),
+                "learnings": learnings,
+                "traits": [],
+                "note": llm_cls.note,
+            }
+        )
+    return output
+
+
+async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
+    if not id_table.skills:
+        return [None]
+    messages = build_skills_prompt(spec, id_table)
+    result = cast(SkillListOutput, await invoke_llm(messages, structured_output=SkillListOutput))
+    output: list[Any] = [None]
+    for skill in sorted(result.items, key=lambda s: s.id):
+        output.append(skill.model_dump())
+    return _ensure_null_at_0(output)
+
+
+async def generate_items(spec: GameSpec, id_table: IdTable) -> list:
+    messages = build_items_prompt(spec, id_table)
+    result = cast(ItemListOutput, await invoke_llm(messages, structured_output=ItemListOutput))
+    output: list[Any] = [None]
+    for item in sorted(result.items, key=lambda i: i.id):
+        output.append(item.model_dump())
+    return _ensure_null_at_0(output)
+
+
+async def generate_weapons(spec: GameSpec, id_table: IdTable) -> list:
+    messages = build_weapons_prompt(spec, id_table)
+    result = cast(WeaponListOutput, await invoke_llm(messages, structured_output=WeaponListOutput))
+    output: list[Any] = [None]
+    for weapon in sorted(result.items, key=lambda w: w.id):
+        d = weapon.model_dump()
+        if len(d["params"]) != 8:
+            d["params"] = [0] * 8
+        output.append(d)
+    return _ensure_null_at_0(output)
+
+
+async def generate_armors(spec: GameSpec, id_table: IdTable) -> list:
+    messages = build_armors_prompt(spec, id_table)
+    result = cast(ArmorListOutput, await invoke_llm(messages, structured_output=ArmorListOutput))
+    output: list[Any] = [None]
+    for armor in sorted(result.items, key=lambda a: a.id):
+        d = armor.model_dump()
+        if len(d["params"]) != 8:
+            d["params"] = [0] * 8
+        output.append(d)
+    return _ensure_null_at_0(output)
+
+
+async def generate_enemies(spec: GameSpec, id_table: IdTable) -> list:
+    messages = build_enemies_prompt(spec, id_table)
+    result = cast(EnemyListOutput, await invoke_llm(messages, structured_output=EnemyListOutput))
+    output: list[Any] = [None]
+    for enemy in sorted(result.items, key=lambda e: e.id):
+        d = enemy.model_dump()
+        if len(d["params"]) != 8:
+            d["params"] = [60, 0, 10, 5, 5, 5, 8, 8]
+        output.append(d)
+    return _ensure_null_at_0(output)
+
+
+async def generate_actors(
+    spec: GameSpec,
+    id_table: IdTable,
+    classes_json: list,
+) -> list:
+    messages = build_actors_prompt(spec, id_table, classes_json)
+    result = cast(ActorListOutput, await invoke_llm(messages, structured_output=ActorListOutput))
+    output: list[Any] = [None]
+    for actor in sorted(result.items, key=lambda a: a.id):
+        output.append(actor.model_dump())
+    return _ensure_null_at_0(output)
+
+
+def generate_troops(spec: GameSpec, id_table: IdTable, enemies_json: list) -> list:
+    """Troops.json 알고리즘 생성 (LLM 없음)."""
+    output: list[Any] = [None]
+    tid = 1
+
+    # 적별 troop 생성
+    for enemy in spec.enemies:
+        enemy_id = id_table.enemies.get(enemy.name)
+        if enemy_id is None:
+            continue
+
+        if enemy.tier == "boss":
+            bx, by = _BOSS_POSITION
+            output.append(
+                {
+                    "id": tid,
+                    "name": f"{enemy.name}_단독",
+                    "members": [{"enemyId": enemy_id, "x": bx, "y": by, "hidden": False}],
+                    "pages": [{"conditions": {}, "list": [], "span": 0}],
+                }
+            )
+            tid += 1
+        elif enemy.tier == "elite":
+            x, y = _BATTLE_POSITIONS[1][0]
+            output.append(
+                {
+                    "id": tid,
+                    "name": f"{enemy.name}_단독",
+                    "members": [{"enemyId": enemy_id, "x": x, "y": y, "hidden": False}],
+                    "pages": [{"conditions": {}, "list": [], "span": 0}],
+                }
+            )
+            tid += 1
+        else:
+            for count in (1, 2, 3):
+                positions = _BATTLE_POSITIONS.get(count, _BATTLE_POSITIONS[1])
+                members = [
+                    {"enemyId": enemy_id, "x": px, "y": py, "hidden": False} for px, py in positions
+                ]
+                output.append(
+                    {
+                        "id": tid,
+                        "name": f"{enemy.name}×{count}",
+                        "members": members,
+                        "pages": [{"conditions": {}, "list": [], "span": 0}],
+                    }
+                )
+                tid += 1
+
+    return output
+
+
+# ── C 노드 메인 ──────────────────────────────────────────────────────────────
+
+
+async def asset_generator(state: GenerationState) -> dict:
+    """C 노드: LLM 병렬 호출 → 에셋 JSON 생성."""
+    gen_id = state["generation_id"]
+    spec: GameSpec = state["game_spec"]  # type: ignore[assignment]
+    id_table: IdTable = state["id_table"]  # type: ignore[assignment]
+
+    await publish_progress(
+        gen_id,
+        {
+            "type": "progress",
+            "phase": "asset_generation",
+            "progress": 13,
+            "message": "에셋 생성 중 (클래스·스킬·아이템·무기·방어구·적)...",
+        },
+    )
+
+    # 1단계: 독립 에셋 병렬
+    results = await asyncio.gather(
+        generate_classes(spec, id_table),
+        generate_skills(spec, id_table),
+        generate_items(spec, id_table),
+        generate_weapons(spec, id_table),
+        generate_armors(spec, id_table),
+        generate_enemies(spec, id_table),
+        return_exceptions=True,
+    )
+
+    file_names = [
+        "Classes.json",
+        "Skills.json",
+        "Items.json",
+        "Weapons.json",
+        "Armors.json",
+        "Enemies.json",
+    ]
+    assets: dict[str, Any] = {}
+    for fname, result in zip(file_names, results):
+        if isinstance(result, Exception):
+            raise RuntimeError(f"{fname} 생성 실패: {result}") from result
+        assets[fname] = result
+
+    await publish_progress(
+        gen_id,
+        {
+            "type": "progress",
+            "phase": "asset_generation",
+            "progress": 42,
+            "message": "캐릭터·부대 생성 중...",
+        },
+    )
+
+    # 2단계: actors ← classes
+    assets["Actors.json"] = await generate_actors(spec, id_table, assets["Classes.json"])
+
+    # 3단계: troops (알고리즘)
+    assets["Troops.json"] = generate_troops(spec, id_table, assets["Enemies.json"])
+
+    logger.info(
+        "asset_generator 완료: actors=%d classes=%d skills=%d enemies=%d",
+        len(assets["Actors.json"]) - 1,
+        len(assets["Classes.json"]) - 1,
+        len(assets["Skills.json"]) - 1,
+        len(assets["Enemies.json"]) - 1,
+    )
+
+    await publish_progress(
+        gen_id,
+        {
+            "type": "phase_complete",
+            "phase": "asset_generation",
+            "summary": (
+                f"캐릭터 {len(assets['Actors.json']) - 1}명, "
+                f"스킬 {len(assets['Skills.json']) - 1}개, "
+                f"적 {len(assets['Enemies.json']) - 1}종 생성 완료"
+            ),
+        },
+    )
+
+    completed = list(state.get("completed_phases", []))
+    completed.append("assets")
+    return {"generated_assets": assets, "completed_phases": completed}
