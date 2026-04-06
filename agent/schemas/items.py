@@ -21,7 +21,8 @@ class Damage(BaseModel):
         if v == "0":
             return v
 
-        token_pattern = r"(?:a|b)\.(?:atk|def|mhp|mat)|\d+(?:\.\d+)?|[+\-*/()]|\s+"
+        # MZ 런타임은 b.hp, b.mp 등을 널리 사용한다(예: 남은 HP 1 만들기 → b.hp - 1).
+        token_pattern = r"(?:a|b)\.(?:atk|def|mhp|mat|hp|mp|luk|agi)|\d+(?:\.\d+)?|[+\-*/()]|\s+"
         consumed = "".join(m.group(0) for m in re.finditer(token_pattern, v))
 
         if consumed != v:
