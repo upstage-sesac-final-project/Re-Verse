@@ -273,10 +273,72 @@ class RpgEnemyAction(BaseModel):
     skillId: int = 1
 
 
+VALID_BATTLER_NAMES: frozenset[str] = frozenset(
+    [
+        "Berserker",
+        "Birdman",
+        "Blackknight",
+        "Caitsith",
+        "Captain",
+        "Crab",
+        "Crow",
+        "Darkelf",
+        "Demon",
+        "Demon_metamorphosis",
+        "Demoncount",
+        "Demonpot",
+        "Dragon",
+        "Evilbook",
+        "Evilgod",
+        "Foxman",
+        "Frilledlizard",
+        "Gatekeeper",
+        "Gnome",
+        "Goblin",
+        "God_of_light",
+        "Goddess",
+        "Goddess_of_death",
+        "Hakutaku",
+        "Harpy",
+        "Hi_monster",
+        "Highking",
+        "Hydra",
+        "Ketos",
+        "Kraken",
+        "Lich",
+        "Machinerybee",
+        "Matango",
+        "Mechascorpion",
+        "Medusa",
+        "Mercenary",
+        "Mimic",
+        "Oddegg",
+        "Petitdevil",
+        "Plasma",
+        "Sailor",
+        "Salamander",
+        "Sandworm",
+        "Siren",
+        "Sorcerer",
+        "Stoneknight",
+        "Sylph",
+        "Tigerbunny",
+        "Treant",
+        "Undine",
+        "Unicorn",
+        "Witch",
+        "Wolfman",
+        "Wraith",
+        "Zombie",
+    ]
+)
+_BATTLER_FALLBACK = "Gnome"
+
+
 class RpgEnemy(BaseModel):
     id: int
     name: str
-    battlerName: str = "Slime"
+    battlerName: str = _BATTLER_FALLBACK
     battlerHue: int = 0
     params: list[int]
     exp: int = 50
@@ -422,6 +484,15 @@ async def generate_enemies(spec: GameSpec, id_table: IdTable) -> list:
         d = enemy.model_dump()
         if len(d["params"]) != 8:
             d["params"] = [60, 0, 10, 5, 5, 5, 8, 8]
+        # battlerName이 유효한 파일명인지 확인, 아니면 폴백
+        if d.get("battlerName") not in VALID_BATTLER_NAMES:
+            logger.warning(
+                "enemy '%s' battlerName='%s' not valid → fallback '%s'",
+                d.get("name"),
+                d.get("battlerName"),
+                _BATTLER_FALLBACK,
+            )
+            d["battlerName"] = _BATTLER_FALLBACK
         output.append(d)
     return _ensure_null_at_0(output)
 
