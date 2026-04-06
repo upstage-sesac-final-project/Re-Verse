@@ -1,4 +1,4 @@
-# Phase 9 — 테스트 강화
+# Phase 8 — 테스트 강화
 
 > 상태: 미구현
 > 우선순위: **중간** — 안정화 전 필수
@@ -7,16 +7,24 @@
 
 ## 목표
 
-현재 단위 테스트(14개) → 통합 테스트 + E2E 테스트 추가
+현재 단위 테스트(14개) → 이벤트 컴파일러 + 통합 테스트 추가
 
 ---
 
 ## 현재 테스트 커버리지
 
 ```
-agent/tests/generation/
-├── test_generation_foundations.py  # 8개 — 단위 테스트
-└── test_balance.py                 # 6개 — balance.py 단위 테스트
+pytest testpaths: ["app/backend/tests", "agent/tests"]
+
+agent/tests/
+├── generation/
+│   ├── test_generation_foundations.py  # 8개 — 단위 테스트
+│   └── test_balance.py                 # 6개 — balance.py 단위 테스트
+└── (기타 파일 — 비생성 관련)
+    # test_validator.py, test_router.py, test_planner.py 등
+
+agent/tests 전체: 126개 통과
+generation/ 특화: 14개
 ```
 
 LLM 실제 호출 없음. 워크플로우 end-to-end 테스트 없음.
@@ -75,11 +83,17 @@ async def test_full_pipeline_validator_retry(mock_llm):
     """R1 오류 발생 시 retry_assets 라우팅."""
 ```
 
+실행 명령:
+```bash
+uv run pytest agent/tests/generation/ -v  # generation 특화만
+uv run pytest agent/tests/ app/backend/tests -v  # 전체
+```
+
 ---
 
 ## 완료 기준
 
-- [ ] `uv run pytest agent/tests/ -v` — 30개 이상 통과
+- [ ] `uv run pytest agent/tests/ -v` — 30개 이상 통과 (현재 14개 generation 특화)
 - [ ] 이벤트 컴파일러 6개 타입 전부 테스트
-- [ ] 검증기 11개 함수 개별 테스트
+- [ ] 검증기 주요 함수 개별 테스트
 - [ ] mock LLM으로 전체 파이프라인 3개 시나리오 통과

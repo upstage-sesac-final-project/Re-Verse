@@ -36,7 +36,7 @@ PHASE = sys.argv[1] if len(sys.argv) > 1 else "full"
 PHASE_LIMIT_MAP = {"assets": "assets", "maps": "maps", "full": None}
 phase_limit = PHASE_LIMIT_MAP.get(PHASE, None)
 
-PROMPT = "마법사 왕국을 배경으로 한 짧은 RPG. 마법사 주인공이 어둠의 마왕을 쓰러뜨리는 이야기."
+PROMPT = "주인공 이름이 세종이고 , 중세 판타지 게임으로 만들어줘"
 
 PHASE_ORDER = [
     ("spec", "A. 게임 기획", "cyan"),
@@ -61,8 +61,9 @@ def _phase_bar() -> Table:
     for key, label, color in PHASE_ORDER:
         if key in completed_phases:
             icon = f"[bold {color}]✓[/bold {color}]"
-            elapsed = phase_times.get(key, 0)
-            txt = f"[{color}]{label}[/{color}] [dim]{elapsed:.1f}s[/dim]"
+            elapsed = phase_times.get(key)
+            time_str = f" [dim]{elapsed:.1f}s[/dim]" if elapsed is not None else ""
+            txt = f"[{color}]{label}[/{color}]{time_str}"
         elif key == _current_phase():
             icon = "[bold yellow]⟳[/bold yellow]"
             txt = f"[bold yellow]{label}[/bold yellow]"
@@ -150,6 +151,10 @@ async def main() -> None:
     await asyncio.sleep(0.3)
     event_task.cancel()
     elapsed = time.perf_counter() - t_start
+
+    # WS 이벤트 타이밍 누락 보정: 최종 상태 기준으로 덮어씌움
+    completed_phases.clear()
+    completed_phases.extend(final_state.get("completed_phases", []))
 
     # ── 결과 렌더링 ────────────────────────────────────────────────────────
 

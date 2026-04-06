@@ -22,7 +22,7 @@
 agent/tests/generation/
 ├── test_generation_foundations.py  # 8개 통과
 └── test_balance.py                 # 6개 통과
-총 14개 통과
+총 14개 통과 (agent/tests 전체: 126개)
 ```
 
 ---
@@ -31,7 +31,7 @@ agent/tests/generation/
 
 | 페이즈 | 문서 | 우선순위 | 내용 |
 |--------|------|---------|------|
-| **Phase 6** | `phase6_save_to_disk.md` | **긴급** | `final_project` 디스크 저장 → 기존 플레이 환경 연결 |
+| **Phase 6** | `phase6_save_to_disk.md` | **긴급** | `final_project` 디스크 저장 → 기존 인게임 플레이 환경 연결 |
 | **Phase 7** | `phase7_rag_integration.md` | 중간 | F 노드 RAG 컨텍스트 주입으로 이벤트 품질 향상 |
 | **Phase 8** | `phase8_testing.md` | 중간 | 이벤트 컴파일러 + 통합 테스트 (mock LLM) |
 
@@ -47,10 +47,9 @@ docs/The_world/
 ├── _INDEX.md                    ← 이 파일
 │
 ├── [미래 페이즈 문서]
-│   ├── phase6_download.md       ← Phase 6 설계
-│   ├── phase7_db_persistence.md ← Phase 7 설계
-│   ├── phase8_rag_integration.md← Phase 8 설계
-│   └── phase9_testing.md        ← Phase 9 설계
+│   ├── phase6_save_to_disk.md   ← Phase 6 설계
+│   ├── phase7_rag_integration.md← Phase 7 설계
+│   └── phase8_testing.md        ← Phase 8 설계
 │
 ├── [영구 참조 문서]
 │   ├── additional_risks.md      — R11~R18 리스크 (배포 전 체크리스트)
@@ -93,15 +92,15 @@ docs/The_world/
 ## 4. Phase 6 상세 (다음 구현 대상)
 
 **가장 시급한 이유**: 현재 게임 생성은 되지만 `final_project`가 메모리에만 존재.
-사용자가 생성된 RPG Maker 프로젝트를 실제로 열거나 사용할 방법이 없음.
+프론트엔드에 RPGMakerFrame(`/game/{game_id}/index.html` iframe)이 이미 있지만,
+데이터가 디스크에 저장되지 않아 생성된 게임을 플레이할 수 없음.
 
 ### 구현할 것
 
-1. **`GET /api/v1/generate/{id}/download`** → ZIP 반환
-   - `www/data/Actors.json`, `Map001.json` ... 구조로 압축
-   - `GenerationStatusResponse`에 `final_project` 저장 필요
+1. **`agent/generation/writer.py`** (신규) — `write_project_to_disk(game_id, final_project)`
+2. **`app/backend/api/v1/endpoints/generation.py`** 수정
+   - `game_id = str(project_id)` 버그 수정 → `project.game_id` 사용
+   - 백그라운드 태스크 완료 후 `write_project_to_disk` 호출
+3. **`GenerationResult.jsx`** — "에디터에서 열기" → "게임 플레이 →" 텍스트 수정
 
-2. **프론트엔드 `GenerationResult.jsx`** — 다운로드 버튼 추가
-   - `authFetch` binary response → `Blob` → `URL.createObjectURL`
-
-→ 자세한 내용은 `phase6_download.md` 참조
+→ 자세한 내용은 `phase6_save_to_disk.md` 참조
