@@ -101,8 +101,12 @@ async def test_executor_mvp():
     print("\n🎉 MVP 테스트 완료")
 
 
-async def test_structured_execution_plan_actors():
+async def test_structured_execution_plan_actors(monkeypatch):
     """3단계 구조화 execution_plan: Actors.json query → 조건부 create."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    # MCP stdio는 테스트용 game_001과 파일 동기화가 어긋날 수 있어, 이 시나리오는 레거시 ActorManager로 고정 검증한다.
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: False)
+
     unique_name = f"ZZZ_EXECUTOR_STRUCT_TEST_{uuid.uuid4().hex[:8]}"
     state: AgentState = {
         "execution_plan": [
@@ -155,8 +159,11 @@ async def test_structured_execution_plan_actors():
     assert any("존재" in (x.get("skip_reason") or "") for x in skipped)
 
 
-async def test_structured_execution_plan_full_update_flow():
+async def test_structured_execution_plan_full_update_flow(monkeypatch):
     """Classes/Actors/System 연계 query-create-update가 모두 동작하는지 검증."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: False)
+
     unique_suffix = uuid.uuid4().hex[:8]
     class_name = f"ZZZ_CLASS_{unique_suffix}"
     actor_name = f"ZZZ_ACTOR_{unique_suffix}"
@@ -959,6 +966,35 @@ async def test_executor_returns_empty_modified_file_paths_for_read_only_query(mo
     result = await executor(state)
 
     assert result["modified_file_paths"] == []
+
+
+def test_search_items_mcp_enrichment_sets_exists_from_items_json(tmp_path):
+    """MCP가 hits 리스트를 안 줘도 Items.json 로컬 검색으로 exists·item_id를 채운다."""
+    import importlib
+    import json
+
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+
+    items = [
+        None,
+        {"id": 9, "name": "기타"},
+        {"id": 10, "name": "매직 워터"},
+    ]
+    (tmp_path / "Items.json").write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+
+    ex, iid = executor_module._items_local_search_by_name(tmp_path, "매직")
+    assert ex is True
+    assert iid == 10
+
+    r = {"success": True, "data": {"found": False}, "modified_files": []}
+    out = executor_module._enrich_mcp_search_tool_result(
+        "search_items",
+        r,
+        data_path=tmp_path,
+        norm_args={"searchTerm": "매직 워터"},
+    )
+    assert out["exists"] is True
+    assert out["item_id"] == 10
 
 
 if __name__ == "__main__":

@@ -87,6 +87,20 @@ STEP5_SYSTEM_PROMPT = """당신은 수집된 정보를 바탕으로 RPG Maker MZ
    - `modifications` 내 `params`에는 반드시 `대상카테고리_id` 필드를 포함하십시오.
    - 신규 생성(CREATE)인 경우, ID는 반드시 **"NEW"**여야 합니다. (임의의 숫자를 지어내지 마십시오.)
    - 조회/수정(READ/UPDATE)인 경우, 식별된 **실제 숫자 ID**를 사용하십시오.
+6. **아이템(item)의 "효과" / 사용·전투 시 수치 변화 (범용 규칙, 매우 중요)**:
+   - **효과·데미지·피해·깎·회복·흡수·드레인·HP·MP·TP·상태이상·버프/디버프** 등 **플레이에 반영되는 변화**를 말하면, 이는 **설명(description)만 바꾸는 요청이 아닙니다.** 반드시 MZ 데이터 필드(`damage`, `effects`, 필요 시 `note` 등)로 표현하십시오.
+   - **`damage`**: 아이템의 "피해" 블록. 항상 객체로 넣고 필드는 `type`, `elementId`, `formula`, `variance`, `critical`를 맞추십시오.
+     - **`damage.type` (0~6, MZ 관례)**: 0=없음, 1=HP 피해, 2=MP 피해, 3=HP 회복, 4=MP 회복, 5=HP 흡수, 6=MP 흡수. 사용자 의도에 맞는 타입을 고르십시오(예: "MP를 깎는다"→2, "MP를 채운다"→4).
+     - **`damage.formula`**: 런타임 계산식. 허용 토큰 예: `a.atk`, `a.def`, `a.mat`, `a.agi`, `a.luk`, `b.mhp`, `b.def`, `b.hp`, `b.mp`, 숫자, `+ - * / ( )`. **의도를 설명 문장으로만 남기지 말고** 수식으로 옮기십시오.
+       - 고정 피해 50: `type: 1`, `formula: "50"`.
+       - 최대 HP의 비율 등은 `b.mhp`와 연산으로 표현(예: 최대 HP의 30% 피해 → `"b.mhp * 0.3"` 등, 문맥에 맞게).
+       - **남은 HP가 정확히 1이 되게**: HP 피해 `type: 1`, `formula: "b.hp - 1"`, `variance: 0`, `critical: false` (단순 `"1"`은 "피해량 1"이지 "남김 1"이 아님).
+       - **완전 회복 성격**(수식으로 전체 회복): `type: 3`, `formula: "b.mhp"` 또는 문맥에 맞는 회복량.
+       - **고정량 HP 회복**(예: "HP를 3 늘려"): `type: 3`, `formula: "3"` 이 가장 단순합니다. 기존 데이터가 MP 회복만 `effects`(code 12)로 두었다면, 동일 프로젝트 관례에 맞춰 **HP는 code 11**로 `effects`에 옮기거나 `damage`와 `effects`를 정리해 **의도한 수치가 실제로 적용되게** 맞추십시오.
+     - **`variance` / `critical`**: 고정값을 원하면 `variance: 0`, 치명타 없음이면 `critical: false`.
+   - **`effects`**: "사용 효과" 배열. **고정 수치 HP/MP/TP 회복**, **상태 부여·해제**, **일시 강화/약화** 등은 `damage`만으로 표현하기 어색할 때 `effects`의 `code`, `dataId`, `value1`, `value2`로 넣으십시오. (예: HP 회복 code 11, MP 회복 12, 상태 추가 21 등 — 스키마·레퍼런스의 허용 코드를 따름.)
+   - **동시 사용**: 한 아이템이 "피해 + 상태 부여"처럼 복합이면 `damage`와 `effects`를 함께 채울 수 있습니다.
+   - **설명만 바꾸라고 명시**한 경우에 한해 `description`(및 요청된 다른 문자열 필드)만 수정합니다.
 """
 
 
