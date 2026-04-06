@@ -12,8 +12,8 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def _enemies_path() -> Path:
-    return _project_root() / "storage" / "games" / "game_001" / "data" / "Enemies.json"
+def _enemies_path(game_id: str = "game_001") -> Path:
+    return _project_root() / "storage" / "games" / game_id / "data" / "Enemies.json"
 
 
 def _detect_newline(text: str) -> str:
@@ -95,7 +95,7 @@ def _make_skeleton_enemy(enemy_id: int, dwarf: dict[str, Any]) -> dict[str, Any]
     return enemy
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str], game_id: str = "game_001") -> int:
     if len(argv) != 1:
         print("Usage: python edit_enemies.py (crow|demon|slime|skeleton)", file=sys.stderr)
         return 2
@@ -105,7 +105,7 @@ def main(argv: list[str]) -> int:
         print(f"Unknown enemy: {argv[0]} (expected crow or demon)", file=sys.stderr)
         return 2
 
-    path = _enemies_path()
+    path = _enemies_path(game_id)
     if not path.exists():
         print(f"Missing file: {path}", file=sys.stderr)
         return 2
