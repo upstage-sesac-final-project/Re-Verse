@@ -1786,7 +1786,7 @@ async def _execute_one_structured_step(
             }
 
         if False and target_file == "Actors.json" and action == "update_actor_bulk":
-            logger.debug("[Executor] ?덇굅??遺꾧린: Actors.update_actor_bulk (?쇰났 ?띿꽦)")
+            logger.debug("[Executor] 레거시 분기: Actors.update_actor_bulk (일괄 수정)")
             mgr = ActorManager(data_path, f"struct_{sid}")
             r = await mgr.execute("update_general_bulk", target_info=target_info)
             step_results[sid] = {**r, "step_id": sid}
