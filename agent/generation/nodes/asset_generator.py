@@ -197,16 +197,31 @@ class SkillListOutput(BaseModel):
     items: list[RpgSkill]
 
 
+class RpgItemDamage(BaseModel):
+    type: int = 0
+    elementId: int = -1
+    formula: str = "0"
+    variance: int = 0
+    critical: bool = False
+
+
 class RpgItem(BaseModel):
     id: int
     name: str
     description: str = ""
+    animationId: int = -1
     iconIndex: int = 0
     itypeId: int = 1
     price: int = 100
     consumable: bool = True
     scope: int = 7
     occasion: int = 0
+    speed: int = 0
+    repeats: int = 1
+    successRate: int = 100
+    tpGain: int = 0
+    hitType: int = 0
+    damage: RpgItemDamage = RpgItemDamage()
     effects: list[dict] = []
     note: str = ""
 
@@ -221,6 +236,7 @@ class RpgWeapon(BaseModel):
     description: str = ""
     iconIndex: int = 0
     wtypeId: int = 1
+    etypeId: int = 1
     price: int = 500
     params: list[int] = [0] * 8
     traits: list[dict] = []
