@@ -3,12 +3,11 @@
 canonical: docs/The_world/full_generation_plan.md
 """
 
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import Any, TypedDict
 
-if TYPE_CHECKING:
-    from agent.generation.models import GameSpec, MapConnectionInfo, MapSpec
-    from agent.generation.registry.id_table import IdTable
-    from agent.generation.registry.switch_table import SwitchTable
+from agent.generation.models import GameSpec, MapConnectionInfo, MapSpec
+from agent.generation.registry.id_table import IdTable
+from agent.generation.registry.switch_table import SwitchTable
 
 
 class GenerationState(TypedDict, total=False):
@@ -18,19 +17,19 @@ class GenerationState(TypedDict, total=False):
     generation_id: str
 
     # ── B 노드 (asset_planner) 출력 ───────────────────────
-    id_table: "IdTable | None"
-    switch_table: "SwitchTable | None"
+    id_table: IdTable | None
+    switch_table: SwitchTable | None
     generation_order: list[str]
-    phase_limit: "str | None"  # "assets" | "maps" | None
+    phase_limit: str | None  # "assets" | "maps" | None
 
     # ── A+C 노드 출력 ──────────────────────────────────────
-    game_spec: "GameSpec | None"
+    game_spec: GameSpec | None
     generated_assets: dict[str, Any]  # {"Actors.json": [...], ...}
 
     # ── D+E 노드 출력 ──────────────────────────────────────
-    map_specs: "list[MapSpec]"
+    map_specs: list[MapSpec]
     map_tiles: dict[int, list[int]]  # map_id → flat 1D (width×height×6)
-    connection_info: "dict[int, MapConnectionInfo]"
+    connection_info: dict[int, MapConnectionInfo]
 
     # ── F+G 노드 출력 ──────────────────────────────────────
     event_dsl: dict[int, list]
@@ -47,8 +46,8 @@ class GenerationState(TypedDict, total=False):
 
     # ── 체크포인트 ─────────────────────────────────────────
     completed_phases: list[str]
-    error_phase: "str | None"
-    error_message: "str | None"
+    error_phase: str | None
+    error_message: str | None
 
     # ── J 노드 출력 ────────────────────────────────────────
     final_message: str

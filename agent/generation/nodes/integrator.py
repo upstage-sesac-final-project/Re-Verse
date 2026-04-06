@@ -8,6 +8,7 @@ canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §4.H
 import logging
 from typing import Any
 
+from agent.generation.mapgen import calculate_spawn_point
 from agent.generation.models import GameSpec, MapSpec
 from agent.generation.progress import publish_progress
 from agent.generation.registry.id_table import IdTable
@@ -162,17 +163,21 @@ def build_system_json_phase2(
     game_spec: GameSpec,
     id_table: IdTable,
     switch_table: SwitchTable,
+    start_map_id: int | None = None,
+    start_x: int = 0,
+    start_y: int = 0,
 ) -> dict:
-    """Phase 2 전용 System.json — startMapId=1, startX/Y=0 (맵 타일 없음)."""
+    """System.json 조립. startMapId/startX/Y는 호출자가 결정."""
     party_members = sorted(id_table.actors.values())
+    map_id = start_map_id if start_map_id is not None else min(id_table.maps.values(), default=1)
 
     return {
         "gameTitle": game_spec.title,
         "locale": "ko_KR",
         "currencyUnit": "G",
-        "startMapId": min(id_table.maps.values(), default=1),
-        "startX": 0,
-        "startY": 0,
+        "startMapId": map_id,
+        "startX": start_x,
+        "startY": start_y,
         "partyMembers": party_members,
         "switches": switch_table.to_rpgmaker_switches(),
         "variables": switch_table.to_rpgmaker_variables(),
@@ -314,8 +319,28 @@ async def integrator(state: GenerationState) -> dict:
         if fname in assets:
             final_project[fname] = assets[fname]
 
-    # 2. System.json
-    final_project["System.json"] = build_system_json_phase2(game_spec, id_table, switch_table)
+    # 2. System.json — startPos: 첫 번째 town 맵의 walkable 타일 (BFS)
+    start_map_id = min(id_table.maps.values(), default=1)
+    start_x, start_y = 0, 0
+    if map_specs and map_tiles:
+        # town 타입 맵 우선, 없으면 첫 번째 맵 사용
+        start_spec = next(
+            (s for s in map_specs if s.map_type == "town"),
+            map_specs[0],
+        )
+        start_map_id = start_spec.map_id
+        tile_data = map_tiles.get(start_map_id)
+        if tile_data:
+            start_x, start_y = calculate_spawn_point(start_spec, tile_data)
+
+    final_project["System.json"] = build_system_json_phase2(
+        game_spec,
+        id_table,
+        switch_table,
+        start_map_id=start_map_id,
+        start_x=start_x,
+        start_y=start_y,
+    )
 
     # 3. MapInfos.json + Map*.json
     if map_specs:

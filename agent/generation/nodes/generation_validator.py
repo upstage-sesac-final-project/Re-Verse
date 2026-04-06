@@ -149,6 +149,10 @@ def _check_map_id_consistency(final_project: dict) -> list[str]:
         and fname != "MapInfos.json"
         and fname[3:6].isdigit()
     }
+    # Map*.json 파일이 하나도 없으면 assets-only 단계 → R18 검증 skip
+    if not map_file_ids:
+        return errors
+
     info_ids = {int(k) for k in map_infos if k.isdigit()}
 
     for mid in info_ids - map_file_ids:
