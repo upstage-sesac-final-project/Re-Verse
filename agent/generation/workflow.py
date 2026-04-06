@@ -1,7 +1,8 @@
 """Full Generation LangGraph 워크플로우.
 
-Phase 2: A→B→C→H→I→J (에셋 생성 + 검증)
-Phase 3+: D→E → Phase 4: F→G 추가 예정
+Phase 2: A→B→C→(skip)→H→I→J (에셋 생성, phase_limit="assets")
+Phase 3: A→B→C→D→E→H→I→J (맵 생성 포함, phase_limit="maps")
+Phase 4: A→B→C→D→E→F→G→H→I→J (이벤트 포함, phase_limit=None)
 
 canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §1, §10
 canonical: docs/The_world/workflow_implementation.md
@@ -19,17 +20,27 @@ from agent.generation.nodes.game_designer import game_designer
 from agent.generation.nodes.generation_responder import generation_responder
 from agent.generation.nodes.generation_validator import generation_validator, route_after_validation
 from agent.generation.nodes.integrator import integrator
+from agent.generation.nodes.map_designer import map_designer
+from agent.generation.nodes.tile_generator import tile_generator
 from agent.generation.state import GenerationState
 
 logger = logging.getLogger(__name__)
 
 
-def build_generation_graph() -> Any:
-    """Phase 2 Full Generation 그래프 조립.
+def _route_after_asset_generator(state: GenerationState) -> str:
+    """C 노드 이후 라우팅: phase_limit에 따라 분기."""
+    phase_limit = state.get("phase_limit")
+    if phase_limit == "assets":
+        return "skip_to_integrate"
+    return "map_phase"
 
-    흐름 (phase_limit="assets"):
-        START → game_designer → asset_planner → asset_generator
-            → integrator → validator → responder → END
+
+def build_generation_graph() -> Any:
+    """Full Generation 그래프 조립.
+
+    phase_limit="assets"  → A→B→C→H→I→J
+    phase_limit="maps"    → A→B→C→D→E→H→I→J
+    phase_limit=None      → A→B→C→D→E→F→G→H→I→J (Phase 4 미구현)
     """
     builder: StateGraph = StateGraph(GenerationState)
 
@@ -37,6 +48,8 @@ def build_generation_graph() -> Any:
     builder.add_node("game_designer", game_designer)
     builder.add_node("asset_planner", asset_planner)
     builder.add_node("asset_generator", asset_generator)
+    builder.add_node("map_designer", map_designer)
+    builder.add_node("tile_generator", tile_generator)
     builder.add_node("integrator", integrator)
     builder.add_node("validator", generation_validator)
     builder.add_node("responder", generation_responder)
@@ -45,7 +58,19 @@ def build_generation_graph() -> Any:
     builder.add_edge(START, "game_designer")
     builder.add_edge("game_designer", "asset_planner")
     builder.add_edge("asset_planner", "asset_generator")
-    builder.add_edge("asset_generator", "integrator")
+
+    # asset_generator 이후: phase_limit에 따라 분기
+    builder.add_conditional_edges(
+        "asset_generator",
+        _route_after_asset_generator,
+        {
+            "skip_to_integrate": "integrator",
+            "map_phase": "map_designer",
+        },
+    )
+
+    builder.add_edge("map_designer", "tile_generator")
+    builder.add_edge("tile_generator", "integrator")
     builder.add_edge("integrator", "validator")
 
     # validator → respond / retry_assets

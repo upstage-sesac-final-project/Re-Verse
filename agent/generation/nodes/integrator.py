@@ -235,10 +235,49 @@ def build_map_infos(map_specs: list[MapSpec], id_table: IdTable) -> dict:
     return result
 
 
+def build_map_json(spec: MapSpec, tile_data: list[int], events: list[dict]) -> dict:
+    """Map00N.json 단일 맵 파일 조립."""
+    # encounterList: town/boss → 빈 배열, dungeon/field → 기본 인카운터
+    encounter_list: list[dict] = []
+    if spec.map_type in ("dungeon", "field"):
+        encounter_list = [
+            {"troopId": 1, "weight": 10, "regionSet": []},
+        ]
+
+    return {
+        "autoplayBgm": bool(spec.bgm),
+        "autoplayBgs": False,
+        "battleback1Name": "",
+        "battleback2Name": "",
+        "bgm": {"name": spec.bgm, "pan": 0, "pitch": 100, "volume": 90},
+        "bgs": {"name": "", "pan": 0, "pitch": 100, "volume": 90},
+        "data": tile_data,
+        "displayName": spec.name,
+        "disableDashing": False,
+        "encounterList": encounter_list,
+        "encounterStep": 30,
+        "events": [None] + events,  # index-0 null 규칙
+        "height": spec.height,
+        "meta": {},
+        "note": "",
+        "parallaxLoopX": False,
+        "parallaxLoopY": False,
+        "parallaxName": "",
+        "parallaxShow": True,
+        "parallaxSx": 0,
+        "parallaxSy": 0,
+        "scrollType": 0,
+        "specifyBattleback": False,
+        "tilesetId": spec.tileset_id,
+        "width": spec.width,
+    }
+
+
 async def integrator(state: GenerationState) -> dict:
     """H 노드: 모든 중간 결과물 → RPG Maker MZ 프로젝트 파일 dict.
 
-    Phase 2: 에셋 파일 + System.json + MapInfos.json(빈 맵) + 고정 파일.
+    Phase 2: 에셋 + System.json + MapInfos.json(빈 맵)
+    Phase 3: 에셋 + 맵 파일(Map*.json) + System.json(startPos 확정)
     """
     gen_id = state["generation_id"]
     await publish_progress(
@@ -256,6 +295,8 @@ async def integrator(state: GenerationState) -> dict:
     switch_table: SwitchTable = state["switch_table"]  # type: ignore[assignment]
     assets: dict[str, Any] = state.get("generated_assets", {})
     map_specs: list[MapSpec] = state.get("map_specs", [])
+    map_tiles: dict[int, list[int]] = state.get("map_tiles", {})
+    compiled_events: dict[int, list[dict]] = state.get("compiled_events", {})
 
     final_project: dict[str, Any] = {}
 
@@ -276,9 +317,14 @@ async def integrator(state: GenerationState) -> dict:
     # 2. System.json
     final_project["System.json"] = build_system_json_phase2(game_spec, id_table, switch_table)
 
-    # 3. MapInfos.json (Phase 2: 맵 스펙이 있으면 사용, 없으면 빈 dict)
+    # 3. MapInfos.json + Map*.json
     if map_specs:
         final_project["MapInfos.json"] = build_map_infos(map_specs, id_table)
+        for spec in map_specs:
+            tile_data = map_tiles.get(spec.map_id, [0] * (spec.width * spec.height * 6))
+            events = compiled_events.get(spec.map_id, [])
+            fname = f"Map{spec.map_id:03d}.json"
+            final_project[fname] = build_map_json(spec, tile_data, events)
     else:
         # Phase 2: 빈 플레이스홀더 맵 1개
         final_project["MapInfos.json"] = {
