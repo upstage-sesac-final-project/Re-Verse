@@ -77,7 +77,7 @@ _SYSTEM_PROMPT = """\
    - 전체 목록만 필요하면 Actors.json·Skills.json·Items.json 등에 `list` 사용
    - 이름 부분 일치 검색은 `search` + target_info에 searchTerm(또는 query)
    - Actors.json에서 query만 써야 할 때: ID 조회는 actor_id, 이름 존재 확인은 actor_name/name, 전체 목록은 target_info에 list_actors=true, 부분 검색은 searchTerm만(이름 키 없이)
-   - Actors.json 수정: 생성 직후 같은 흐름에서 수정하면 depends_on으로 이어 주고, target_info에 actor_id를 반복하지 않아도 됨(Executor가 선행 step의 actor_id를 채움). 이름 변경은 actor_id+new_name 또는 actor_name+new_name, 일반 필드는 updates+actor_id
+   - Actors.json 수정: 생성 직후 같은 흐름에서 수정하면 depends_on으로 이어 주고, target_info에 actor_id를 반복하지 않아도 됨(Executor가 선행 step의 actor_id를 채움). 이름 변경은 actor_id+new_name 또는 actor_name+new_name. **일반 속성**(maxLevel, nickname, faceIndex, equips, traits 등)은 **`updates` 객체**에 넣거나, **Actor 스키마와 같은 camelCase 필드명**(또는 `max_level` 같은 snake_case)을 **target_info 최상위**에 둘 수 있음(Executor가 `update_actor`용으로 합침).
 
 ### 응답 순서 (Chain-of-Thought)
 반드시 아래 순서로 사고하고 출력할 것:

@@ -13,6 +13,7 @@ MVP 버전: 기존 dispatcher 재활용 + 기본 LLM 번역 + 백업/롤백
 """
 
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -782,12 +783,29 @@ def _enrich_actors_target_info_from_deps(
     step_results: dict[int, dict],
     target_info: dict[str, Any],
 ) -> dict[str, Any]:
-    """선행 step(create/query 등)의 actor_id를 이어 받는다."""
+    """선행 step(create/query 등)의 actor_id를 이어 받는다.
+
+    플래너가 query→update에서 서로 다른 actor_id를 주는 경우(예: 설명은 미쉘인데 id=1),
+    선행 스텝의 step_results.actor_id가 있으면 update에서 그 값을 우선한다.
+    """
     ti = dict(target_info)
+    action = str(step.get("action_type") or "").lower()
+    dep_actor_id = None
+    for d in reversed(step.get("depends_on") or []):
+        try:
+            did = int(d)
+        except (TypeError, ValueError):
+            continue
+        prev = step_results.get(did)
+        if isinstance(prev, dict) and prev.get("actor_id") is not None:
+            dep_actor_id = prev["actor_id"]
+            break
+    if action == "update" and dep_actor_id is not None:
+        ti["actor_id"] = dep_actor_id
+
     if ti.get("actor_id") is not None or ti.get("actorId") is not None:
         return ti
-    deps = step.get("depends_on") or []
-    for d in reversed(deps):
+    for d in reversed(step.get("depends_on") or []):
         try:
             did = int(d)
         except (TypeError, ValueError):
@@ -802,22 +820,85 @@ def _enrich_actors_target_info_from_deps(
     return ti
 
 
+# update_actor: 플래너가 Actors.json 필드를 updates 밖 최상위에 둘 때 MCP updates로 합친다.
+_ACTOR_UPDATE_RESERVED_KEYS = frozenset(
+    {
+        "actor_id",
+        "actorId",
+        "actor_name",
+        "old_name",
+        "oldName",
+        "new_name",
+        "newName",
+        "class_name",
+        "id",
+        "updates",
+        "searchTerm",
+        "search_term",
+        "query",
+        "list_actors",
+        "list_all_actors",
+        "scope",
+        "description",
+        "condition",
+        "_context_corrected",
+    }
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _actor_target_info_patch_field_names() -> frozenset[str]:
+    """agent.schemas.actors.Actor 기준 패치 허용 필드(MZ JSON camelCase). id는 슬롯 식별용이라 제외."""
+    from agent.schemas.actors import Actor
+
+    return frozenset(n for n in Actor.model_fields if n != "id")
+
+
+def _planner_key_to_actor_schema_field(key: str, allowed: frozenset[str]) -> str | None:
+    """camelCase 그대로 또는 snake_case → camelCase 로 Actor 필드명에 맞춘다."""
+    if key in allowed:
+        return key
+    if "_" not in key:
+        return None
+    parts = [p for p in key.split("_") if p]
+    if not parts:
+        return None
+    camel = parts[0].lower() + "".join(p[0].upper() + p[1:].lower() for p in parts[1:] if p)
+    return camel if camel in allowed else None
+
+
 def _coerce_actors_update_actor_target_info(target_info: dict[str, Any]) -> dict[str, Any]:
-    """update_actor용: updates 없이 new_name·name만 온 경우 MCP/매니저가 기대하는 형태로 맞춘다."""
+    """update_actor용: updates·이름 변경·최상위 Actor 스키마 필드를 MCP updates dict로 합친다."""
     ti = dict(target_info)
-    updates = ti.get("updates")
-    if isinstance(updates, dict) and updates:
-        return ti
+    merged: dict[str, Any] = {}
+    if isinstance(ti.get("updates"), dict):
+        merged.update(ti["updates"])
+
     aid = ti.get("actorId", ti.get("actor_id"))
     new_nm = str(ti.get("new_name") or ti.get("newName") or "").strip()
     old_nm = str(ti.get("actor_name") or ti.get("old_name") or ti.get("oldName") or "").strip()
     if new_nm and (aid is not None or old_nm):
-        ti["updates"] = {"name": new_nm}
-        return ti
-    nm = str(ti.get("name") or "").strip()
-    has_class = bool(str(ti.get("class_name") or "").strip()) or ti.get("class_id") is not None
-    if nm and aid is not None and not has_class:
-        ti["updates"] = {"name": nm}
+        merged["name"] = new_nm
+    else:
+        nm = str(ti.get("name") or "").strip()
+        has_class = bool(str(ti.get("class_name") or "").strip()) or ti.get("class_id") is not None
+        if nm and aid is not None and not has_class and "name" not in merged:
+            merged["name"] = nm
+
+    allowed = _actor_target_info_patch_field_names()
+    for k, v in ti.items():
+        if k in _ACTOR_UPDATE_RESERVED_KEYS:
+            continue
+        field = _planner_key_to_actor_schema_field(k, allowed)
+        if field is None:
+            continue
+        if field == "name" and "name" in merged:
+            continue
+        if v is not None:
+            merged[field] = v
+
+    if merged:
+        ti["updates"] = merged
     return ti
 
 
@@ -1108,6 +1189,10 @@ async def _execute_one_structured_step(
                         data_path=data_path,
                         norm_args=norm,
                     )
+                    if mcp_entry.get("tool") == "get_actor":
+                        aid_norm = norm.get("actorId") if norm else None
+                        if aid_norm is not None:
+                            r_out["actor_id"] = _as_int(aid_norm)
                     logger.info(
                         "[Executor] MCP 성공: step=%d, tool=%s, files=%s exists=%s",
                         sid,
