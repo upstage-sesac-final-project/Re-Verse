@@ -171,12 +171,23 @@ class RpgSkill(BaseModel):
     id: int
     name: str
     description: str = ""
+    animationId: int = -1
     iconIndex: int = 0
     stypeId: int = 1
     scope: int = 1
     occasion: int = 1
     mpCost: int = 0
     tpCost: int = 0
+    tpGain: int = 0
+    speed: int = 0
+    repeats: int = 1
+    successRate: int = 100
+    hitType: int = 1
+    messageType: int = 1
+    message1: str = ""
+    message2: str = ""
+    requiredWtypeId1: int = 0
+    requiredWtypeId2: int = 0
     damage: RpgSkillDamage = RpgSkillDamage()
     effects: list[dict] = []
     note: str = ""
@@ -275,6 +286,7 @@ class RpgActor(BaseModel):
     characterIndex: int = 0
     faceName: str = "Actor1"
     faceIndex: int = 0
+    battlerName: str = ""
     equips: list[int] = [0, 0, 0, 0, 0]
     traits: list[dict] = []
     note: str = ""
