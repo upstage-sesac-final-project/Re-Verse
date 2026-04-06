@@ -9,6 +9,7 @@ canonical: docs/The_world/game_ending_design.md §check_ending_reachable
 
 import logging
 
+from agent.generation.balance import check_balance as simulate_check_balance
 from agent.generation.models import MapSpec
 from agent.generation.progress import publish_progress
 from agent.generation.registry.id_table import IdTable
@@ -214,21 +215,8 @@ def _check_ending_reachable(
 
 
 def _check_balance(final_project: dict) -> list[str]:
-    """적 HP/ATK 밸런스 범위 검증 (경고)."""
-    warnings = []
-    enemies = final_project.get("Enemies.json", [])
-    for enemy in enemies:
-        if enemy is None:
-            continue
-        params = enemy.get("params", [0] * 8)
-        hp = params[0] if len(params) > 0 else 0
-        name = enemy.get("name", "?")
-        # 이름에서 tier 추측 (간단 휴리스틱)
-        if hp > 5000:
-            warnings.append(f"[BALANCE] {name} HP={hp} 매우 높음 (권장 boss최대=4000)")
-        elif hp == 0:
-            warnings.append(f"[BALANCE] {name} HP=0")
-    return warnings
+    """전투 시뮬레이션 기반 밸런스 검증 (경고)."""
+    return simulate_check_balance(final_project)
 
 
 def _check_event_coordinate_conflicts(compiled_events: dict[int, list[dict]]) -> list[str]:

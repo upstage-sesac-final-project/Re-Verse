@@ -52,11 +52,12 @@ async def _run_generation_in_background(
     )
 
     try:
+        phase_limit = options.get("phase_limit")  # None → 전체 생성
         final_state = await run_generation_workflow(
             prompt=prompt,
             game_id=game_id,
             generation_id=generation_id,
-            phase_limit="assets",
+            phase_limit=phase_limit,
         )
 
         is_success = final_state.get("is_success", False)

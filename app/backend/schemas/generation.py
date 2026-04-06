@@ -9,6 +9,10 @@ from pydantic import BaseModel, Field
 class GenerationOptions(BaseModel):
     playtime_minutes: int = Field(default=7, ge=5, le=15)
     seed: int | None = None
+    phase_limit: str | None = Field(
+        default=None,
+        description="디버그용. None=전체 생성, 'assets'=에셋만, 'maps'=맵까지",
+    )
 
 
 class GenerationRequest(BaseModel):
