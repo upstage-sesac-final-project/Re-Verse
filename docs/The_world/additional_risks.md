@@ -1,7 +1,7 @@
 # 추가 리스크 분석 (R11~R18)
 
 > `risks_and_mitigations.md`의 R1~R10에 이어 새로 식별된 리스크
-> R1~R10은 기술적 구현 리스크 중심; R11~R15는 보안·운영·언어·데이터 리스크
+> R11~R15: 보안·운영·언어·데이터 리스크 / R16~R18: 좌표·ID 정합성 리스크
 
 ---
 
@@ -610,8 +610,8 @@ def map_filename(map_id: int) -> str:
 | 우선순위 | 리스크 | 완화 전략 |
 |---------|--------|----------|
 | **P0** | R1 ID 참조 오류 | 사전 ID 테이블 |
+| **P0** | R2 DSL 파싱 실패 | parse_dsl_safe + 폴백 |
 | **P0** | R16 시작 좌표 벽 타일 | BFS 스폰 + validator |
-| **P1** | R2 DSL 파싱 실패 | parse_dsl_safe + 폴백 |
 | **P1** | R3 스위치 충돌 | SwitchTable 사전 할당 |
 | **P1** | R4 좌표 불일치 | MapConnectionInfo 주입 |
 | **P1** | R11 프롬프트 인젝션 | 입력 정제 + 콘텐츠 규칙 |

@@ -320,13 +320,9 @@ def build_switch_table(game_spec: GameSpec, map_specs: list[MapSpec]) -> SwitchT
 
 ```python
 def resolve_switch_id(self, name: str) -> int:
-    if name not in self.switch_table.switches:
-        # 사전에 없는 이름 → 자동 추가 (경고 로그 포함)
-        new_id = self.switch_table.next_switch_id
-        self.switch_table.switches[name] = new_id
-        self.switch_table.next_switch_id += 1
-        logger.warning("switch '%s'가 사전 할당 안 됨 → %d 자동 할당", name, new_id)
-    return self.switch_table.switches[name]
+    # SwitchTable은 불변 — allocate_switch()가 새 인스턴스 반환
+    self._switch_table, sid = self._switch_table.allocate_switch(name)
+    return sid
 ```
 
 ---
@@ -687,10 +683,11 @@ Phase 4 (1차 구현):
   ✅ chest (보물 상자)
   ✅ battle (전투)
   ✅ shop (상점)
-  ✅ condition (단순 if/else)
-  ✅ sign (안내판)
+  ✅ ending (엔딩 시퀀스)
 
 Phase 5 (점진적 확장):
+  → condition (단순 if/else) — Pydantic 모델·컴파일러 미구현
+  → sign (안내판) — npc 타입으로 대체 가능
   → condition 중첩 지원
   → set_variable (변수 조작)
   → play_bgm / play_se

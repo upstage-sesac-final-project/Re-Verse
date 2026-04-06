@@ -823,7 +823,7 @@ for map_spec in state["map_specs"]:
         map_spec=map_spec,
         tiles=state["map_tiles"][map_id],
         events=state["compiled_events"].get(map_id, []),
-        tileset_id=MAP_TYPE_TO_TILESET[map_spec.type],
+        tileset_id=MAP_TYPE_TO_TILESET[map_spec.map_type],
     )
 ```
 

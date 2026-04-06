@@ -68,8 +68,9 @@ def build_generation_graph() -> StateGraph:
         "validator",
         _route_after_validation,
         {
-            "retry_events": "event_planner",    # 이벤트 오류만 있을 때
-            "retry_assets": "asset_generator",  # 에셋 오류가 있을 때
+            "retry_events": "event_planner",    # 이벤트 오류(R2) 있을 때
+            "retry_assets": "asset_generator",  # 에셋 오류(R1) 있을 때
+            "retry_maps":   "map_designer",     # 맵 오류(R4/R16) 있을 때
             "respond":      "responder",         # 성공 또는 재시도 한계 도달
         },
     )
@@ -111,13 +112,22 @@ def _route_after_assets(state: GenerationState) -> str:
 ### `_route_after_validation`
 
 ```python
+# 에러 태그 → 재시도 대상 매핑
+_ERROR_TAG_ROUTING = {
+    "[R1]":  "retry_assets",   # ID 참조 오류 → 에셋 재생성
+    "[R2]":  "retry_events",   # DSL 파싱 실패 → 이벤트 재생성
+    "[R4]":  "retry_maps",     # 맵 좌표 연결 불일치 → 맵 재생성
+    "[R15]": "retry_maps",     # 타일셋 ID 불일치 → 맵 재생성
+    "[R16]": "retry_maps",     # 시작 좌표 벽 타일 (P0) → 맵 재생성
+    "[R22]": "retry_events",   # 이벤트 좌표 중복 → 이벤트 재생성
+}
+
 def _route_after_validation(state: GenerationState) -> str:
     """
     검증 결과에 따라 재시도 대상 노드를 결정.
 
-    오류가 없거나 재시도 한계 초과 → 응답 생성으로 진행.
-    이벤트 오류만 있을 때 → event_planner 재시도.
-    에셋 오류가 있을 때 → asset_generator 재시도.
+    재시도 우선순위: retry_maps > retry_assets > retry_events
+    (맵이 변경되면 이벤트도 재생성 필요하므로 맵 우선)
     """
     errors = state.get("validation_errors", [])
     retry_count = state.get("retry_count", 0)
@@ -126,14 +136,24 @@ def _route_after_validation(state: GenerationState) -> str:
     if not errors or retry_count >= MAX_RETRY:
         return "respond"
 
-    # 오류 태그로 재시도 대상 판단
-    if all(e.startswith("[R1]") or e.startswith("[R2]") for e in errors):
-        # R1=ID 오류, R2=DSL 파싱 실패 → 이벤트/에셋 재시도
-        has_asset_error = any("[R1]" in e for e in errors)
-        return "retry_assets" if has_asset_error else "retry_events"
+    # 에러 태그별 재시도 대상 수집
+    targets = set()
+    for e in errors:
+        for tag, route in _ERROR_TAG_ROUTING.items():
+            if e.startswith(tag):
+                targets.add(route)
+                break
 
-    # 그 외 (맵 연결성, 밸런스 경고) → 그냥 응답 생성
-    return "respond"
+    if not targets:
+        # 매핑되지 않은 에러 (밸런스 경고 등) → 응답 생성
+        return "respond"
+
+    # 우선순위: 맵 > 에셋 > 이벤트
+    if "retry_maps" in targets:
+        return "retry_maps"
+    if "retry_assets" in targets:
+        return "retry_assets"
+    return "retry_events"
 ```
 
 ---
@@ -305,18 +325,20 @@ async def asset_generator(state: GenerationState) -> GenerationState:
 
 ### 노드별 진행률 배분
 
-| 노드 | 시작 % | 끝 % |
-|------|--------|------|
-| game_designer | 0 | 10 |
-| asset_planner | 10 | 12 |
-| asset_generator | 12 | 48 |
-| map_designer | 48 | 55 |
-| tile_generator | 55 | 65 |
-| event_planner | 65 | 82 |
-| event_compiler | 82 | 87 |
-| integrator | 87 | 93 |
-| validator | 93 | 98 |
-| responder | 98 | 100 |
+| 노드 | 시작 % | 끝 % | generation_api.md phase 값 |
+|------|--------|------|--------------------------|
+| game_designer | 0 | 10 | `spec` |
+| asset_planner | 10 | 15 | `planning` |
+| asset_generator | 15 | 50 | `asset_generation` |
+| map_designer | 50 | 60 | `map_design` |
+| tile_generator | 60 | 70 | `tile_generation` |
+| event_planner | 70 | 85 | `event_planning` |
+| event_compiler | 85 | 90 | `event_compilation` |
+| integrator | 90 | 95 | `integration` |
+| validator | 95 | 98 | `validation` |
+| responder | 98 | 100 | — (내부 전용) |
+
+> **canonical**: `generation_api.md`의 Phase 이름 및 진행률 매핑 테이블. 구현 시 위 값 사용.
 
 ---
 
@@ -497,12 +519,12 @@ if __name__ == "__main__":
 #                          integrator
 #                              │
 #                           validator
-#                    ┌─────────┤
-#              retry_assets  retry_events  respond
-#                    │           │            │
-#             asset_generator event_planner  responder
-#                                              │
-#                                            [END]
+#                    ┌─────────┼──────────┐
+#              retry_maps  retry_assets  retry_events  respond
+#                    │         │              │            │
+#              map_designer asset_generator event_planner responder
+#                                                           │
+#                                                         [END]
 ```
 
 ---

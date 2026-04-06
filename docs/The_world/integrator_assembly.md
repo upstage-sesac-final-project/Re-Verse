@@ -60,7 +60,7 @@ def build_system_json(
 
     # 1. 시작 맵 찾기: type=="town"인 첫 번째 맵
     start_map_spec = next(
-        (m for m in map_specs if m.type == "town"),
+        (m for m in map_specs if m.map_type == "town"),
         map_specs[0],  # town이 없으면 첫 번째 맵
     )
     start_map_id = id_table.get_id("maps", start_map_spec.name)
@@ -397,16 +397,16 @@ def build_encounter_list(
     encounterList와 encounterStep을 반환.
     맵 타입에 따라 적절한 트루프를 선택한다.
     """
-    if map_spec.type in ("town", "boss"):
+    if map_spec.map_type in ("town", "boss"):
         return [], 30
 
-    step = 20 if map_spec.type == "dungeon" else 25
+    step = 20 if map_spec.map_type == "dungeon" else 25
 
     # 해당 맵에 등장해야 하는 적 이름 목록 (MapSpec.description에서 추출)
     # 더 정확하게는 game_spec에서 location 정보를 가져와야 하지만,
     # Phase 3에서는 단순화: 맵 타입에 맞는 티어의 트루프를 선택
     target_tiers = {"dungeon": ("normal", "elite"), "field": ("weak", "normal")}
-    allowed_tiers = target_tiers.get(map_spec.type, ("weak",))
+    allowed_tiers = target_tiers.get(map_spec.map_type, ("weak",))
 
     encounters = []
     for troop in troops:
@@ -461,9 +461,9 @@ def build_map_json(
     return {
         "autoplayBgm": True,
         "autoplayBgs": False,
-        "battleback1Name": _map_battle_bg1(map_spec.type),
-        "battleback2Name": _map_battle_bg2(map_spec.type),
-        "bgm": _map_bgm(map_spec.type),
+        "battleback1Name": _map_battle_bg1(map_spec.map_type),
+        "battleback2Name": _map_battle_bg2(map_spec.map_type),
+        "bgm": _map_bgm(map_spec.map_type),
         "bgs": {"name": "", "volume": 0, "pitch": 100, "pan": 0},
         "disableDashing": False,
         "displayName": map_spec.name,
@@ -479,7 +479,7 @@ def build_map_json(
         "parallaxSx": 0,
         "parallaxSy": 0,
         "scrollType": 0,
-        "specifyBattleback": bool(map_spec.type in ("dungeon", "boss")),
+        "specifyBattleback": bool(map_spec.map_type in ("dungeon", "boss")),
         "tilesetId": tileset_id,
         "data": tiles,
         "events": events_arr,

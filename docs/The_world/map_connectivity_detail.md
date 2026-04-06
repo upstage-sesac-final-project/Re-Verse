@@ -224,7 +224,7 @@ def calculate_all_connection_info(
             tw, th = tgt_spec.width, tgt_spec.height
 
             # 출구/입구 방향 결정
-            src_dir, tgt_dir = determine_exit_direction(spec.type, tgt_spec.type)
+            src_dir, tgt_dir = determine_exit_direction(spec.map_type, tgt_spec.map_type)
             exit_x, exit_y   = exit_direction_to_coord(src_dir, w, h)
             entry_x, entry_y = exit_direction_to_coord(tgt_dir, tw, th)
 
@@ -267,7 +267,7 @@ def generate_map(
     """
     connection_info가 있으면 출구 좌표를 타일 배열에 강제로 walkable로 설정.
     """
-    if spec.type == "town":
+    if spec.map_type == "town":
         tiles = _generate_town(spec, seed)
     else:
         tiles = _generate_dungeon(spec, seed)
@@ -336,7 +336,7 @@ def _provisional_connection_info(
             tgt_spec = name_to_spec.get(tgt_name)
             if not tgt_spec: continue
             tgt_id = id_table.get_id("maps", tgt_name)
-            src_dir, tgt_dir = determine_exit_direction(spec.type, tgt_spec.type)
+            src_dir, tgt_dir = determine_exit_direction(spec.map_type, tgt_spec.map_type)
             ex, ey = exit_direction_to_coord(src_dir, spec.width, spec.height)
             enx, eny = exit_direction_to_coord(tgt_dir, tgt_spec.width, tgt_spec.height)
             exits.append(ExitInfo(tgt_id, ex, ey, enx, eny))

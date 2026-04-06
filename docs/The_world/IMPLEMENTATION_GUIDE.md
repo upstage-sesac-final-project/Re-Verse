@@ -271,7 +271,7 @@ DslEvent = NpcEvent | TransferEvent | ChestEvent | BattleEvent | ShopEvent | End
 
 | 파일 | 핵심 필드 | 비고 |
 |------|----------|------|
-| Actors.json | id, name, classId, params[792], equips[5], characterName, faceName | params = 8스탯×99레벨 |
+| Actors.json | id, name, classId, equips[5], characterName, faceName, traits | params 없음 — Class에서 관리 |
 | Classes.json | id, name, expParams[4], params[8][99], learnings[] | params는 **알고리즘** 생성 |
 | Skills.json | id, name, mpCost, scope(0-14), damage{type, formula} | formula: `"a.atk*2-b.def"` |
 | Items.json | id, name, price, effects[{code:11=HP회복}] | code11 value1=회복률 |

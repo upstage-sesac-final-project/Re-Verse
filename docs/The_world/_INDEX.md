@@ -1,6 +1,6 @@
 # The World — 문서 인덱스 및 검증 요약
 
-> 최종 업데이트: 2026-04-06 (ralph-loop Iter 8)
+> 최종 업데이트: 2026-04-06 (Iter 11 — 크리티컬 이슈 4건 수정, D-1~D-4 확정)
 > 상태: **설계 문서 전체 (미구현)** — 구현 목표: `agent/generation/` 모듈
 
 ---
@@ -103,7 +103,7 @@ F. event_planner  →  G. event_compiler  ←  (tiles + map_specs)
                                                   ↓
                      H. integrator      ←  (assets + tiles + events)
                                                   ↓
-                     I. validator  →(실패, retry<3)→ C or E or G
+                     I. validator  →(실패, retry<2)→ D(맵) or C(에셋) or F(이벤트)
                               ↓ (통과 or 한계도달)
                      J. responder  →  END
 ```
@@ -175,7 +175,7 @@ class GenerationState(TypedDict):
 
 ## 4. 발견 오류 전체 현황
 
-### 수정 완료 (총 15건)
+### 수정 완료 (총 24건)
 
 | ID | 파일 | 내용 | Iter |
 |----|------|------|------|
@@ -194,15 +194,24 @@ class GenerationState(TypedDict):
 | E-12 | `dsl_specification.md` | `condition`/`sign` 타입 ⚠️ Phase 5 미구현 경고 추가 | 5 |
 | E-13 | `generation_api.md` + `frontend_implementation.md` | `completed_with_warnings` 이벤트/타입/핸들러 누락 | 6 |
 | E-14 | `full_generation_plan.md` | 폴더 구조에서 E(tile_generator.py), G(event_compiler_node.py), J(generation_responder.py) 3개 노드 파일 누락 | 8 |
+| E-15 | 6개 파일 | 상세 MapSpec에서 `.type` → `.map_type` (integrator, responder, ending, connectivity, sprint, rag) | 9 |
+| E-16 | `risks_and_mitigations.md` | `resolve_switch_id()` SwitchTable 직접 변경 → 불변 패턴 수정 (E-6b 동일) | 9 |
+| E-17 | `risks_and_mitigations.md` | R9 Phase 4 지원 목록에 `condition`/`sign` ✅ 표시 → Phase 5로 이동 + `ending` 추가 | 9 |
+| E-18 | `additional_risks.md` | 헤더 설명 "R11~R15" → "R11~R15 + R16~R18" 범위 수정 | 10 |
+| E-19 | `asset_generation.md` | `RpgActor`에 `params[792]` 포함 → Actor에 params 없음, Class에서 관리 (rpgmaker_constraints.md 참조) | 10 |
+| E-20 | `additional_risks.md` | R1~R18 최종 매트릭스에서 R2(DSL 파싱 실패)가 P1로 다운그레이드 → P0으로 복원 | 11 |
+| E-21 | `workflow_implementation.md` | 진행률 % 범위가 `generation_api.md`와 불일치 → API 명세 기준으로 통일 | 11 |
+| E-22 | `workflow_implementation.md` | `_route_after_validation`이 R1/R2만 처리 → R4/R15/R16/R22 에러 태그 + `retry_maps` 경로 추가 | 11 |
+| E-23 | `full_generation_plan.md` | GameSpec 내 `MapSpec` → `GameMapInfo`로 rename (D-1 확정 반영) | 11 |
 
-### 설계 결정 필요 (총 4건)
+### 설계 결정 확정 (총 4건 — 2026-04-06 확정)
 
-| ID | 내용 | 권장 |
-|----|------|------|
-| D-1 | 두 종류의 `MapSpec` 이름 충돌 (`type` vs `map_type`, 단순 vs 상세) | GameSpec용은 `GameMapInfo`로 rename |
-| D-2 | MapSpec `width`/`height` 필드 — LLM 생성 후 `MAP_SIZE_BY_TYPE`으로 덮어쓰기 이중적 | 2번 채택 (덮어쓰기) 명시 |
-| D-3 | 노드 명칭 혼재 (A~I vs 영문 10노드 vs 한글) | `workflow_implementation.md` 영문 10노드 통일 |
-| D-4 | `sprint_plan.md` DslEvent 모델 필드 (int ID) vs npc_conditional (str 이름) | str 이름 방식이 정설. sprint_plan은 구버전 |
+| ID | 내용 | **확정안** |
+|----|------|-----------|
+| D-1 | 두 종류의 `MapSpec` 이름 충돌 (`type` vs `map_type`, 단순 vs 상세) | **확정**: GameSpec 내부 단순 버전은 `GameMapInfo`로 rename. D 노드 출력 상세 버전만 `MapSpec`으로 사용 |
+| D-2 | MapSpec `width`/`height` 필드 — LLM 생성 후 `MAP_SIZE_BY_TYPE`으로 덮어쓰기 이중적 | **확정**: LLM이 생성한 width/height는 무시하고 `MAP_SIZE_BY_TYPE[map_type]`으로 덮어쓰기. MapSpec에 width/height Optional로 유지하되 tile_generator에서 강제 |
+| D-3 | 노드 명칭 혼재 (A~I vs 영문 10노드 vs 한글) | **확정**: 구현 코드는 `workflow_implementation.md` 영문 10노드 명칭 사용. 문서 내 A~I 접두사는 설명용 참조로만 사용 |
+| D-4 | `sprint_plan.md` DslEvent 모델 필드 (int ID) vs npc_conditional (str 이름) | **확정**: `npc_conditional_and_shop.md`의 str 이름 방식이 canonical. `sprint_plan.md`의 int ID 코드는 구버전 — 구현 시 참고하지 않음 |
 
 ### 경고 / 참고사항
 
@@ -212,6 +221,8 @@ class GenerationState(TypedDict):
 | W-2 | 적 스탯 범위 미세 불일치 (`balance_and_economy.md` vs `asset_generation.md`). `asset_generation.md`를 canonical로 취급 권장 |
 | W-3 | `generation_api.md` S3 버킷명/IAM 정책 미정의. 구현 전 확정 필요 |
 | W-4 | `data_migration.md`는 Sprint Plan에 없음. 우선순위 낮음 — Phase 5 이후 |
+| W-5 | `MapConnectionInfo` 정의 2종: `map_generation.md`(단순, exit_points dict) vs `map_connectivity_detail.md`(상세, exits list[ExitInfo]). 구현 시 상세 버전 사용 |
+| W-6 | `prompt_engineering.md` game_designer 구현이 `_extract_json()` 패턴 사용. 구현 시 `llm_structured_output.md`의 `structured_output=GameSpec` 패턴 우선 |
 
 ---
 

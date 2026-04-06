@@ -186,15 +186,12 @@ class RpgActor(BaseModel):
     faceName: str = "Actor1"         # 얼굴 이미지 파일명
     faceIndex: int = 0
     equips: list[int] = [0, 0, 0, 0, 0]   # 초기 장비 ID
-    params: list[int] = Field(
-        description="[MHP, MMP, ATK, DEF, MAT, MDF, AGI, LUK] × 99레벨",
-        min_length=8 * 99,
-        max_length=8 * 99,
-    )
-    skills: list[dict] = []          # [{"level": 1, "skillId": 1}, ...]
+    # ※ Actor에는 params 없음 — 스탯 성장은 Classes.json에서 관리
+    #    (rpgmaker_constraints.md, classes_params_generation.md 참조)
     traits: list[dict] = []
     note: str = ""
     meta: dict = {}
+    profile: str = ""
 
 class ActorsJson(BaseModel):
     """Actors.json 전체 구조 (인덱스 0은 null)"""
@@ -215,21 +212,10 @@ def build_actors_prompt(
 1. 배열 첫 번째 요소(index 0)는 반드시 null이어야 합니다.
 2. id는 1부터 순서대로, 제공된 ID를 반드시 사용하세요.
 3. classId는 반드시 제공된 ID 테이블 값을 사용하세요.
-4. params 배열은 레벨 1~99까지 총 792개 정수 (8스탯 × 99레벨)입니다.
-
-## params 생성 기준 (레벨 1 → 99 선형 증가)
-  MHP (최대 HP):  레벨1=150~200,  레벨99=2000~3000
-  MMP (최대 MP):  레벨1=60~100,   레벨99=800~1200
-  ATK (공격력):   레벨1=12~18,    레벨99=200~300
-  DEF (방어력):   레벨1=6~10,     레벨99=100~150
-  MAT (마법공격): 레벨1=8~15,     레벨99=150~250
-  MDF (마법방어): 레벨1=6~10,     레벨99=100~150
-  AGI (민첩):     레벨1=8~12,     레벨99=100~150
-  LUK (행운):     레벨1=8~12,     레벨99=80~120
-
-## 직업/역할별 보정
-  주인공(전사): ATK +20%, DEF +15%, MHP +20%
-  서포터(마법사): MAT +25%, MMP +30%, MHP -10%
+4. Actor에는 params 필드가 없습니다 (스탯 성장은 Classes.json에서 관리).
+   → classes_params_generation.md의 알고리즘이 Class.params를 생성합니다.
+5. characterName, faceName은 RPG Maker MZ 기본 리소스명을 사용하세요.
+6. equips는 [무기ID, 방패ID, 머리ID, 몸통ID, 장신구ID] 순서입니다.
 """
 
     human = f"""\
@@ -606,8 +592,8 @@ for fname, result in zip(file_names, results):
 Actors.json
   □ 각 actor의 id가 id_table과 일치
   □ classId가 Classes.json에 존재
-  □ params 배열 길이 = 8 × 99 = 792
-  □ 초기 HP (params[0]) ≥ 100
+  □ characterName/faceName이 유효한 RPG Maker 리소스명
+  □ equips 길이 = 5
 
 Skills.json
   □ mpCost ≤ 최소 MaxMP × 0.3

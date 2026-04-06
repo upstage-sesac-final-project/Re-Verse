@@ -236,7 +236,8 @@ class EnemySpec(BaseModel):
     tier: Literal["weak", "normal", "elite", "boss"]
     location: str
 
-class MapSpec(BaseModel):
+class GameMapInfo(BaseModel):
+    """GameSpec 내부의 단순 맵 정보. D 노드 출력의 상세 MapSpec과 구분 (D-1 확정)"""
     name: str
     type: Literal["town", "dungeon", "boss", "field"]
     description: str
@@ -249,7 +250,7 @@ class GameSpec(BaseModel):
     story: dict             # {"synopsis": ..., "acts": [...]}
     characters: list[CharacterSpec]
     enemies: list[EnemySpec]
-    maps: list[MapSpec]
+    maps: list[GameMapInfo]
     key_items: list[str]
 ```
 

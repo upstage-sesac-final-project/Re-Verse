@@ -122,9 +122,9 @@ def _build_success_message(
     enemy_count  = len(id_table.enemies)
 
     # 맵 타입별 분류
-    town_maps    = [m for m in map_specs if m.type == "town"]
-    dungeon_maps = [m for m in map_specs if m.type == "dungeon"]
-    boss_maps    = [m for m in map_specs if m.type == "boss"]
+    town_maps    = [m for m in map_specs if m.map_type == "town"]
+    dungeon_maps = [m for m in map_specs if m.map_type == "dungeon"]
+    boss_maps    = [m for m in map_specs if m.map_type == "boss"]
 
     map_summary = []
     if town_maps:

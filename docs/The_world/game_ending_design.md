@@ -254,15 +254,15 @@ def _describe_required_events(
         )
 
     # 맵 타입별 추가 필수 이벤트
-    if spec.type == "town":
+    if spec.map_type == "town":
         lines.append("- 최소 2개 이상 NPC 이벤트 (마을 주민, 상점 등)")
         lines.append("- 선택: shop 이벤트 (여관/상점)")
 
-    elif spec.type == "dungeon":
+    elif spec.map_type == "dungeon":
         lines.append("- 최소 1개 chest 이벤트 (보물 상자)")
         lines.append("- 선택: 보스 방 입구에 경고 NPC")
 
-    elif spec.type == "boss":
+    elif spec.map_type == "boss":
         # 보스 캐릭터 찾기
         boss_enemies = [e for e in game_spec.enemies if e.tier == "boss"]
         if boss_enemies:
@@ -296,7 +296,7 @@ def check_ending_reachable(
     compiled  = state.get("compiled_events", {})
     id_table  = state["id_table"]
 
-    boss_maps = [m for m in map_specs if m.type == "boss"]
+    boss_maps = [m for m in map_specs if m.map_type == "boss"]
     if not boss_maps:
         errors.append("보스 맵 없음 — 게임 엔딩 불가")
         return errors

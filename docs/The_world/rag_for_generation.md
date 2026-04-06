@@ -143,7 +143,7 @@ async def _plan_single_map(
     # boss/dungeon: 전투 이벤트 커맨드 중요 → RAG 활용
     # town: NPC 대화 중심 → RAG 선택적
     rag_context = ""
-    if spec.type in ("dungeon", "boss"):
+    if spec.map_type in ("dungeon", "boss"):
         rag_context = knowledge_retriever.retrieve_knowledge(
             "Map 이벤트 battle processing troop switch", k=2
         )
