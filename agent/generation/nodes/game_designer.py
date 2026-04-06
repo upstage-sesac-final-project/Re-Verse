@@ -64,11 +64,16 @@ def _validate_map_connections(spec: GameSpec) -> None:
     map_names = {m.name for m in spec.maps}
 
     # 양방향 체크
+    connects_to_set: dict[str, set[str]] = {m.name: set(m.connects_to) for m in spec.maps}
     for m in spec.maps:
         for target in m.connects_to:
             if target not in map_names:
                 logger.warning(
                     "game_designer: connects_to 대상 '%s' 미존재 (맵 '%s')", target, m.name
+                )
+            elif m.name not in connects_to_set.get(target, set()):
+                logger.warning(
+                    "game_designer: 단방향 연결 — '%s' → '%s' (역방향 없음)", m.name, target
                 )
 
     # BFS 연결성 체크
