@@ -523,10 +523,14 @@ def _normalize_structured_action(target_file: str, action: str, target_info: dic
             ti = target_info
             has_aid = ti.get("actor_id") is not None or ti.get("actorId") is not None
             has_updates = isinstance(ti.get("updates"), dict) and bool(ti.get("updates"))
+            selector = ti.get("selector")
+            has_bulk_selector = isinstance(selector, dict) and selector.get("mode") == "all"
             has_class = (
                 bool(str(ti.get("class_name") or "").strip()) or ti.get("class_id") is not None
             )
 
+            if has_updates and has_bulk_selector:
+                return "update_actor_bulk"
             if has_updates and has_aid:
                 return "update_actor"
 
@@ -916,6 +920,320 @@ def _structured_error(
     return f"[{code}] target_file={target_file} action={action} message={message}{suffix}"
 
 
+def _normalize_query_result_for_log(
+    step: dict[str, Any],
+    entry: dict[str, Any],
+    raw_result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    target_file = str(step.get("target_file") or entry.get("target_file") or "").strip()
+    target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
+    action = _normalize_structured_action(
+        target_file,
+        str(step.get("action_type") or entry.get("action") or ""),
+        dict(target_info),
+    )
+    if action not in {"query", "query_by_id", "search"}:
+        return None
+
+    base = raw_result if isinstance(raw_result, dict) else entry
+    data = base.get("data") if isinstance(base.get("data"), dict) else {}
+
+    def _as_bool(value: Any) -> bool | None:
+        return value if isinstance(value, bool) else None
+
+    def _as_int_list(value: Any) -> list[int]:
+        if not isinstance(value, list):
+            return []
+        normalized: list[int] = []
+        for item in value:
+            try:
+                normalized.append(int(item))
+            except (TypeError, ValueError):
+                continue
+        return normalized
+
+    def _as_str_list(value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value if str(item).strip()]
+
+    matched_ids: list[int] = []
+    matched_names: list[str] = []
+    exists = _as_bool(base.get("exists"))
+
+    if target_file == "Actors.json":
+        actor_id = base.get("actor_id")
+        if actor_id is None:
+            actor_id = data.get("id")
+        try:
+            actor_id_int = int(actor_id) if actor_id is not None else None
+        except (TypeError, ValueError):
+            actor_id_int = None
+        if actor_id_int is not None:
+            matched_ids = [actor_id_int]
+        if data.get("name"):
+            matched_names = [str(data["name"])]
+        if exists is None:
+            exists = actor_id_int is not None
+    elif target_file == "Classes.json":
+        class_id = base.get("class_id")
+        if class_id is None:
+            class_id = data.get("id")
+        try:
+            class_id_int = int(class_id) if class_id is not None else None
+        except (TypeError, ValueError):
+            class_id_int = None
+        if class_id_int is not None:
+            matched_ids = [class_id_int]
+        if data.get("name"):
+            matched_names = [str(data["name"])]
+        if exists is None:
+            exists = class_id_int is not None
+    else:
+        matched_ids = _as_int_list(data.get("matched_ids"))
+        matched_names = _as_str_list(data.get("matched_names"))
+        if exists is None:
+            found = _as_bool(data.get("found"))
+            if found is not None:
+                exists = found
+            elif matched_ids or matched_names:
+                exists = True
+
+    if exists is None:
+        exists = False
+
+    hit_count = len(matched_ids)
+    if hit_count == 0 and exists:
+        hit_count = 1
+
+    query_result = {
+        "query_type": action,
+        "query": dict(target_info),
+        "hit_count": hit_count,
+        "matched_ids": matched_ids,
+        "not_found": not exists,
+    }
+    if matched_names:
+        query_result["matched_names"] = matched_names
+    return query_result
+
+
+def _is_query_like_result(result: dict[str, Any]) -> bool:
+    action = str(result.get("action") or "").strip().lower()
+    tool_name = str(result.get("tool_name") or "").strip().lower()
+    return (
+        bool(result.get("query_result"))
+        or action in {"query", "query_by_id", "search"}
+        or "query" in tool_name
+        or "search" in tool_name
+    )
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_log_name(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _extract_log_target_identity(
+    target_file: str,
+    step: dict[str, Any],
+    log: dict[str, Any],
+) -> tuple[int | None, str]:
+    target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
+
+    if target_file == "Actors.json":
+        actor_id = _coerce_optional_int(log.get("actor_id"))
+        if actor_id is None:
+            actor_id = _coerce_optional_int(
+                target_info.get("actor_id") or target_info.get("actorId")
+            )
+        actor_name = _normalize_log_name(
+            log.get("actor_name")
+            or target_info.get("actor_name")
+            or target_info.get("name")
+            or target_info.get("new_name")
+        )
+        return actor_id, actor_name
+
+    if target_file == "Classes.json":
+        class_id = _coerce_optional_int(log.get("class_id"))
+        if class_id is None:
+            class_id = _coerce_optional_int(
+                target_info.get("class_id") or target_info.get("classId")
+            )
+        class_name = _normalize_log_name(
+            log.get("class_name") or target_info.get("class_name") or target_info.get("name")
+        )
+        return class_id, class_name
+
+    return None, ""
+
+
+def _extract_query_identity_from_log(
+    target_file: str,
+    query_result: dict[str, Any],
+) -> tuple[int | None, list[int], set[str]]:
+    query = query_result.get("query") if isinstance(query_result.get("query"), dict) else {}
+    matched_ids = [_coerce_optional_int(item) for item in query_result.get("matched_ids", [])]
+    normalized_ids = [item for item in matched_ids if item is not None]
+    matched_names = {
+        _normalize_log_name(item)
+        for item in query_result.get("matched_names", [])
+        if _normalize_log_name(item)
+    }
+
+    if target_file == "Actors.json":
+        query_id = _coerce_optional_int(query.get("actor_id") or query.get("actorId"))
+        query_name = _normalize_log_name(query.get("actor_name") or query.get("name"))
+    elif target_file == "Classes.json":
+        query_id = _coerce_optional_int(query.get("class_id") or query.get("classId"))
+        query_name = _normalize_log_name(query.get("class_name") or query.get("name"))
+    else:
+        query_id = None
+        query_name = ""
+
+    if query_name:
+        matched_names.add(query_name)
+    return query_id, normalized_ids, matched_names
+
+
+def _query_reference_match_score_for_log(
+    target_file: str,
+    step: dict[str, Any],
+    log: dict[str, Any],
+    query_result: dict[str, Any],
+) -> int:
+    target_id, target_name = _extract_log_target_identity(target_file, step, log)
+    if target_id is None and not target_name:
+        return 0
+
+    query_id, matched_ids, matched_names = _extract_query_identity_from_log(
+        target_file, query_result
+    )
+    score = 0
+
+    if target_id is not None:
+        if query_id is not None:
+            if query_id != target_id:
+                return 0
+            score += 3
+        if matched_ids:
+            if target_id not in matched_ids:
+                return 0
+            score += 2
+
+    if target_name:
+        if matched_names:
+            if target_name not in matched_names:
+                return 0
+            score += 1
+
+    return score
+
+
+def _find_direct_source_query_step_ids(
+    step: dict[str, Any],
+    log: dict[str, Any],
+    step_results: dict[int, dict],
+) -> list[int]:
+    target_file = str(log.get("target_file") or step.get("target_file") or "").strip()
+    current_step_id = _coerce_optional_int(log.get("step_id") or step.get("step_id"))
+    if not target_file or current_step_id is None:
+        return []
+
+    best_score = 0
+    best_step_id: int | None = None
+    for candidate_step_id in sorted(step_results, reverse=True):
+        if candidate_step_id >= current_step_id:
+            continue
+        candidate_log = step_results.get(candidate_step_id)
+        if not isinstance(candidate_log, dict):
+            continue
+        candidate_target = str(candidate_log.get("target_file") or "").strip()
+        candidate_query_result = candidate_log.get("query_result")
+        if candidate_target != target_file or not isinstance(candidate_query_result, dict):
+            continue
+        score = _query_reference_match_score_for_log(target_file, step, log, candidate_query_result)
+        if score > best_score:
+            best_score = score
+            best_step_id = candidate_step_id
+
+    return [best_step_id] if best_step_id is not None else []
+
+
+def _enrich_changes_log_entry(
+    step: dict[str, Any],
+    entry: dict[str, Any],
+    raw_result: dict[str, Any] | None,
+    step_results: dict[int, dict],
+) -> dict[str, Any]:
+    enriched = dict(entry)
+    target_file = str(step.get("target_file") or enriched.get("target_file") or "").strip()
+    target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
+    action = _normalize_structured_action(
+        target_file,
+        str(step.get("action_type") or enriched.get("action") or ""),
+        dict(target_info),
+    )
+
+    if target_file and "target_file" not in enriched:
+        enriched["target_file"] = target_file
+    if action and "action" not in enriched:
+        enriched["action"] = action
+
+    source = raw_result if isinstance(raw_result, dict) else {}
+    for key in (
+        "exists",
+        "actor_id",
+        "actor_name",
+        "class_id",
+        "class_name",
+        "updated_fields",
+        "original_values",
+        "modified_files",
+    ):
+        if key not in enriched and key in source:
+            enriched[key] = source[key]
+
+    query_result = enriched.get("query_result")
+    if not isinstance(query_result, dict):
+        query_result = _normalize_query_result_for_log(step, enriched, source)
+        if query_result is not None:
+            enriched["query_result"] = query_result
+
+    if "exists" not in enriched and isinstance(query_result, dict):
+        enriched["exists"] = not bool(query_result.get("not_found"))
+
+    if action in {"query", "query_by_id", "search"} and "modified_files" not in enriched:
+        enriched["modified_files"] = []
+
+    if action not in {"query", "query_by_id", "search"} and (
+        enriched.get("success") is True or enriched.get("skipped")
+    ):
+        source_query_step_ids = _find_direct_source_query_step_ids(step, enriched, step_results)
+        if source_query_step_ids:
+            decision_basis = (
+                enriched.get("decision_basis")
+                if isinstance(enriched.get("decision_basis"), dict)
+                else {}
+            )
+            if not isinstance(
+                decision_basis.get("source_query_step_ids"), list
+            ) or not decision_basis.get("source_query_step_ids"):
+                decision_basis["source_query_step_ids"] = source_query_step_ids
+            if not str(decision_basis.get("reason") or "").strip():
+                decision_basis["reason"] = "matched prior query_result by target identity"
+            enriched["decision_basis"] = decision_basis
+
+    return enriched
+
+
 def _supports_legacy_fallback(target_file: str, action: str) -> bool:
     """해당 (target_file, action)이 MCP 실패 시 레거시 매니저로 폴백 가능한지."""
     # 이 세트는 "MCP가 실패하더라도 같은 의미의 Python 레거시 처리가 가능한지"를
@@ -932,6 +1250,7 @@ def _supports_legacy_fallback(target_file: str, action: str) -> bool:
         ("Actors.json", "create"),
         ("Actors.json", "update"),
         ("Actors.json", "update_actor"),
+        ("Actors.json", "update_actor_bulk"),
         ("System.json", "update"),
         ("System.json", "update_game_title"),
         ("System.json", "set_variable_name"),
@@ -999,6 +1318,56 @@ def _collect_structured_target_files(execution_plan: list[dict]) -> set[str]:
         if isinstance(tf, str) and tf.endswith(".json"):
             files.add(tf)
     return files
+
+
+def _backup_files_for_structured_step(step: dict[str, Any]) -> list[str]:
+    """read-only step은 제외하고 실제 백업이 필요한 파일만 계산한다."""
+    if not isinstance(step, dict):
+        return []
+
+    target_file = str(step.get("target_file") or "").strip()
+    if not target_file.endswith(".json"):
+        return []
+
+    target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
+    action = _normalize_structured_action(
+        target_file,
+        str(step.get("action_type") or ""),
+        dict(target_info),
+    )
+    if not action:
+        return []
+
+    mcp_entry = MCP_TOOL_MAP.get((target_file, action))
+    if isinstance(mcp_entry, dict):
+        raw_backup_files = mcp_entry.get("backup_files")
+        if isinstance(raw_backup_files, list):
+            return [
+                str(file_name)
+                for file_name in raw_backup_files
+                if isinstance(file_name, str) and file_name.endswith(".json")
+            ]
+
+    if action in {
+        "query",
+        "query_by_id",
+        "search",
+        "list",
+        "list_variables",
+        "list_switches",
+        "get_game_title",
+    }:
+        return []
+
+    return [target_file]
+
+
+def _collect_structured_backup_files(execution_plan: list[dict]) -> list[str]:
+    files: set[str] = set()
+    for step in execution_plan:
+        for file_name in _backup_files_for_structured_step(step):
+            files.add(file_name)
+    return sorted(files)
 
 
 def _topological_sort_steps(execution_plan: list[dict]) -> list[dict]:
@@ -1401,6 +1770,21 @@ async def _execute_one_structured_step(
                 "timestamp": ts,
             }
 
+        if target_file == "Actors.json" and action == "update_actor_bulk":
+            logger.debug("[Executor] ?덇굅??遺꾧린: Actors.update_actor_bulk (?쇰났 ?띿꽦)")
+            mgr = ActorManager(data_path, f"struct_{sid}")
+            r = await mgr.execute("update_general_bulk", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_actors_bulk_update_general",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "structured": True,
+                "timestamp": ts,
+            }
+
         if target_file == "Actors.json" and action == "update_actor":
             logger.debug("[Executor] 레거시 분기: Actors.update_actor (일반 속성)")
             mgr = ActorManager(data_path, f"struct_{sid}")
@@ -1766,7 +2150,8 @@ async def _executor_structured(
     logger.info("[Executor structured] 스냅샷 준비: run_id=%s, snap_dir=%s", run_id, snap_dir)
 
     current_game_state = _copy_snapshot_files_to_disk(data_path, target_files, snap_dir, "before")
-    backup_paths = _create_backup(data_path, target_files)
+    backup_targets = _collect_structured_backup_files(execution_plan)
+    backup_paths = _create_backup(data_path, backup_targets)
     logger.info(
         "[Executor structured] before 스냅샷: %d개 파일, 백업: %d개 파일",
         len(current_game_state),
@@ -1811,6 +2196,13 @@ async def _executor_structured(
                     "timestamp": datetime.now().isoformat(),
                 }
             )
+            changes_log[-1] = _enrich_changes_log_entry(
+                step,
+                changes_log[-1],
+                step_results.get(sid),
+                step_results,
+            )
+            step_results[sid] = {**step_results.get(sid, {}), **changes_log[-1]}
             continue
 
         # 스텝 실행 시작
@@ -1819,6 +2211,8 @@ async def _executor_structured(
         logger.info("[Executor structured] step %d 실행 시작: %s.%s", sid, target_file, action_type)
 
         entry = await _execute_one_structured_step(step, data_path, step_results, game_id)
+        entry = _enrich_changes_log_entry(step, entry, step_results.get(sid), step_results)
+        step_results[sid] = {**step_results.get(sid, {}), **entry}
         logger.info(
             "[Executor structured] step %d 완료: success=%s, tool=%s",
             sid,
@@ -1845,6 +2239,7 @@ async def _executor_structured(
         "changes_log": changes_log,
         "tool_results": changes_log,  # progress.md 호환성을 위해 changes_log와 동일하게 설정
         "modified_file_paths": modified_file_paths,
+        "backup_paths": backup_paths,
     }
     return result
 
@@ -1891,6 +2286,10 @@ async def executor(state: AgentState) -> dict:
         if not isinstance(modified_file_paths, list):
             modified_file_paths = []
 
+        backup_paths = result.get("backup_paths", {})
+        if not isinstance(backup_paths, dict):
+            backup_paths = {}
+
         failed = sum(1 for entry in changes_log if not entry.get("success"))
         ok = sum(1 for entry in changes_log if entry.get("success"))
         logger.info(
@@ -1903,7 +2302,12 @@ async def executor(state: AgentState) -> dict:
             failed,
             len(modified_file_paths),
         )
-        return result
+        return {
+            **result,
+            "changes_log": changes_log,
+            "modified_file_paths": modified_file_paths,
+            "backup_paths": backup_paths,
+        }
 
     logger.info("[Executor MVP] 시작: game_id=%s, retry=%d", game_id, retry_count)
 
@@ -2146,6 +2550,7 @@ async def executor(state: AgentState) -> dict:
         "changes_log": changes_log,
         "tool_results": changes_log,  # progress.md 호환성을 위해 changes_log와 동일하게 설정
         "modified_file_paths": modified_file_paths,
+        "backup_paths": backup_paths,
     }
     return _finish(result, mode="legacy")
 
