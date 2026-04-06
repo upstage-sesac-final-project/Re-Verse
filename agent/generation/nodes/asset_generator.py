@@ -265,6 +265,19 @@ class ArmorListOutput(BaseModel):
     items: list[RpgArmor]
 
 
+# RPG Maker MZ 유효 trait 코드 (code:1 등 임의 코드는 무효)
+_VALID_TRAIT_CODES: frozenset[int] = frozenset(
+    [11, 12, 13, 14, 21, 22, 23, 31, 32, 33, 34, 41, 42, 43, 44, 51, 52, 53, 54, 55, 61, 62, 63, 64]
+)
+
+# RPG Maker MZ enemies.dropItems는 반드시 3개 슬롯 (kind=0: 드롭 없음)
+_EMPTY_DROP_SLOT: dict = {"dataId": 1, "denominator": 1, "kind": 0}
+
+# 적 파라미터 최솟값 [mhp, mmp, atk, def, mat, mdf, agi, luk]
+# mmp=0은 허용 (마법 없는 적), 나머지는 최소 1 이상
+_ENEMY_PARAM_MINS: list[int] = [1, 0, 1, 1, 1, 1, 1, 1]
+
+
 class RpgEnemyAction(BaseModel):
     conditionParam1: int = 0
     conditionParam2: int = 0
@@ -377,6 +390,29 @@ class ActorListOutput(BaseModel):
 
 # ── 배틀 포지션 ──────────────────────────────────────────────────────────────
 
+
+# Troops.json pages[0] — RPG Maker MZ 스펙 기본 구조
+def _default_troop_page() -> dict:
+    return {
+        "conditions": {
+            "actorHp": 50,
+            "actorId": 1,
+            "actorValid": False,
+            "enemyHp": 50,
+            "enemyIndex": 0,
+            "enemyValid": False,
+            "switchId": 1,
+            "switchValid": False,
+            "turnA": 0,
+            "turnB": 0,
+            "turnEnding": False,
+            "turnValid": False,
+        },
+        "list": [{"code": 0, "indent": 0, "parameters": []}],
+        "span": 0,
+    }
+
+
 _BATTLE_POSITIONS = {
     1: [(400, 280)],
     2: [(250, 280), (550, 280)],
@@ -482,9 +518,15 @@ async def generate_enemies(spec: GameSpec, id_table: IdTable) -> list:
     output: list[Any] = [None]
     for enemy in sorted(result.items, key=lambda e: e.id):
         d = enemy.model_dump()
+
+        # params 길이/최솟값 보정
         if len(d["params"]) != 8:
             d["params"] = [60, 0, 10, 5, 5, 5, 8, 8]
-        # battlerName이 유효한 파일명인지 확인, 아니면 폴백
+        for i, min_val in enumerate(_ENEMY_PARAM_MINS):
+            if d["params"][i] < min_val:
+                d["params"][i] = min_val
+
+        # battlerName 유효성 확인
         if d.get("battlerName") not in VALID_BATTLER_NAMES:
             logger.warning(
                 "enemy '%s' battlerName='%s' not valid → fallback '%s'",
@@ -493,6 +535,21 @@ async def generate_enemies(spec: GameSpec, id_table: IdTable) -> list:
                 _BATTLER_FALLBACK,
             )
             d["battlerName"] = _BATTLER_FALLBACK
+
+        # dropItems: RPG Maker MZ 스펙상 반드시 3개 슬롯
+        drops = d.get("dropItems") or []
+        drops = drops[:3]  # 최대 3개
+        while len(drops) < 3:
+            drops.append(dict(_EMPTY_DROP_SLOT))
+        d["dropItems"] = drops
+
+        # traits: 유효하지 않은 code 및 여분 필드(kind 등) 제거
+        d["traits"] = [
+            {"code": t["code"], "dataId": t.get("dataId", 0), "value": t.get("value", 0)}
+            for t in d.get("traits", [])
+            if t.get("code") in _VALID_TRAIT_CODES
+        ]
+
         output.append(d)
     return _ensure_null_at_0(output)
 
@@ -528,7 +585,7 @@ def generate_troops(spec: GameSpec, id_table: IdTable, enemies_json: list) -> li
                     "id": tid,
                     "name": f"{enemy.name}_단독",
                     "members": [{"enemyId": enemy_id, "x": bx, "y": by, "hidden": False}],
-                    "pages": [{"conditions": {}, "list": [], "span": 0}],
+                    "pages": [_default_troop_page()],
                 }
             )
             tid += 1
@@ -539,7 +596,7 @@ def generate_troops(spec: GameSpec, id_table: IdTable, enemies_json: list) -> li
                     "id": tid,
                     "name": f"{enemy.name}_단독",
                     "members": [{"enemyId": enemy_id, "x": x, "y": y, "hidden": False}],
-                    "pages": [{"conditions": {}, "list": [], "span": 0}],
+                    "pages": [_default_troop_page()],
                 }
             )
             tid += 1
@@ -554,7 +611,7 @@ def generate_troops(spec: GameSpec, id_table: IdTable, enemies_json: list) -> li
                         "id": tid,
                         "name": f"{enemy.name}×{count}",
                         "members": members,
-                        "pages": [{"conditions": {}, "list": [], "span": 0}],
+                        "pages": [_default_troop_page()],
                     }
                 )
                 tid += 1
