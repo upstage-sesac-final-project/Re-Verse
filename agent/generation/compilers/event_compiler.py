@@ -176,35 +176,41 @@ class EventCompiler:
         item_id = self.resolve_item_id(event.item, event.item_type)
         cmds: list[dict] = []
 
+        # one_time 블록은 111(If)로 감싸고, 내부 커맨드는 indent 1
+        indent = 0
         if event.one_time and event.chest_switch:
             sw_id = self.resolve_switch_id(event.chest_switch)
-            # If (switch OFF)
             cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 0]})
+            indent = 1
 
         if event.dialogue_before:
-            cmds.append({"code": 101, "indent": 0, "parameters": ["", 0, 0, 2, ""]})
-            cmds.append({"code": 401, "indent": 0, "parameters": [event.dialogue_before]})
+            cmds.append({"code": 101, "indent": indent, "parameters": ["", 0, 0, 2, ""]})
+            cmds.append({"code": 401, "indent": indent, "parameters": [event.dialogue_before]})
 
         # 아이템 획득 커맨드
         item_code = _item_change_code(event.item_type)
         if item_code == 126:
-            cmds.append({"code": 126, "indent": 0, "parameters": [item_id, 0, 0, event.amount]})
+            cmds.append(
+                {"code": 126, "indent": indent, "parameters": [item_id, 0, 0, event.amount]}
+            )
         elif item_code == 127:
             cmds.append(
-                {"code": 127, "indent": 0, "parameters": [item_id, 0, 0, event.amount, False]}
+                {"code": 127, "indent": indent, "parameters": [item_id, 0, 0, event.amount, False]}
             )
         elif item_code == 128:
             cmds.append(
-                {"code": 128, "indent": 0, "parameters": [item_id, 0, 0, event.amount, False]}
+                {"code": 128, "indent": indent, "parameters": [item_id, 0, 0, event.amount, False]}
             )
 
         if event.dialogue_after:
-            cmds.append({"code": 401, "indent": 0, "parameters": [event.dialogue_after]})
+            # 401 단독 사용 불가 — 반드시 101 헤더 선행
+            cmds.append({"code": 101, "indent": indent, "parameters": ["", 0, 0, 2, ""]})
+            cmds.append({"code": 401, "indent": indent, "parameters": [event.dialogue_after]})
 
         if event.one_time and event.chest_switch:
             sw_id = self.switch_table.switches[event.chest_switch]
-            cmds.append({"code": 121, "indent": 0, "parameters": [sw_id, sw_id, 0]})
-            cmds.append({"code": 412, "indent": 0, "parameters": []})
+            cmds.append({"code": 121, "indent": indent, "parameters": [sw_id, sw_id, 0]})
+            cmds.append({"code": 412, "indent": 0, "parameters": []})  # End If
 
         cmds.append({"code": 0, "indent": 0, "parameters": []})
         page = _make_page(cmds, _empty_conditions(), _trigger_code("action_button"))
@@ -217,48 +223,56 @@ class EventCompiler:
         can_lose = event.lose_condition != "game_over"
         cmds: list[dict] = []
 
+        # one_time 블록은 111(If)로 감싸고, 내부 커맨드는 indent+1
+        base_indent = 0
         if event.one_time and event.battle_switch:
             sw_id = self.resolve_switch_id(event.battle_switch)
             cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 0]})
+            base_indent = 1
 
         cmds.append(
             {
                 "code": 301,
-                "indent": 0,
+                "indent": base_indent,
                 "parameters": [0, troop_id, event.escape_allowed, can_lose],
             }
         )
 
-        # If Win
-        cmds.append({"code": 601, "indent": 0, "parameters": []})
+        # If Win (601) — 내부 커맨드는 base_indent+1
+        cmds.append({"code": 601, "indent": base_indent, "parameters": []})
         for action in event.on_win:
             if action.give_item:
                 item_name = action.give_item.get("item", "")
                 amount = action.give_item.get("amount", 1)
                 try:
                     iid = self.resolve_item_id(item_name)
-                    cmds.append({"code": 126, "indent": 0, "parameters": [iid, 0, 0, amount]})
+                    cmds.append(
+                        {"code": 126, "indent": base_indent + 1, "parameters": [iid, 0, 0, amount]}
+                    )
                 except CompileError:
                     logger.warning("battle on_win: 아이템 '%s' 찾을 수 없음, 건너뜀", item_name)
             if action.set_switch:
                 sw_id = self.resolve_switch_id(action.set_switch)
-                cmds.append({"code": 121, "indent": 0, "parameters": [sw_id, sw_id, 0]})
+                cmds.append(
+                    {"code": 121, "indent": base_indent + 1, "parameters": [sw_id, sw_id, 0]}
+                )
 
         if event.one_time and event.battle_switch:
             sw_id = self.switch_table.switches[event.battle_switch]
-            cmds.append({"code": 121, "indent": 0, "parameters": [sw_id, sw_id, 0]})
+            cmds.append({"code": 121, "indent": base_indent + 1, "parameters": [sw_id, sw_id, 0]})
 
-        # If Escape
-        cmds.append({"code": 602, "indent": 0, "parameters": []})
-        # If Lose → game_over or continue
-        cmds.append({"code": 603, "indent": 0, "parameters": []})
+        # If Escape (602)
+        cmds.append({"code": 602, "indent": base_indent, "parameters": []})
+        # If Lose (603) → game_over or continue
+        cmds.append({"code": 603, "indent": base_indent, "parameters": []})
         if event.lose_condition == "game_over":
-            cmds.append({"code": 353, "indent": 0, "parameters": []})
+            cmds.append({"code": 353, "indent": base_indent + 1, "parameters": []})
 
-        cmds.append({"code": 412, "indent": 0, "parameters": []})
+        # End Battle Processing: 604 (412는 조건분기 종료, 전투처리 종료는 604)
+        cmds.append({"code": 604, "indent": base_indent, "parameters": []})
 
         if event.one_time and event.battle_switch:
-            cmds.append({"code": 412, "indent": 0, "parameters": []})
+            cmds.append({"code": 412, "indent": 0, "parameters": []})  # End If
 
         cmds.append({"code": 0, "indent": 0, "parameters": []})
         page = _make_page(cmds, _empty_conditions(), _trigger_code(event.trigger))
@@ -321,12 +335,18 @@ class EventCompiler:
 
         cmds.append({"code": 0, "indent": 0, "parameters": []})
 
-        # 페이지 2: 조건 없음, 아무것도 안 함 (게임 상태 유지용 더미)
-        page2_cmds = [{"code": 0, "indent": 0, "parameters": []}]
+        # RPG Maker MZ는 마지막 유효 페이지를 사용 — switch 조건 페이지가 반드시 마지막
+        # 페이지1: 조건 없음, 아무것도 안 함 (switch OFF 시 대기)
+        # 페이지2: condition_switch=ON → Auto-Run 엔딩 실행
+        page1_cmds = [{"code": 0, "indent": 0, "parameters": []}]
 
         pages = [
-            _make_page(cmds, _make_switch_condition(cond_sw_id), trigger=3),  # Auto-Run
-            _make_page(page2_cmds, _empty_conditions(), trigger=3),
+            _make_page(
+                page1_cmds, _empty_conditions(), trigger=3
+            ),  # Page 1: 항상 유효, 아무것도 안 함
+            _make_page(
+                cmds, _make_switch_condition(cond_sw_id), trigger=3
+            ),  # Page 2: switch ON 시 엔딩
         ]
         return _make_event(event.name, event.x, event.y, pages)
 
