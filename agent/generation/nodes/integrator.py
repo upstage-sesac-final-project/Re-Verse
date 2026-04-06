@@ -221,14 +221,15 @@ def build_system_json_phase2(
     }
 
 
-def build_map_infos(map_specs: list[MapSpec], id_table: IdTable) -> dict:
-    """MapInfos.json 딕셔너리 조립 (배열 아님)."""
-    result = {}
+def build_map_infos(map_specs: list[MapSpec], id_table: IdTable) -> list:
+    """MapInfos.json 배열 조립 (RPG Maker MZ 표준: [null, {id:1,...}, {id:2,...}])."""
+    max_id = 0
+    entries: dict[int, dict] = {}
     for order, spec in enumerate(map_specs, start=1):
         map_id = id_table.get_id("maps", spec.name)
         if map_id is None:
             continue
-        result[str(map_id)] = {
+        entries[map_id] = {
             "id": map_id,
             "expanded": order == 1,
             "name": spec.name,
@@ -237,6 +238,11 @@ def build_map_infos(map_specs: list[MapSpec], id_table: IdTable) -> dict:
             "scrollX": 0,
             "scrollY": 0,
         }
+        if map_id > max_id:
+            max_id = map_id
+    result: list = [None] * (max_id + 1)
+    for map_id, entry in entries.items():
+        result[map_id] = entry
     return result
 
 
@@ -263,7 +269,6 @@ def build_map_json(spec: MapSpec, tile_data: list[int], events: list[dict]) -> d
         "encounterStep": 30,
         "events": [None] + events,  # index-0 null 규칙
         "height": spec.height,
-        "meta": {},
         "note": "",
         "parallaxLoopX": False,
         "parallaxLoopY": False,

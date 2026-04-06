@@ -44,7 +44,7 @@ def test_check_null_at_index_0_skips_missing_file() -> None:
 def test_check_map_id_consistency_passes_when_matched() -> None:
     """MapInfos와 Map*.json이 일치하면 오류 없음."""
     project = {
-        "MapInfos.json": {"1": {"id": 1, "name": "출발 마을"}},
+        "MapInfos.json": [None, {"id": 1, "name": "출발 마을"}],
         "Map001.json": {"displayName": "출발 마을"},
     }
     errors = _check_map_id_consistency(project)
@@ -54,7 +54,7 @@ def test_check_map_id_consistency_passes_when_matched() -> None:
 def test_check_map_id_consistency_fails_when_missing_map_file() -> None:
     """MapInfos에 있는데 Map*.json 파일이 없으면 R18 오류."""
     project = {
-        "MapInfos.json": {"1": {"id": 1}, "2": {"id": 2}},
+        "MapInfos.json": [None, {"id": 1}, {"id": 2}],
         "Map001.json": {},
         # Map002.json 누락
     }
@@ -65,7 +65,7 @@ def test_check_map_id_consistency_fails_when_missing_map_file() -> None:
 def test_check_map_id_consistency_skips_when_no_map_files() -> None:
     """Map*.json이 없으면 에셋 생성 단계 → R18 skip."""
     project = {
-        "MapInfos.json": {"1": {"id": 1}},
+        "MapInfos.json": [None, {"id": 1}],
         "Actors.json": [None],
         # Map*.json 없음
     }

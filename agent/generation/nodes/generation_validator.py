@@ -136,10 +136,11 @@ def _check_troop_positions(final_project: dict) -> list[str]:
 
 
 def _check_map_id_consistency(final_project: dict) -> list[str]:
-    """MapInfos.json 키와 Map*.json 파일명 일치 여부 검증 (R18)."""
+    """MapInfos.json 항목과 Map*.json 파일명 일치 여부 검증 (R18)."""
     errors = []
-    map_infos = final_project.get("MapInfos.json", {})
-    if not isinstance(map_infos, dict):
+    map_infos = final_project.get("MapInfos.json")
+    # 배열 형식: [null, {id:1,...}, ...]
+    if not isinstance(map_infos, list):
         return errors
 
     map_file_ids = {
@@ -154,7 +155,7 @@ def _check_map_id_consistency(final_project: dict) -> list[str]:
     if not map_file_ids:
         return errors
 
-    info_ids = {int(k) for k in map_infos if k.isdigit()}
+    info_ids = {entry["id"] for entry in map_infos if isinstance(entry, dict) and "id" in entry}
 
     for mid in info_ids - map_file_ids:
         errors.append(f"[R18] MapInfos.json에 Map{mid:03d}.json 파일 없음")
