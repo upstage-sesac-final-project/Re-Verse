@@ -228,6 +228,32 @@ def build_system_json_phase2(
         "testBattlers": [],
         "testTroopId": 1,
         "windowTone": [0, 0, 0, 0],
+        # RPG Maker MZ 1.6+ 필수 필드
+        "itemCategories": [True, True, True, True],
+        "battleSystem": 0,
+        "optAutosave": True,
+        "optMessageSkip": True,
+        "optSplashScreen": False,
+        "optKeyItemsNumber": False,
+        "iconSize": 32,
+        "faceSize": 144,
+        "tileSize": 48,
+        "titleCommandWindow": {"background": 0, "offsetX": 0, "offsetY": 0},
+        "advanced": {
+            "gameId": 72894844,
+            "screenWidth": 816,
+            "screenHeight": 624,
+            "uiAreaWidth": 816,
+            "uiAreaHeight": 624,
+            "numberFontFilename": "mplus-2p-bold-sub.woff",
+            "fallbackFonts": "Malgun Gothic, Apple SD Gothic Neo, sans-serif",
+            "fontSize": 26,
+            "mainFontFilename": "",
+            "screenScale": 1,
+            "windowOpacity": 192,
+            "picturesUpperLimit": 100,
+        },
+        "editor": {"messageWidth1": 60, "messageWidth2": 47, "jsonFormatLevel": 1},
     }
 
 
