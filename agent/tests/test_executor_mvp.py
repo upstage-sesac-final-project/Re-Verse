@@ -101,8 +101,12 @@ async def test_executor_mvp():
     print("\n🎉 MVP 테스트 완료")
 
 
-async def test_structured_execution_plan_actors():
+async def test_structured_execution_plan_actors(monkeypatch):
     """3단계 구조화 execution_plan: Actors.json query → 조건부 create."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    # MCP stdio는 테스트용 game_001과 파일 동기화가 어긋날 수 있어, 이 시나리오는 레거시 ActorManager로 고정 검증한다.
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: False)
+
     unique_name = f"ZZZ_EXECUTOR_STRUCT_TEST_{uuid.uuid4().hex[:8]}"
     state: AgentState = {
         "execution_plan": [
@@ -155,8 +159,11 @@ async def test_structured_execution_plan_actors():
     assert any("존재" in (x.get("skip_reason") or "") for x in skipped)
 
 
-async def test_structured_execution_plan_full_update_flow():
+async def test_structured_execution_plan_full_update_flow(monkeypatch):
     """Classes/Actors/System 연계 query-create-update가 모두 동작하는지 검증."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: False)
+
     unique_suffix = uuid.uuid4().hex[:8]
     class_name = f"ZZZ_CLASS_{unique_suffix}"
     actor_name = f"ZZZ_ACTOR_{unique_suffix}"
@@ -346,6 +353,82 @@ async def test_structured_mcp_alias_actor_update_routes_update_actor(monkeypatch
     assert log["tool_name"] == "update_actor"
     assert called["tool_name"] == "update_actor"
     assert called["arguments"] == {"actorId": 1, "updates": {"nickname": "용사", "initialLevel": 5}}
+
+
+@pytest.mark.asyncio
+async def test_structured_mcp_actor_update_merges_top_level_max_level(monkeypatch):
+    """플래너가 maxLevel을 updates 밖에 두어도 update_actor 인자에 합쳐진다."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+
+    called: dict[str, object] = {}
+
+    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+        called["tool_name"] = tool_name
+        called["arguments"] = dict(arguments or {})
+        return {"success": True, "data": {"ok": True}, "modified_files": ["Actors.json"]}
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
+
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "maxLevel만 최상위로 준 업데이트",
+                "action_type": "update",
+                "target_file": "Actors.json",
+                "target_info": {"actor_id": 4, "maxLevel": 77},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    result = await executor(state)
+    log = result["changes_log"][0]
+    assert log["tool_name"] == "update_actor"
+    assert called["arguments"] == {"actorId": 4, "updates": {"maxLevel": 77}}
+
+
+@pytest.mark.asyncio
+async def test_structured_mcp_actor_update_snake_case_maps_to_schema(monkeypatch):
+    """snake_case 키는 Actor 스키마 camelCase로 매핑되어 updates에 들어간다."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+
+    called: dict[str, object] = {}
+
+    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+        called["arguments"] = dict(arguments or {})
+        return {"success": True, "data": {"ok": True}, "modified_files": ["Actors.json"]}
+
+    monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
+
+    state: AgentState = {
+        "execution_plan": [
+            {
+                "step_id": 1,
+                "description": "snake_case 필드",
+                "action_type": "update",
+                "target_file": "Actors.json",
+                "target_info": {"actor_id": 2, "initial_level": 10, "face_index": 5},
+                "depends_on": [],
+                "condition": "",
+            }
+        ],
+        "game_id": "game_001",
+        "retry_count": 0,
+    }
+
+    await executor(state)
+    assert called["arguments"] == {
+        "actorId": 2,
+        "updates": {"initialLevel": 10, "faceIndex": 5},
+    }
 
 
 @pytest.mark.asyncio
@@ -959,6 +1042,35 @@ async def test_executor_returns_empty_modified_file_paths_for_read_only_query(mo
     result = await executor(state)
 
     assert result["modified_file_paths"] == []
+
+
+def test_search_items_mcp_enrichment_sets_exists_from_items_json(tmp_path):
+    """MCP가 hits 리스트를 안 줘도 Items.json 로컬 검색으로 exists·item_id를 채운다."""
+    import importlib
+    import json
+
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+
+    items = [
+        None,
+        {"id": 9, "name": "기타"},
+        {"id": 10, "name": "매직 워터"},
+    ]
+    (tmp_path / "Items.json").write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+
+    ex, iid = executor_module._items_local_search_by_name(tmp_path, "매직")
+    assert ex is True
+    assert iid == 10
+
+    r = {"success": True, "data": {"found": False}, "modified_files": []}
+    out = executor_module._enrich_mcp_search_tool_result(
+        "search_items",
+        r,
+        data_path=tmp_path,
+        norm_args={"searchTerm": "매직 워터"},
+    )
+    assert out["exists"] is True
+    assert out["item_id"] == 10
 
 
 if __name__ == "__main__":

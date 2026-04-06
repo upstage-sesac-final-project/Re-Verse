@@ -29,7 +29,7 @@ _SYSTEM_PROMPT = """\
 | Actors.json | 플레이어 캐릭터 | classId→Classes, equips[]→Weapons/Armors, traits[] |
 | Classes.json | 직업 | learnings[].skillId→Skills, traits[] |
 | Skills.json | 스킬 | stypeId→System.skillTypes, damage.elementId→System.elements, effects[code=21].dataId→States, requiredWtypeId1→System.weaponTypes, requiredWtypeId2→System.weaponTypes, animationId→Animations |
-| Items.json | 아이템 | damage.elementId→System.elements, animationId→Animations |
+| Items.json | 아이템 | **사용 시 피해/회복은 `damage` 객체**(type, formula 등). damage.elementId→System.elements, animationId→Animations |
 | Weapons.json | 무기 | wtypeId→System.weaponTypes, etypeId→System.equipTypes(고정=1), animationId→Animations, traits[] |
 | Armors.json | 방어구 | atypeId→System.armorTypes, etypeId→System.equipTypes(2~5), traits[] |
 | Enemies.json | 적 | actions[].skillId→Skills, dropItems[kind=1].dataId→Items, dropItems[kind=2].dataId→Weapons, dropItems[kind=3].dataId→Armors, traits[] |
@@ -56,6 +56,15 @@ _SYSTEM_PROMPT = """\
 - 사용자가 언급하지 않은 엔티티(직업, 무기, 방어구 등)는 계획에 포함하지 말 것
 - 판단 기준: "이 step이 없으면 사용자의 요청을 완료할 수 없는가?" → 아니라면 제외
 
+### Items.json 수정 (효과 vs 설명)
+- **이름이 정해진 기존 아이템**(예: "매직 워터")의 효과·수치만 바꾸는 요청에는 **`Items.json` `create` 스텝을 넣지 마십시오.** 검색(`query`/`search`) 후 **`update` 한 번**(또는 ID가 이미 있으면 검색 생략)으로 끝내십시오. "없으면 생성" 패턴은 **신규 아이템을 사용자가 명시적으로 만들 때만** 사용합니다.
+- 사용자가 **아이템 효과·데미지·피해·회복·흡수·HP/MP/TP·상태이상·버프** 등 **플레이 수치·메커닉**을 말하면 `target_info`에 **`updates`**를 두고, Definition과 동일하게 **`damage`** (`type`, `elementId`, `formula`, `variance`, `critical`) 및 필요 시 **`effects`** 배열을 넣으십시오. 이는 **`new_description`만 바꾸는 작업이 아닙니다.**
+- **고정량 HP 회복**(예: "HP를 3 늘려")은 `damage.type: 3`, `formula: "3"` 조합 또는 **`effects`**의 HP 회복(code 11) 등 MZ·스키마에 맞는 방식으로 표현하십시오(MP 회복 포션과 동일하게 `value` 필드 조합을 쓰는 경우가 많음).
+- **`damage.type`**: 0=없음, 1=HP 피해, 2=MP 피해, 3=HP 회복, 4=MP 회복, 5=HP 흡수, 6=MP 흡수. 요청 문장에 맞게 선택하십시오.
+- **`formula`**: `b.hp`, `b.mp`, `b.mhp`, `b.def` 등과 숫자·연산자로 의도를 수식화하십시오. "남은 HP 1"류는 예: `"formula": "b.hp - 1"`, `type: 1`, `variance: 0`, `critical: false`.
+- Definition `modifications[].params`에 있는 **아이템 관련 필드 전체**(예: `damage`, `effects`, `price`, `consumable` 등)가 실행에 필요하면 **`updates`에 빠짐없이 반영**하십시오. Executor가 Definition을 보강할 수 있으나, 플래너가 처음부터 맞추는 것이 안전합니다.
+- `item_id`(또는 Definition과 동일한 ID)는 `target_info`에 유지합니다.
+
 ### 작업 규칙
 1. 각 step은 단일 원자 작업으로 쪼갤 것
 2. 존재 여부가 불확실한 대상은 반드시 query step을 먼저 배치할 것
@@ -68,7 +77,7 @@ _SYSTEM_PROMPT = """\
    - 전체 목록만 필요하면 Actors.json·Skills.json·Items.json 등에 `list` 사용
    - 이름 부분 일치 검색은 `search` + target_info에 searchTerm(또는 query)
    - Actors.json에서 query만 써야 할 때: ID 조회는 actor_id, 이름 존재 확인은 actor_name/name, 전체 목록은 target_info에 list_actors=true, 부분 검색은 searchTerm만(이름 키 없이)
-   - Actors.json 수정: 생성 직후 같은 흐름에서 수정하면 depends_on으로 이어 주고, target_info에 actor_id를 반복하지 않아도 됨(Executor가 선행 step의 actor_id를 채움). 이름 변경은 actor_id+new_name 또는 actor_name+new_name, 일반 필드는 updates+actor_id
+   - Actors.json 수정: 생성 직후 같은 흐름에서 수정하면 depends_on으로 이어 주고, target_info에 actor_id를 반복하지 않아도 됨(Executor가 선행 step의 actor_id를 채움). 이름 변경은 actor_id+new_name 또는 actor_name+new_name. **일반 속성**(maxLevel, nickname, faceIndex, equips, traits 등)은 **`updates` 객체**에 넣거나, **Actor 스키마와 같은 camelCase 필드명**(또는 `max_level` 같은 snake_case)을 **target_info 최상위**에 둘 수 있음(Executor가 `update_actor`용으로 합침).
 
 ### 응답 순서 (Chain-of-Thought)
 반드시 아래 순서로 사고하고 출력할 것:
