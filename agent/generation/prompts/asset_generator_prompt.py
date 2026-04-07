@@ -231,7 +231,15 @@ _ENEMIES_SYSTEM = """\
 
 ## 규칙
 1. id는 제공된 값을 사용하세요.
-2. battlerName: RPG Maker MZ 기본 배틀러 파일명 (Slime, Goblin, Dragon 등)
+2. battlerName: 아래 목록에서만 선택 (img/enemies/ 실제 파일명 기준)
+   판타지: Goblin, Dragon, Lich, Zombie, Witch, Demon, Harpy, Medusa, Unicorn, Treant,
+           Siren, Berserker, Birdman, Blackknight, Captain, Crow, Darkelf, Demoncount,
+           Demonpot, Evilbook, Evilgod, Foxman, Gatekeeper, Gnome, Goddess, Hakutaku,
+           Highking, Hydra, Ketos, Kraken, Machinerybee, Matango, Mechascorpion,
+           Mercenary, Mimic, Petitdevil, Salamander, Sandworm, Sorcerer, Stoneknight,
+           Sylph, Tigerbunny, Undine, Wolfman, Wraith
+   SF:     SF_Agent, SF_Boss, SF_Cyborg, SF_Drone, SF_Madclown, SF_Phoenix,
+           SF_Securityrobot, SF_Shadow, SF_Slaughterrobot, SF_Wolf, SF_Zombiedog
 3. actions: 기본 공격만 (skillId=1)
 4. dropItems: [{"kind": 1, "dataId": 아이템ID, "denominator": 4}] 형식
 """
@@ -270,9 +278,32 @@ _ACTORS_SYSTEM = """\
 ## 규칙
 1. id, classId는 제공된 값을 반드시 사용하세요.
 2. Actor에는 params 필드 없음 — 스탯 성장은 Classes.json에서 관리.
-3. characterName, faceName: RPG Maker MZ 기본 리소스명 (Actor1~Actor3 등)
-4. equips: [무기ID, 방패ID, 머리ID, 몸통ID, 장신구ID] (0=미착용)
-5. initialLevel: 1
+3. equips: [무기ID, 방패ID, 머리ID, 몸통ID, 장신구ID] (0=미착용)
+4. initialLevel: 1
+
+## 이미지 파일명 — 반드시 아래 목록에서만 선택
+
+characterName (img/characters/ 파일명, 확장자 제외):
+  일반: Actor1, Actor2, Actor3, People1, People2, People3, People4, Evil, Monster
+  SF:   SF_Actor1, SF_Actor2, SF_Actor3, SF_People1, SF_People2, SF_People3
+characterIndex: 0~7 정수 (같은 파일 내 다른 캐릭터 선택)
+
+faceName (img/faces/ 파일명, 확장자 제외):
+  일반: Actor1, Actor2, Actor3, People1, People2, People3, People4, Evil, Monster, Nature
+  SF:   SF_Actor1, SF_Actor2, SF_Actor3, SF_Monster, SF_People1
+faceIndex: 0~7 정수
+
+battlerName (img/sv_actors/ 파일명, 확장자 제외):
+  Actor1_1 ~ Actor1_8, Actor2_1 ~ Actor2_8, Actor3_5 ~ Actor3_8
+  SF_Actor1_1 ~ SF_Actor1_8, SF_Actor2_1 ~ SF_Actor2_8, SF_Actor3_5 ~ SF_Actor3_8
+  (또는 "" 빈 문자열: SV 전투 미사용)
+
+## 할당 가이드
+- 주인공/전사: characterName="Actor1" 또는 "Actor2", faceName도 동일
+- 마법사/성직자: characterName="Actor2" 또는 "Actor3"
+- 도적/닌자: characterName="Actor1" index 4~7
+- SF 배경: SF_ 접두사 계열 사용
+- 여러 캐릭터가 같은 파일 공유 가능 (characterIndex로 구분)
 """
 
 

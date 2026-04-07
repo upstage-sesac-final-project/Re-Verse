@@ -290,6 +290,23 @@ class RpgEnemyAction(BaseModel):
 
 VALID_BATTLER_NAMES: frozenset[str] = frozenset(
     [
+        # 판타지 — Actor형 인간 적
+        "Actor1_3",
+        "Actor1_4",
+        "Actor1_5",
+        "Actor1_6",
+        "Actor2_1",
+        "Actor2_2",
+        "Actor2_3",
+        "Actor2_4",
+        "Actor2_5",
+        "Actor2_6",
+        "Actor2_7",
+        "Actor3_1",
+        "Actor3_2",
+        "Actor3_3",
+        "Actor3_4",
+        # 판타지 — 몬스터
         "Berserker",
         "Birdman",
         "Blackknight",
@@ -345,9 +362,45 @@ VALID_BATTLER_NAMES: frozenset[str] = frozenset(
         "Wolfman",
         "Wraith",
         "Zombie",
+        # SF 계열
+        "SF_Agent",
+        "SF_Anaconda",
+        "SF_Armygorilla",
+        "SF_Armymonkey",
+        "SF_Blueogre",
+        "SF_Boss",
+        "SF_Brownbear",
+        "SF_Cyborg",
+        "SF_Demon_of_universe",
+        "SF_Drone",
+        "SF_Enmadaio",
+        "SF_Evilteddybear",
+        "SF_Hannyamask",
+        "SF_Hermit",
+        "SF_Jiangshi",
+        "SF_Kamaitachi",
+        "SF_Kappa",
+        "SF_Madclown",
+        "SF_Madscientist",
+        "SF_Mafia",
+        "SF_Mechasphere",
+        "SF_Phoenix",
+        "SF_Redogre",
+        "SF_Securityrobot",
+        "SF_Shadow",
+        "SF_Skullmask",
+        "SF_Slaughterrobot",
+        "SF_Specialforces",
+        "SF_Talkingmuppet",
+        "SF_Timebomb",
+        "SF_Whitewolf",
+        "SF_Will_o_the_wisp",
+        "SF_Wolf",
+        "SF_Workrobot",
+        "SF_Zombiedog",
     ]
 )
-_BATTLER_FALLBACK = "Gnome"
+_BATTLER_FALLBACK = "Goblin"
 
 
 class RpgEnemy(BaseModel):
