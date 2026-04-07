@@ -13,6 +13,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from agent.core.llm_client import invoke_llm
 from agent.generation.compilers.dsl_models import (
+    BattleEvent,
     DslEvent,
     NpcEvent,
     TransferEvent,
@@ -107,7 +108,7 @@ async def _plan_single_map(
             valid = _validate_coords(events, map_spec)
             valid = _validate_name_refs(valid, id_table, switch_table)
             if valid is not None:
-                return valid
+                return _fix_battle_sprites(valid, game_spec, id_table)
         except Exception as e:
             logger.warning("Map%d 이벤트 기획 시도 %d 실패: %s", map_spec.map_id, attempt + 1, e)
 
@@ -180,6 +181,65 @@ def _validate_name_refs(events: list, id_table: IdTable, switch_table: SwitchTab
             logger.warning("이벤트 '%s' 검증 오류: %s → 제거", getattr(e, "name", "?"), exc)
 
     return valid
+
+
+_SF_KEYWORDS = ("sf", "sci-fi", "science", "사이버", "로봇", "우주", "미래")
+
+
+def _fix_battle_sprites(
+    events: list,
+    game_spec: GameSpec,
+    id_table: IdTable,
+) -> list:
+    """BattleEvent의 map sprite를 enemy tier 기반으로 알고리즘 결정.
+
+    LLM이 임의로 고르는 character_name/character_index 대신
+    troop → 적 이름 → tier → 적절한 스프라이트 시트를 코드로 고정한다.
+
+    스프라이트 규칙:
+      $ 접두사 파일 (예: $BigMonster1) → 단일 캐릭터, index 항상 0
+      일반 파일 (Monster, SF_Monster) → 4×2 그리드, index 0~7
+    """
+    enemy_tier_map: dict[str, str] = {e.name: e.tier for e in game_spec.enemies}
+    theme_lower = game_spec.theme.lower()
+    is_sf = any(k in theme_lower for k in _SF_KEYWORDS)
+
+    for event in events:
+        if not isinstance(event, BattleEvent):
+            continue
+
+        troop_name = event.troop
+        if "×" in troop_name:
+            enemy_name = troop_name.rsplit("×", 1)[0]
+        elif troop_name.endswith("_단독"):
+            enemy_name = troop_name[: -len("_단독")]
+        else:
+            enemy_name = troop_name
+
+        tier = enemy_tier_map.get(enemy_name, "normal")
+        troop_id = id_table.troops.get(troop_name, 1)
+
+        if is_sf:
+            if tier in ("boss", "elite"):
+                event.character_name = "SF_Monster"
+                event.character_index = 6 + (troop_id % 2)  # 6 or 7
+            else:
+                event.character_name = "SF_Monster"
+                event.character_index = troop_id % 6  # 0~5
+        else:
+            if tier == "boss":
+                # $BigMonster1 / $BigMonster2 — 단일 캐릭터, index=0 고정
+                big_num = 1 + (troop_id % 2)  # 1 or 2
+                event.character_name = f"$BigMonster{big_num}"
+                event.character_index = 0
+            elif tier == "elite":
+                event.character_name = "Monster"
+                event.character_index = 6 + (troop_id % 2)  # 6 or 7
+            else:
+                event.character_name = "Monster"
+                event.character_index = troop_id % 6  # 0~5
+
+    return events
 
 
 def _fallback_events(spec: MapSpec, id_table: IdTable) -> list:

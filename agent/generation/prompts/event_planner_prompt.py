@@ -117,10 +117,8 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
     - set_switch: {스위치 이름}
   one_time: true
   battle_switch: {스위치 이름}
-  character_name: Monster  # 몬스터 스프라이트 — index로 외형 선택
-  # Monster: 0=좀비여, 1=좀비남, 2=늑대인간, 3=어둠생물, 4=구미호, 5=악마, 6=좀비보스, 7=악마보스
-  # $BigMonster1: index 0~3 (대형 보스용, 2배 크기)
-  # SF_Monster: 0=마피아, 1=바이커, 2=그림자생물, 3=광대, 4=파란로봇, 5=짙은로봇, 6=리치, 7=도깨비장군
+  character_name: Monster  # 자동 결정됨 — 기본값 그대로 출력
+  character_index: 0       # 자동 결정됨 — 기본값 그대로 출력
 
 ### shop (상점)
 - x: {정수}
