@@ -61,6 +61,9 @@ def _build_llm() -> BaseChatModel:
     return llm
 
 
+_LLM_TIMEOUT = 60.0  # 단일 LLM 호출 타임아웃 (초)
+
+
 async def invoke_llm(
     messages: list[BaseMessage],
     structured_output: type[BaseModel] | None = None,
@@ -73,15 +76,19 @@ async def invoke_llm(
 
     Returns:
         structured_output 미지정 시 str, 지정 시 해당 Pydantic 인스턴스
+
+    Raises:
+        asyncio.TimeoutError: _LLM_TIMEOUT 초 내에 응답이 없을 때
     """
+    import asyncio
+
     llm = get_llm()
 
     try:
         if structured_output is not None:
-            # function_calling 방식을 유지하면서 구조화된 출력 반환
             logger.info("구조화된 응답 생성 시작 (%s)", structured_output.__name__)
             bound = llm.with_structured_output(structured_output, method="function_calling")
-            result = await bound.ainvoke(messages)
+            result = await asyncio.wait_for(bound.ainvoke(messages), timeout=_LLM_TIMEOUT)
             logger.info("구조화된 응답 수신 완료")
             if result is None:
                 raise ValueError(
@@ -89,9 +96,17 @@ async def invoke_llm(
                 )
             return cast(BaseModel, result)
 
-        response = await llm.ainvoke(messages)
+        response = await asyncio.wait_for(llm.ainvoke(messages), timeout=_LLM_TIMEOUT)
         return cast(str, response.content)
 
+    except TimeoutError:
+        logger.error(
+            "LLM 호출 타임아웃 [%s]: %ss 초과 (structured=%s)",
+            agent_config.LLM_MODEL,
+            _LLM_TIMEOUT,
+            structured_output.__name__ if structured_output else "str",
+        )
+        raise
     except Exception as e:
         logger.error("LLM 호출 실패 [%s]: %s", agent_config.LLM_MODEL, e)
         raise

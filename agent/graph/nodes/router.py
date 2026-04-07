@@ -16,12 +16,15 @@ from agent.prompts.router_prompt import build_prompt
 logger = logging.getLogger(__name__)
 
 _TERMINAL_INTENTS = frozenset({"추가_정보_필요", "복합_의도", "일반_대화", "범위_외"})
-_ACTION_INTENTS = frozenset({"게임_요소_생성", "게임_요소_수정", "게임_요소_조회"})
+_ACTION_INTENTS = frozenset(
+    {"전체_게임_생성", "게임_요소_생성", "게임_요소_수정", "게임_요소_조회"}
+)
 _CONFIDENCE_THRESHOLD = 0.7
 
 
 class _RouterOutput(BaseModel):
     intent: Literal[
+        "전체_게임_생성",
         "게임_요소_생성",
         "게임_요소_수정",
         "게임_요소_조회",
@@ -92,6 +95,7 @@ async def router(state: AgentState) -> dict:
         result["final_response"] = output.response or "조금 더 구체적으로 말씀해주시겠어요?"
         logger.info("─── 🛑 Router END → %s (terminal) ─────────────────────", intent)
     else:
-        logger.info("─── ✅ Router END → %s (next: definition) ──────────────", intent)
+        next_node = "full_generation" if intent == "전체_게임_생성" else "definition"
+        logger.info("─── ✅ Router END → %s (next: %s) ──────────────", intent, next_node)
 
     return result

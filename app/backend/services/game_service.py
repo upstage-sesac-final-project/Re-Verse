@@ -43,7 +43,7 @@ class GameService:
             )
 
         # ② game_id 채번 (UUID 기반 — 동시 요청 충돌 방지)
-        game_id = f"game_{uuid.uuid4().hex[:8]}"
+        game_id = f"game_{uuid.uuid4().hex[:7]}"
 
         # ③ 트랜잭션 + 롤백
         project = Project(
@@ -80,7 +80,31 @@ class GameService:
         return project
 
     async def list_projects(self, user_id: int, db: AsyncSession) -> list[Project]:
-        return await project_repository.find_by_user(user_id, db)
+        projects = await project_repository.find_by_user(user_id, db)
+
+        # 로컬 스토리지 한정: 폴더가 삭제된 프로젝트는 DB에서도 제거
+        if settings.STORAGE_BACKEND == "local":
+            valid: list[Project] = []
+            for project in projects:
+                game_dir = Path(settings.STORAGE_PATH).resolve() / project.game_id
+                if game_dir.exists():
+                    valid.append(project)
+                else:
+                    try:
+                        await project_repository.delete(project, db)
+                        logger.info(
+                            "[GameService] 폴더 없는 프로젝트 자동 삭제 | game_id=%s",
+                            project.game_id,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "[GameService] 고아 프로젝트 삭제 실패 | game_id=%s",
+                            project.game_id,
+                            exc_info=True,
+                        )
+            return valid
+
+        return projects
 
     async def get_project(self, project_id: int, user_id: int, db: AsyncSession) -> Project:
         project = await project_repository.find_by_id(project_id, db)

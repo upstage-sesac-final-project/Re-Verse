@@ -105,6 +105,7 @@ class LLMService:
                     message="요청 처리 시간이 초과되었습니다.",
                     intent="timeout",
                     success=False,
+                    reload_required=False,
                 )
             except Exception as e:
                 processing_time = time.time() - start_time
@@ -129,6 +130,7 @@ class LLMService:
                     message=f"처리 중 오류가 발생했습니다: {e!s}",
                     intent="error",
                     success=False,
+                    reload_required=False,
                 )
 
             # ⑤ S3 업로드 (성공 시) + 로컬 정리
@@ -208,6 +210,8 @@ class LLMService:
             "reload_required": bool(modified),
             # Executor(4단계)가 누적한 단계별 변경 이력 리스트
             "changes_log": final_state.get("changes_log", []),
+            # Full Generation 전용: 생성된 게임 제목 (Project.name 업데이트용)
+            "generated_game_title": final_state.get("generated_game_title"),
         }
 
     # ── 대화 이력 저장 ────────────────────────────────────

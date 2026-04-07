@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+import shutil
+from pathlib import Path
 from typing import Any
 
 import ijson
@@ -10,9 +12,13 @@ try:
     from app.backend.core.config import settings
 
     STORAGE_PATH = settings.STORAGE_PATH
-except (ImportError, ModuleNotFoundError):
+    BASE_GAME_PATH = getattr(
+        settings, "BASE_GAME_PATH", os.path.join("storage", "games", "base_game")
+    )
+except (ImportError, ModuleNotFoundError, AttributeError):
     # 백엔드 환경이 아닐 경우(예: 독립 에이전트 테스트) 기본값 사용
     STORAGE_PATH = os.path.join("storage", "games")
+    BASE_GAME_PATH = os.path.join("storage", "games", "base_game")
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +35,77 @@ CATEGORY_TO_PLURAL = {
     "element": "System",
     "system": "System",
 }
+
+
+def setup_game_directory(game_id: str) -> str:
+    """베이스 게임 템플릿을 복사하여 신규 게임 디렉토리를 준비한다."""
+    target_dir = os.path.join(STORAGE_PATH, game_id)
+    if os.path.exists(target_dir) and os.path.exists(os.path.join(target_dir, "data")):
+        # 이미 존재하고 data 폴더도 있으면 건너뜀
+        return target_dir
+
+    src = Path(BASE_GAME_PATH).resolve()
+    if not src.exists():
+        logger.error(f"Base game template not found at {src}")
+        os.makedirs(os.path.join(target_dir, "data"), exist_ok=True)
+        return target_dir
+
+    try:
+        # 이미 폴더가 있으면 삭제 후 복사 (clean copy)
+        if os.path.exists(target_dir):
+            shutil.rmtree(target_dir)
+        shutil.copytree(src, target_dir)
+        logger.info(f"Successfully copied base game to {target_dir}")
+    except Exception as e:
+        logger.error(f"Failed to copy base game: {e}")
+        os.makedirs(os.path.join(target_dir, "data"), exist_ok=True)
+
+    return target_dir
+
+
+def get_temp_data_dir(game_id: str) -> str:
+    """게임 생성 도중 발생하는 대용량 임시 데이터 저장 폴더."""
+    temp_dir = os.path.join(STORAGE_PATH, game_id, "temp_data")
+    os.makedirs(temp_dir, exist_ok=True)
+    return temp_dir
+
+
+def save_temp_data(game_id: str, category: str, map_id: int | str, data: Any) -> str:
+    """대용량 데이터를 임시 파일로 저장하고 경로를 반환한다. (State 다이어트용)"""
+    temp_dir = get_temp_data_dir(game_id)
+    file_path = os.path.join(temp_dir, f"{category}_{map_id}.json")
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        return file_path
+    except Exception as e:
+        logger.error(f"Failed to save temp data ({category}): {e}")
+        return ""
+
+
+def load_temp_data(game_id: str, category: str, map_id: int | str) -> Any:
+    """임시 파일을 읽어 데이터를 반환한다."""
+    temp_dir = get_temp_data_dir(game_id)
+    file_path = os.path.join(temp_dir, f"{category}_{map_id}.json")
+    if not os.path.exists(file_path):
+        return None
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load temp data ({category}): {e}")
+        return None
+
+
+def cleanup_temp_data(game_id: str) -> None:
+    """게임 생성 완료 후 임시 데이터 폴더를 삭제한다."""
+    temp_dir = get_temp_data_dir(game_id)
+    if os.path.exists(temp_dir):
+        try:
+            shutil.rmtree(temp_dir)
+            logger.info(f"Successfully cleaned up temp data for game {game_id}")
+        except Exception as e:
+            logger.error(f"Failed to cleanup temp data: {e}")
 
 
 def get_game_data_dir(game_id: str) -> str:

@@ -10,10 +10,15 @@ logger = logging.getLogger(__name__)
 def route_after_router(state: AgentState) -> str:
     """Router 이후 분기.
 
+    - 전체_게임_생성 → full_generation (Worldview Compiler)
     - 게임_요소_생성 / 게임_요소_수정 / 게임_요소_조회 → definition
     - 추가_정보_필요 / 일반_대화 / 범위_외 → __end__ (final_response 포함)
     """
     intent = state.get("intent", "범위_외")
+
+    if intent == "전체_게임_생성":
+        logger.info("[route] router → full_generation")
+        return "full_generation"
 
     if intent in ("게임_요소_생성", "게임_요소_수정", "게임_요소_조회"):
         logger.info("[route] router → definition (intent=%s)", intent)

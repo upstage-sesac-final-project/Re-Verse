@@ -11,6 +11,7 @@ class AgentState(TypedDict, total=False):
 
     # ── 1단계 Router ────────────────────────────────────────
     intent: Literal[
+        "전체_게임_생성",
         "게임_요소_생성",
         "게임_요소_수정",
         "게임_요소_조회",
