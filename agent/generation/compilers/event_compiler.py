@@ -179,7 +179,13 @@ class EventCompiler:
             cmds.append({"code": 121, "indent": 0, "parameters": [sw_id, sw_id, 0]})
         cmds.append({"code": 0, "indent": 0, "parameters": []})
 
-        page = _make_page(cmds, _empty_conditions(), _trigger_code(event.trigger))
+        page = _make_page(
+            cmds,
+            _empty_conditions(),
+            _trigger_code(event.trigger),
+            character_name=event.character_name,
+            character_index=event.character_index,
+        )
         return _make_event(event.name, event.x, event.y, [page])
 
     # ── Chest ────────────────────────────────────────────────────────────────
@@ -225,7 +231,13 @@ class EventCompiler:
             cmds.append({"code": 412, "indent": 0, "parameters": []})  # End If
 
         cmds.append({"code": 0, "indent": 0, "parameters": []})
-        page = _make_page(cmds, _empty_conditions(), _trigger_code("action_button"))
+        page = _make_page(
+            cmds,
+            _empty_conditions(),
+            _trigger_code("action_button"),
+            character_name=event.character_name,
+            character_index=event.character_index,
+        )
         return _make_event(event.name, event.x, event.y, [page])
 
     # ── Battle ───────────────────────────────────────────────────────────────
@@ -287,7 +299,13 @@ class EventCompiler:
             cmds.append({"code": 412, "indent": 0, "parameters": []})  # End If
 
         cmds.append({"code": 0, "indent": 0, "parameters": []})
-        page = _make_page(cmds, _empty_conditions(), _trigger_code(event.trigger))
+        page = _make_page(
+            cmds,
+            _empty_conditions(),
+            _trigger_code(event.trigger),
+            character_name=event.character_name,
+            character_index=event.character_index,
+        )
         return _make_event(event.name, event.x, event.y, [page])
 
     # ── Shop ─────────────────────────────────────────────────────────────────
@@ -320,7 +338,13 @@ class EventCompiler:
             cmds.append({"code": 605, "indent": 0, "parameters": [gtype, gid, 0, 0]})
 
         cmds.append({"code": 0, "indent": 0, "parameters": []})
-        page = _make_page(cmds, _empty_conditions(), _trigger_code(event.trigger))
+        page = _make_page(
+            cmds,
+            _empty_conditions(),
+            _trigger_code(event.trigger),
+            character_name=event.character_name,
+            character_index=event.character_index,
+        )
         return _make_event(event.name, event.x, event.y, [page])
 
     # ── Ending ───────────────────────────────────────────────────────────────

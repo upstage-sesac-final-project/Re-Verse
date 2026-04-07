@@ -51,6 +51,7 @@ _SYSTEM = """\
   to_y: {정수}
   direction: retain  # retain | down | left | right | up
   set_switch: {스위치 이름}  # 선택
+  character_name: ""  # 워프 마커 (빈 문자열=투명, !Door1/!Door2=문 스프라이트)
 
 ### chest (보물 상자)
 - x: {정수}
@@ -64,6 +65,7 @@ _SYSTEM = """\
   chest_switch: {스위치 이름}
   dialogue_before: "상자 발견 대사"
   dialogue_after: "아이템 획득 대사"
+  character_name: "!Chest"  # 보물상자 스프라이트 (!Chest 고정)
 
 ### battle (전투)
 - x: {정수}
@@ -78,6 +80,7 @@ _SYSTEM = """\
     - set_switch: {스위치 이름}
   one_time: true
   battle_switch: {스위치 이름}
+  character_name: Monster  # 몬스터 스프라이트 (Monster | SF_Monster | $BigMonster1 등)
 
 ### shop (상점)
 - x: {정수}
@@ -89,6 +92,8 @@ _SYSTEM = """\
   items:
     - { item: {아이템 이름}, item_type: item }
     - { item: {무기 이름}, item_type: weapon }
+  character_name: People1  # 상점 NPC 스프라이트 (People1~4, Actor1~3 등)
+  character_index: 0       # 스프라이트 시트 내 인덱스 0~7
 
 ### ending (엔딩, 보스 맵 전용)
 - x: {정수}

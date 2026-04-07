@@ -37,6 +37,8 @@ class TransferEvent(BaseModel):
     to_y: int
     direction: str = "retain"
     set_switch: str | None = None
+    character_name: str = ""  # 워프 스프라이트 (기본 투명)
+    character_index: int = 0
 
 
 class ChestEvent(BaseModel):
@@ -51,6 +53,8 @@ class ChestEvent(BaseModel):
     chest_switch: str | None = None
     dialogue_before: str = ""
     dialogue_after: str = ""
+    character_name: str = "!Chest"  # 보물상자 스프라이트
+    character_index: int = 0
 
 
 class BattleOnWinAction(BaseModel):
@@ -71,6 +75,8 @@ class BattleEvent(BaseModel):
     on_win: list[BattleOnWinAction] = Field(default_factory=list)
     one_time: bool = True
     battle_switch: str | None = None
+    character_name: str = "Monster"  # 몬스터 스프라이트
+    character_index: int = 0
 
 
 class ShopItem(BaseModel):
@@ -87,6 +93,8 @@ class ShopEvent(BaseModel):
     dialogue: str = ""
     items: list[ShopItem]
     purchase_only: bool = False
+    character_name: str = "People1"  # 상점 NPC 스프라이트
+    character_index: int = 0
 
 
 class EndingEvent(BaseModel):
