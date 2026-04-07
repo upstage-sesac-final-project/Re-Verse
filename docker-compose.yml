@@ -30,7 +30,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - VITE_API_URL=http://localhost:8000/api
+      - VITE_API_URL=http://backend:8000/api
     volumes:
       # 개발 중 코드 변경 시 반영을 위한 볼륨
       - ./app/frontend/src:/app/src

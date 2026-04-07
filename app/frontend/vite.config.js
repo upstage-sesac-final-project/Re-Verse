@@ -56,10 +56,10 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        ws: true,
       },
-      // 새로 추가 - docker로 프론트/백엔드 같이 띄울 때 필요한 설정
       '/game': {
-        target: 'http://backend:8000',
+        target: 'http://localhost:8000',
         changeOrigin: true,
       },
     },

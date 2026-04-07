@@ -113,7 +113,7 @@ def _extract_level(user_input: str) -> str:
 # ──────────────────────────────────────────────────────────────
 
 
-def run_enemies(user_input: str) -> dict[str, Any]:
+def run_enemies(user_input: str, game_id: str = "game_001") -> dict[str, Any]:
     """
     user_input 에서 적 종류를 파싱해 edit_enemies.main() 을 실행한다.
     ENEMY_KEYWORD_MAP 키워드 매칭 → "crow" 또는 "demon" 결정
@@ -135,12 +135,12 @@ def run_enemies(user_input: str) -> dict[str, Any]:
             "timestamp": datetime.now().isoformat(),
         }
 
-    result = _run_main(edit_enemies.main, [cmd])
+    result = _run_main(lambda argv: edit_enemies.main(argv, game_id), [cmd])
     result["command"] = cmd
     return result
 
 
-def run_items(user_input: str) -> dict[str, Any]:
+def run_items(user_input: str, game_id: str = "game_001") -> dict[str, Any]:
     """
     user_input 에서 아이템명을 파싱해 edit_items.main() 을 실행한다.
     SUPPORTED_ITEMS 목록과 매칭
@@ -159,12 +159,12 @@ def run_items(user_input: str) -> dict[str, Any]:
             "timestamp": datetime.now().isoformat(),
         }
 
-    result = _run_main(edit_items.main, [item])
+    result = _run_main(lambda argv: edit_items.main(argv, game_id), [item])
     result["command"] = item
     return result
 
 
-def run_map_villager(user_input: str) -> dict[str, Any]:
+def run_map_villager(user_input: str, game_id: str = "game_001") -> dict[str, Any]:
     """
     user_input 에서 맵 번호와 옵션 플래그를 파싱해 edit_map_villager.main() 을 실행한다.
     - 숫자 → 맵 ID (없으면 기본값 "1")
@@ -180,12 +180,12 @@ def run_map_villager(user_input: str) -> dict[str, Any]:
     if "테스트" in lower or "dry" in lower:
         argv.append("--dry-run")
 
-    result = _run_main(edit_map_villager.main, argv)
+    result = _run_main(lambda argv: edit_map_villager.main(argv, game_id), argv)
     result["command"] = " ".join(argv)
     return result
 
 
-def run_levels(user_input: str) -> dict[str, Any]:
+def run_levels(user_input: str, game_id: str = "game_001") -> dict[str, Any]:
     """
     user_input 에서 레벨 값을 파싱해 edit_levels.main() 을 실행한다.
     - 숫자 → 목표 레벨 (없으면 기본값 "25")
@@ -194,12 +194,12 @@ def run_levels(user_input: str) -> dict[str, Any]:
     level = _extract_level(user_input)
     argv: list[str] = [level]
 
-    result = _run_main(edit_levels.main, argv)
+    result = _run_main(lambda argv: edit_levels.main(argv, game_id), argv)
     result["command"] = level
     return result
 
 
-def run_skills(user_input: str) -> dict[str, Any]:
+def run_skills(user_input: str, game_id: str = "game_001") -> dict[str, Any]:
     """
     user_input 에서 스킬명을 파싱해 edit_skills.main() 을 실행한다.
     SUPPORTED_SKILLS 목록과 매칭
@@ -218,6 +218,6 @@ def run_skills(user_input: str) -> dict[str, Any]:
             "timestamp": datetime.now().isoformat(),
         }
 
-    result = _run_main(edit_skills.main, [skill])
+    result = _run_main(lambda argv: edit_skills.main(argv, game_id), [skill])
     result["command"] = skill
     return result
