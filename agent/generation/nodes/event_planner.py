@@ -106,7 +106,7 @@ async def _plan_single_map(
                 continue
             valid = _validate_coords(events, map_spec)
             valid = _validate_name_refs(valid, id_table, switch_table)
-            if valid:
+            if valid is not None:
                 return valid
         except Exception as e:
             logger.warning("Map%d 이벤트 기획 시도 %d 실패: %s", map_spec.map_id, attempt + 1, e)
