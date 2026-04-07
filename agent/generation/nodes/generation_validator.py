@@ -179,6 +179,79 @@ def _check_resource_filenames(final_project: dict) -> list[str]:
     return errors
 
 
+_VALID_CHARACTER_NAMES: frozenset[str] = frozenset(
+    {
+        # 일반 캐릭터
+        "Actor1",
+        "Actor2",
+        "Actor3",
+        "People1",
+        "People2",
+        "People3",
+        "People4",
+        "Evil",
+        "Monster",
+        "Nature",
+        "Vehicle",
+        "Damage1",
+        "Damage2",
+        "Damage3",
+        # SF 캐릭터
+        "SF_Actor1",
+        "SF_Actor2",
+        "SF_Actor3",
+        "SF_People1",
+        "SF_People2",
+        "SF_People3",
+        "SF_Monster",
+        "SF_Vehicle",
+        "SF_Damage1",
+        "SF_Damage2",
+        # 오브젝트 (! 접두사)
+        "!Chest",
+        "!Crystal",
+        "!Door1",
+        "!Door2",
+        "!Flame",
+        "!Other1",
+        "!Other2",
+        "!Switch1",
+        "!Switch2",
+        "!Weapon",
+        "!SF_Chest",
+        "!SF_Door1",
+        "!SF_Door2",
+        "!SF_Switch1",
+        # 빅 몬스터 ($ 접두사)
+        "$BigMonster1",
+        "$BigMonster2",
+        # 게이트
+        "!$Gate1",
+        "!$Gate2",
+        "!$SF_Gate1",
+        "!$SF_Gate2",
+        "!$SF_Gate3",
+    }
+)
+
+
+def _check_event_character_names(compiled_events: dict[int, list[dict]]) -> list[str]:
+    """이벤트 페이지의 characterName이 유효한 스프라이트 파일명인지 검증 (R24, 경고)."""
+    warnings = []
+    for map_id, events in compiled_events.items():
+        for event in events:
+            if event is None:
+                continue
+            for page in event.get("pages", []):
+                name = page.get("image", {}).get("characterName", "")
+                if name and name not in _VALID_CHARACTER_NAMES:
+                    warnings.append(
+                        f"[R24] Map{map_id} 이벤트 '{event.get('name', '?')}': "
+                        f"characterName='{name}' 유효하지 않은 스프라이트"
+                    )
+    return warnings
+
+
 def _check_ending_reachable(
     map_specs: list[MapSpec],
     compiled_events: dict[int, list[dict]],
@@ -292,6 +365,7 @@ async def generation_validator(state: GenerationState) -> dict:
     warnings.extend(_check_balance(final_project))
     if compiled_events:
         warnings.extend(_check_event_coordinate_conflicts(compiled_events))
+        warnings.extend(_check_event_character_names(compiled_events))
     if switch_table:
         warnings.extend(_check_switch_semantic_conflicts(switch_table))
 
