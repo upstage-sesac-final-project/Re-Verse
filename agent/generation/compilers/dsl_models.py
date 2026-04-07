@@ -16,6 +16,8 @@ class NpcEvent(BaseModel):
     x: int
     y: int
     trigger: str = "action_button"
+    character_name: str = "People1"  # 맵 위 스프라이트 파일명 (확장자 제외)
+    character_index: int = 0  # 스프라이트 시트 내 인덱스 (0-7)
     face_image: str = ""
     face_index: int = 0
     dialogue: list[str]

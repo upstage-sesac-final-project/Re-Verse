@@ -131,7 +131,15 @@ class EventCompiler:
             sw_id = self.resolve_switch_id(event.set_switch)
             page1_cmds.append({"code": 121, "indent": 0, "parameters": [sw_id, sw_id, 0]})
         page1_cmds.append({"code": 0, "indent": 0, "parameters": []})
-        pages.append(_make_page(page1_cmds, _empty_conditions(), _trigger_code(event.trigger)))
+        pages.append(
+            _make_page(
+                page1_cmds,
+                _empty_conditions(),
+                _trigger_code(event.trigger),
+                character_name=event.character_name,
+                character_index=event.character_index,
+            )
+        )
 
         # 페이지 2: 조건부 대화
         if event.condition_switch and event.alt_dialogue:
@@ -142,7 +150,11 @@ class EventCompiler:
             page2_cmds.append({"code": 0, "indent": 0, "parameters": []})
             pages.append(
                 _make_page(
-                    page2_cmds, _make_switch_condition(cond_sw_id), _trigger_code(event.trigger)
+                    page2_cmds,
+                    _make_switch_condition(cond_sw_id),
+                    _trigger_code(event.trigger),
+                    character_name=event.character_name,
+                    character_index=event.character_index,
                 )
             )
 
@@ -426,13 +438,15 @@ def _make_page(
     priority: int = 1,
     walk_anime: bool = True,
     step_anime: bool = False,
+    character_name: str = "",
+    character_index: int = 0,
 ) -> dict:
     return {
         "conditions": conditions,
         "directionFix": direction_fix,
         "image": {
-            "characterIndex": 0,
-            "characterName": "",
+            "characterIndex": character_index,
+            "characterName": character_name,
             "direction": 2,
             "pattern": 0,
             "tileId": 0,

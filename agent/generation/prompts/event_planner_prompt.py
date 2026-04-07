@@ -22,6 +22,8 @@ _SYSTEM = """\
   name: {이벤트 이름}
   type: npc
   trigger: action_button  # action_button | player_touch | auto_run
+  character_name: People1  # 맵 위 스프라이트. 아래 목록에서 선택 (필수)
+  character_index: 0       # 스프라이트 시트 내 인덱스 0~7
   dialogue:
     - "대사 1"
     - "대사 2"
@@ -29,6 +31,14 @@ _SYSTEM = """\
   alt_dialogue:                    # 선택 (condition_switch가 ON일 때 대체 대사)
     - "대체 대사 1"
   set_switch: {스위치 이름}        # 선택 (대화 후 ON)
+
+**character_name 선택 가이드 (반드시 아래 목록에서만 선택):**
+- 일반 마을 주민/상인: People1, People2, People3, People4 (index 0~7)
+- 주인공/동료급: Actor1, Actor2, Actor3 (index 0~7)
+- 악당/다크: Evil (index 0~7)
+- 몬스터형 NPC: Monster (index 0~7)
+- SF/미래 배경 NPC: SF_People1, SF_People2, SF_People3 (index 0~7)
+- SF 주인공: SF_Actor1, SF_Actor2, SF_Actor3 (index 0~7)
 
 ### transfer (맵 이동)
 - x: {정수}
