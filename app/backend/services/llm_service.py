@@ -2,9 +2,7 @@
 
 import asyncio
 import logging
-import shutil
 import time
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,23 +12,10 @@ from app.backend.core.config import settings
 from app.backend.repositories.project_repository import project_repository
 from app.backend.schemas.llm import ChangeLog, ProcessResponse
 from app.backend.services.game_service import game_service
-from app.backend.services.s3_game_storage import sync_game_from_s3, sync_game_to_s3
+from app.backend.services.s3_game_storage import sync_game_to_s3
+from app.backend.services.session_manager import get_game_lock, is_active, touch_session
 
 logger = logging.getLogger(__name__)
-
-# ── Game-Level Lock (동시성 제어) ────────────────────────
-_game_locks: dict[str, asyncio.Lock] = {}
-
-
-async def _get_game_lock(game_id: str) -> asyncio.Lock:
-    if game_id not in _game_locks:
-        _game_locks[game_id] = asyncio.Lock()
-    return _game_locks[game_id]
-
-
-def remove_game_lock(game_id: str) -> None:
-    """프로젝트 삭제 시 해당 lock 정리."""
-    _game_locks.pop(game_id, None)
 
 
 class LLMService:
@@ -59,16 +44,20 @@ class LLMService:
             user_id,
         )
 
-        # ② Game-Level Lock
-        lock = await _get_game_lock(game_id)
+        # ② 세션 활성 검증 (S3 모드)
+        if settings.STORAGE_BACKEND == "s3" and not is_active(game_id):
+            return ProcessResponse(
+                code=400,
+                message="편집 세션이 활성화되지 않았습니다. 에디터를 다시 열어주세요.",
+                intent="error",
+                success=False,
+            )
+
+        # ③ Game-Level Lock
+        lock = await get_game_lock(game_id)
         async with lock:
             start_time = time.time()
             logger.debug("[LLMService] game lock 획득 | game_id=%s", game_id)
-
-            # ③ S3 동기화 (프로덕션)
-            if settings.STORAGE_BACKEND == "s3":
-                logger.info("[LLMService] S3 → 로컬 동기화 시작 | game_id=%s", game_id)
-                await asyncio.to_thread(sync_game_from_s3, game_id)
 
             # ④ Agent 호출
             try:
@@ -131,15 +120,9 @@ class LLMService:
                     success=False,
                 )
 
-            # ⑤ S3 업로드 (성공 시) + 로컬 정리
-            if settings.STORAGE_BACKEND == "s3":
-                if result["success"]:
-                    logger.info("[LLMService] 로컬 → S3 업로드 시작 | game_id=%s", game_id)
-                    await asyncio.to_thread(sync_game_to_s3, game_id)
-                local_game_dir = Path(settings.STORAGE_PATH).resolve() / game_id
-                if local_game_dir.is_dir():
-                    await asyncio.to_thread(shutil.rmtree, local_game_dir)
-                    logger.info("[LLMService] 로컬 게임 폴더 정리 완료 | %s", local_game_dir)
+            # ⑤ 백그라운드 S3 업로드 (성공 시, fire-and-forget 안전장치)
+            if settings.STORAGE_BACKEND == "s3" and result["success"]:
+                asyncio.create_task(self._background_s3_upload(game_id))
 
             processing_time = time.time() - start_time
             logger.info(
@@ -172,6 +155,19 @@ class LLMService:
                     ChangeLog(**log) if isinstance(log, dict) else log
                     for log in result.get("changes_log", [])
                 ],
+            )
+
+    # ── 백그라운드 S3 업로드 ────────────────────────────────
+
+    async def _background_s3_upload(self, game_id: str) -> None:
+        """Fire-and-forget S3 업로드 (안전장치). 실패해도 사용자에게 전파하지 않음."""
+        try:
+            await asyncio.to_thread(sync_game_to_s3, game_id)
+            touch_session(game_id)
+            logger.info("[LLMService] 백그라운드 S3 업로드 완료 | game_id=%s", game_id)
+        except Exception:
+            logger.warning(
+                "[LLMService] 백그라운드 S3 업로드 실패 | game_id=%s", game_id, exc_info=True
             )
 
     # ── Agent 호출 ────────────────────────────────────────
