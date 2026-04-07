@@ -98,29 +98,16 @@ def _default_vehicle() -> dict:
 def _default_terms() -> dict:
     return {
         "basic": [
-            "레벨",
-            "레벨(약)",
-            "HP",
-            "HP(약)",
-            "MP",
-            "MP(약)",
-            "TP",
-            "TP(약)",
-            "경험치",
-            "경험치(약)",
-            "골드",
-            "저장",
-            "불러오기",
-            "중단",
-            "전투",
-            "탈출",
-            "장비",
-            "스킬",
-            "스탯 확인",
-            "게임 종료",
-            "장비 변경",
-            "닫기",
-            "취소",
+            "레벨",  # 0 level
+            "Lv",  # 1 levelA (약어)
+            "HP",  # 2 hp
+            "HP",  # 3 hpA (약어)
+            "MP",  # 4 mp
+            "MP",  # 5 mpA (약어)
+            "TP",  # 6 tp
+            "TP",  # 7 tpA (약어)
+            "EXP",  # 8 exp
+            "EXP",  # 9 expA (약어)
         ],
         "commands": [
             "싸운다",  # 0  fight
