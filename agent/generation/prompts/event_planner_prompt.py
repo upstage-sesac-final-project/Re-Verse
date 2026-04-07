@@ -51,7 +51,21 @@ _SYSTEM = """\
   to_y: {정수}
   direction: retain  # retain | down | left | right | up
   set_switch: {스위치 이름}  # 선택
-  character_name: ""  # 워프 마커 (빈 문자열=투명, !Door1/!Door2=문 스프라이트)
+  character_name: "!Crystal"  # 워프 마커 스프라이트 (아래 가이드 참고)
+  character_index: 0          # 스프라이트 인덱스
+
+**transfer character_name 선택 가이드 (직접 이미지 확인 기준):**
+- `!Crystal` index 0=빨강, 1=주황, 2=초록, 3=보라, 4=흰색, 5=파랑 크리스탈
+  → 마법 포털/워프 마커 (기본값, 범용 — 어떤 맵 타입에도 어울림)
+- `!Door1` index 0=철제 대문, index 1=아치형 나무문
+  → 마을 건물 출입구, 던전 입구
+- `!$Gate1` index 0=황금 아치문, index 1=목재 성문, index 2=크리스탈 포탈
+  → 보스 방 입구, 특별한 장소
+- `!$Gate2` index 0=파란 석재문, index 1=어두운 장식문, index 2=갈색 목재문
+  → 던전 내부 구역 이동
+- `!SF_Door1` index 0=SF 슬라이딩 도어
+  → SF 배경 맵
+- `""` (빈 문자열): 완전 투명 — 자동 트리거나 눈에 안 보이는 워프가 필요할 때만
 
 ### chest (보물 상자)
 - x: {정수}

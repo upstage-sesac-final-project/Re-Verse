@@ -37,7 +37,7 @@ class TransferEvent(BaseModel):
     to_y: int
     direction: str = "retain"
     set_switch: str | None = None
-    character_name: str = ""  # 워프 스프라이트 (기본 투명)
+    character_name: str = "!Crystal"  # 워프 스프라이트 (기본: 크리스탈 포털)
     character_index: int = 0
 
 

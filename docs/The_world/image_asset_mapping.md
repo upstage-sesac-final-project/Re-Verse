@@ -121,8 +121,11 @@
 | BattleEvent (일반 몬스터) | `Monster` | index 0~7로 종류 구분 |
 | BattleEvent (대형 보스) | `$BigMonster1` 또는 `$BigMonster2` | index **0~3** 선택 |
 | ChestEvent | `!Chest` | index **0~3** = 색상 선택 (0=빨강, 1=금색, 2=초록, 3=파랑) |
-| TransferEvent (투명 워프) | `""` (빈 문자열) | 플레이어에게 안 보임 |
-| TransferEvent (문 워프) | `!Door1` 또는 `!Door2` | index 0 고정 |
+| TransferEvent (기본) | `!Crystal` | index 0~5=색상별 크리스탈 포털 |
+| TransferEvent (건물/던전 입구) | `!Door1` | index 0=철제 대문, 1=아치형 나무문 |
+| TransferEvent (보스 방) | `!$Gate1` | index 0=황금문, 1=성문, 2=포탈 |
+| TransferEvent (SF) | `!SF_Door1` | index 0=슬라이딩 도어 |
+| TransferEvent (투명 자동트리거) | `""` | 플레이어에게 안 보임 |
 | ShopEvent | `People1` ~ `People4` | 상점 NPC 외형 |
 | EndingEvent | `""` 또는 `Actor1` | auto_run이므로 보통 투명 |
 
