@@ -47,6 +47,7 @@ async def create_project(
         name=request.name,
         description=request.description,
         db=db,
+        prompt=request.prompt,
     )
     logger.info(
         "[Game] 프로젝트 생성 완료 | user_id=%d, project_id=%d, game_id=%s",

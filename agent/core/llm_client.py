@@ -1,7 +1,10 @@
 """LLM 클라이언트 — Upstage Solar 및 OpenAI 호환 API를 지원한다."""
 
+import asyncio
+import json
 import logging
 import os
+import re
 from typing import Any, cast
 
 from langchain_core.language_models import BaseChatModel
@@ -42,8 +45,13 @@ def _build_llm() -> BaseChatModel:
             api_key=SecretStr(agent_config.LLM_API_KEY),
             model=agent_config.LLM_MODEL,
             temperature=agent_config.LLM_TEMPERATURE,
+            max_tokens=agent_config.LLM_MAX_TOKENS,
         )
-        logger.info("Upstage 전용 LLM 초기화: model=%s", agent_config.LLM_MODEL)
+        logger.info(
+            "Upstage 전용 LLM 초기화: model=%s, max_tokens=%d",
+            agent_config.LLM_MODEL,
+            agent_config.LLM_MAX_TOKENS,
+        )
     else:
         # 기타 OpenAI 호환 모델
         init_kwargs: dict[str, Any] = {
@@ -64,12 +72,14 @@ def _build_llm() -> BaseChatModel:
 async def invoke_llm(
     messages: list[BaseMessage],
     structured_output: type[BaseModel] | None = None,
+    timeout: float | None = None,
 ) -> str | BaseModel:
     """LLM을 비동기 호출한다.
 
     Args:
         messages: LangChain 메시지 목록
         structured_output: 지정하면 해당 Pydantic 모델로 파싱된 결과를 반환
+        timeout: 초 단위 타임아웃 (None이면 무제한)
 
     Returns:
         structured_output 미지정 시 str, 지정 시 해당 Pydantic 인스턴스
@@ -78,10 +88,10 @@ async def invoke_llm(
 
     try:
         if structured_output is not None:
-            # function_calling 방식을 유지하면서 구조화된 출력 반환
             logger.info("구조화된 응답 생성 시작 (%s)", structured_output.__name__)
             bound = llm.with_structured_output(structured_output, method="function_calling")
-            result = await bound.ainvoke(messages)
+            coro = bound.ainvoke(messages)
+            result = await (asyncio.wait_for(coro, timeout=timeout) if timeout else coro)
             logger.info("구조화된 응답 수신 완료")
             if result is None:
                 raise ValueError(
@@ -89,12 +99,79 @@ async def invoke_llm(
                 )
             return cast(BaseModel, result)
 
-        response = await llm.ainvoke(messages)
+        coro = llm.ainvoke(messages)
+        response = await (asyncio.wait_for(coro, timeout=timeout) if timeout else coro)
         return cast(str, response.content)
 
+    except TimeoutError:
+        logger.error("LLM 호출 타임아웃 [%s]: %.0fs 초과", agent_config.LLM_MODEL, timeout)
+        raise TimeoutError(f"LLM 응답 타임아웃: {timeout}초 초과 ({agent_config.LLM_MODEL})")
     except Exception as e:
         logger.error("LLM 호출 실패 [%s]: %s", agent_config.LLM_MODEL, e)
         raise
+
+
+async def invoke_llm_json(
+    messages: list[BaseMessage],
+    model: type[BaseModel],
+    timeout: float | None = None,
+) -> BaseModel:
+    """LLM에게 JSON 텍스트로 응답받아 Pydantic 모델로 파싱한다.
+
+    function_calling 대신 순수 텍스트 JSON 방식을 사용하므로
+    복잡한 스키마(GameBlueprint 등)에서 더 안정적이다.
+    """
+    llm = get_llm()
+    logger.info("JSON 텍스트 응답 생성 시작 (%s)", model.__name__)
+
+    try:
+        coro = llm.ainvoke(messages)
+        response = await (asyncio.wait_for(coro, timeout=timeout) if timeout else coro)
+        raw = str(response.content)
+        logger.info("JSON 텍스트 응답 수신 완료 (%d chars)", len(raw))
+
+        parsed = _extract_and_parse_json(raw, model)
+        return parsed
+
+    except TimeoutError:
+        logger.error("LLM 호출 타임아웃 [%s]: %.0fs 초과", agent_config.LLM_MODEL, timeout)
+        raise TimeoutError(f"LLM 응답 타임아웃: {timeout}초 초과 ({agent_config.LLM_MODEL})")
+    except Exception as e:
+        logger.error("LLM JSON 응답 처리 실패 [%s]: %s", agent_config.LLM_MODEL, e)
+        raise
+
+
+def _extract_and_parse_json(text: str, model: type[BaseModel]) -> BaseModel:
+    """응답 텍스트에서 JSON을 추출해 Pydantic 모델로 파싱한다."""
+    original = text
+
+    # ```json ... ``` 또는 ``` ... ``` 코드블록 제거
+    code_block = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+    if code_block:
+        text = code_block.group(1).strip()
+    else:
+        # 첫 번째 { 부터 마지막 } 까지만 추출
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1:
+            text = text[start : end + 1]
+        else:
+            raise ValueError(f"JSON 블록을 찾을 수 없음. 응답 앞 200자: {original[:200]}")
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        # LLM이 문자열 내부에 리터럴 개행/탭 등 제어문자를 삽입하는 경우 재시도
+        try:
+            data = json.loads(text, strict=False)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"JSON 파싱 실패: {e}. 앞 200자: {text[:200]}") from e
+
+    try:
+        return model.model_validate(data)
+    except Exception as e:
+        logger.error("Pydantic 검증 실패 (%s): %s", model.__name__, e)
+        raise ValueError(f"Pydantic 검증 실패 ({model.__name__}): {e}") from e
 
 
 async def invoke_llm_simple(system_prompt: str, user_message: str) -> str:

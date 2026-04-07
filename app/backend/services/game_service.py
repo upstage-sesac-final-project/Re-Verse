@@ -28,6 +28,7 @@ class GameService:
         name: str,
         description: str | None,
         db: AsyncSession,
+        prompt: str | None = None,
     ) -> Project:
         # ① 프로젝트 수 제한
         count = await project_repository.count_by_user(user_id, db)
@@ -77,7 +78,42 @@ class GameService:
             project.id,
             game_id,
         )
+
+        # ④ prompt가 있으면 The World 파이프라인 실행
+        if prompt:
+            try:
+                result = await self._run_generation(game_id, prompt)
+                project.world_summary = result.get("world_summary", "")  # type: ignore[attr-defined]
+                logger.info(
+                    "[GameService] The World 생성 완료 | game_id=%s, success=%s",
+                    game_id,
+                    result.get("success"),
+                )
+            except Exception:
+                logger.warning(
+                    "[GameService] The World 생성 실패, base_game 상태로 유지 | game_id=%s",
+                    game_id,
+                    exc_info=True,
+                )
+                project.world_summary = None  # type: ignore[attr-defined]
+
         return project
+
+    async def _run_generation(self, game_id: str, prompt: str) -> dict:
+        """The World 파이프라인 실행."""
+        from agent.generation.workflow import generation_graph
+
+        result = await generation_graph.ainvoke(
+            {
+                "user_prompt": prompt,
+                "game_id": game_id,
+            }
+        )
+        return {
+            "world_summary": result.get("world_summary", ""),
+            "success": result.get("success", False),
+            "generated_files": result.get("generated_files", []),
+        }
 
     async def list_projects(self, user_id: int, db: AsyncSession) -> list[Project]:
         return await project_repository.find_by_user(user_id, db)

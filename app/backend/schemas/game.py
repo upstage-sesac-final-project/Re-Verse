@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class ProjectCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: str | None = None
+    prompt: str | None = None  # 게임 생성 요청 프롬프트 (The World 파이프라인)
 
 
 class ProjectUpdate(BaseModel):
@@ -24,6 +25,7 @@ class ProjectResponse(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+    world_summary: str | None = None  # 생성 결과 요약 (The World 파이프라인 실행 시)
 
     model_config = ConfigDict(from_attributes=True)
 
