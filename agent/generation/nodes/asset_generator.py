@@ -833,10 +833,28 @@ async def asset_generator(state: GenerationState) -> dict:
         "Armors.json",
         "Enemies.json",
     ]
+    # 실패한 에셋 재시도 (타임아웃/네트워크 오류 대비)
+    _retry_fns = {
+        "Classes.json": lambda: generate_classes(spec, id_table),
+        "Skills.json": lambda: generate_skills(spec, id_table),
+        "Items.json": lambda: generate_items(spec, id_table),
+        "Weapons.json": lambda: generate_weapons(spec, id_table),
+        "Armors.json": lambda: generate_armors(spec, id_table),
+        "Enemies.json": lambda: generate_enemies(spec, id_table),
+    }
+    _critical = {"Classes.json", "Enemies.json"}  # 이것만 실패 시 파이프라인 중단
+
     assets: dict[str, Any] = {}
     for fname, result in zip(file_names, results):
         if isinstance(result, Exception):
-            raise RuntimeError(f"{fname} 생성 실패: {result}") from result
+            logger.warning("%s 생성 실패, 재시도 중: %s", fname, result)
+            try:
+                result = await _retry_fns[fname]()
+            except Exception as retry_err:
+                if fname in _critical:
+                    raise RuntimeError(f"{fname} 생성 실패: {retry_err}") from retry_err
+                logger.error("%s 재시도도 실패 → 빈 데이터로 계속 진행: %s", fname, retry_err)
+                result = [None]
         assets[fname] = result
 
     await publish_progress(
