@@ -28,6 +28,8 @@ from agent.generation.state import GenerationState
 
 logger = logging.getLogger(__name__)
 
+_TEMPERATURE = 0.3  # 에셋 스탯/스킬 수치 — 구조화 출력 위주, 약간의 다양성
+
 # ── 역할 정규화 ──────────────────────────────────────────────────────────────
 
 _ROLE_KEYWORDS: dict[str, list[str]] = {
@@ -435,7 +437,10 @@ def _ensure_null_at_0(lst: list) -> list:
 
 async def generate_classes(spec: GameSpec, id_table: IdTable) -> list:
     messages = build_classes_prompt(spec, id_table)
-    result = cast(LlmClassList, await invoke_llm(messages, structured_output=LlmClassList))
+    result = cast(
+        LlmClassList,
+        await invoke_llm(messages, structured_output=LlmClassList, temperature=_TEMPERATURE),
+    )
 
     class_roles: dict[str, str] = {c.class_name: _normalize_role(c.role) for c in spec.characters}
     llm_by_name = {cls.name: cls for cls in result.classes}
@@ -472,7 +477,10 @@ async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
     if not id_table.skills:
         return [None]
     messages = build_skills_prompt(spec, id_table)
-    result = cast(SkillListOutput, await invoke_llm(messages, structured_output=SkillListOutput))
+    result = cast(
+        SkillListOutput,
+        await invoke_llm(messages, structured_output=SkillListOutput, temperature=_TEMPERATURE),
+    )
     output: list[Any] = [None]
     for skill in sorted(result.items, key=lambda s: s.id):
         output.append(skill.model_dump())
@@ -481,7 +489,10 @@ async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
 
 async def generate_items(spec: GameSpec, id_table: IdTable) -> list:
     messages = build_items_prompt(spec, id_table)
-    result = cast(ItemListOutput, await invoke_llm(messages, structured_output=ItemListOutput))
+    result = cast(
+        ItemListOutput,
+        await invoke_llm(messages, structured_output=ItemListOutput, temperature=_TEMPERATURE),
+    )
     output: list[Any] = [None]
     for item in sorted(result.items, key=lambda i: i.id):
         output.append(item.model_dump())
@@ -490,7 +501,10 @@ async def generate_items(spec: GameSpec, id_table: IdTable) -> list:
 
 async def generate_weapons(spec: GameSpec, id_table: IdTable) -> list:
     messages = build_weapons_prompt(spec, id_table)
-    result = cast(WeaponListOutput, await invoke_llm(messages, structured_output=WeaponListOutput))
+    result = cast(
+        WeaponListOutput,
+        await invoke_llm(messages, structured_output=WeaponListOutput, temperature=_TEMPERATURE),
+    )
     output: list[Any] = [None]
     for weapon in sorted(result.items, key=lambda w: w.id):
         d = weapon.model_dump()
@@ -502,7 +516,10 @@ async def generate_weapons(spec: GameSpec, id_table: IdTable) -> list:
 
 async def generate_armors(spec: GameSpec, id_table: IdTable) -> list:
     messages = build_armors_prompt(spec, id_table)
-    result = cast(ArmorListOutput, await invoke_llm(messages, structured_output=ArmorListOutput))
+    result = cast(
+        ArmorListOutput,
+        await invoke_llm(messages, structured_output=ArmorListOutput, temperature=_TEMPERATURE),
+    )
     output: list[Any] = [None]
     for armor in sorted(result.items, key=lambda a: a.id):
         d = armor.model_dump()
@@ -514,7 +531,10 @@ async def generate_armors(spec: GameSpec, id_table: IdTable) -> list:
 
 async def generate_enemies(spec: GameSpec, id_table: IdTable) -> list:
     messages = build_enemies_prompt(spec, id_table)
-    result = cast(EnemyListOutput, await invoke_llm(messages, structured_output=EnemyListOutput))
+    result = cast(
+        EnemyListOutput,
+        await invoke_llm(messages, structured_output=EnemyListOutput, temperature=_TEMPERATURE),
+    )
     output: list[Any] = [None]
     for enemy in sorted(result.items, key=lambda e: e.id):
         d = enemy.model_dump()
@@ -560,7 +580,10 @@ async def generate_actors(
     classes_json: list,
 ) -> list:
     messages = build_actors_prompt(spec, id_table, classes_json)
-    result = cast(ActorListOutput, await invoke_llm(messages, structured_output=ActorListOutput))
+    result = cast(
+        ActorListOutput,
+        await invoke_llm(messages, structured_output=ActorListOutput, temperature=_TEMPERATURE),
+    )
     output: list[Any] = [None]
     for actor in sorted(result.items, key=lambda a: a.id):
         output.append(actor.model_dump())
@@ -632,7 +655,7 @@ async def asset_generator(state: GenerationState) -> dict:
         gen_id,
         {
             "type": "progress",
-            "phase": "asset_generation",
+            "phase": "assets",
             "progress": 13,
             "message": "에셋 생성 중 (클래스·스킬·아이템·무기·방어구·적)...",
         },
@@ -667,7 +690,7 @@ async def asset_generator(state: GenerationState) -> dict:
         gen_id,
         {
             "type": "progress",
-            "phase": "asset_generation",
+            "phase": "assets",
             "progress": 42,
             "message": "캐릭터·부대 생성 중...",
         },
@@ -691,7 +714,7 @@ async def asset_generator(state: GenerationState) -> dict:
         gen_id,
         {
             "type": "phase_complete",
-            "phase": "asset_generation",
+            "phase": "assets",
             "summary": (
                 f"캐릭터 {len(assets['Actors.json']) - 1}명, "
                 f"스킬 {len(assets['Skills.json']) - 1}개, "

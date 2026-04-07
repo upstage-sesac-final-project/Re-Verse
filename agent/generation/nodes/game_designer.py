@@ -17,6 +17,8 @@ from agent.generation.state import GenerationState
 
 logger = logging.getLogger(__name__)
 
+_TEMPERATURE = 0.7  # 창의적 세계관/스토리 기획
+
 
 async def game_designer(state: GenerationState) -> dict:
     """A 노드: 사용자 입력 → GameSpec."""
@@ -37,7 +39,9 @@ async def game_designer(state: GenerationState) -> dict:
         HumanMessage(content=state["user_input"]),
     ]
 
-    spec = cast(GameSpec, await invoke_llm(messages, structured_output=GameSpec))
+    spec = cast(
+        GameSpec, await invoke_llm(messages, structured_output=GameSpec, temperature=_TEMPERATURE)
+    )
     _validate_map_connections(spec)
 
     logger.info("game_designer 완료: title=%s maps=%d", spec.title, len(spec.maps))

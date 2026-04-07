@@ -122,7 +122,34 @@ def _default_terms() -> dict:
             "닫기",
             "취소",
         ],
-        "commands": ["싸운다", "도망", "공격", "방어", "아이템", "스킬"],
+        "commands": [
+            "싸운다",  # 0  fight
+            "도망",  # 1  escape
+            "공격",  # 2  attack
+            "방어",  # 3  guard
+            "아이템",  # 4  item
+            "스킬",  # 5  skill
+            "장비",  # 6  equip
+            "스탯",  # 7  status
+            "정렬",  # 8  formation
+            "저장",  # 9  save
+            "게임 종료",  # 10 gameEnd
+            "옵션",  # 11 options  ← TextManager.options
+            "무기",  # 12 weapon
+            "방어구",  # 13 armor
+            "핵심 아이템",  # 14 keyItem
+            "장비",  # 15 equip2
+            "최적화",  # 16 optimize
+            "모두 해제",  # 17 clear
+            "새 게임",  # 18 newGame  ← TextManager.newGame
+            "이어하기",  # 19 continue ← TextManager.continue_
+            None,  # 20
+            "타이틀로",  # 21
+            "취소",  # 22
+            None,  # 23
+            "구매",  # 24
+            "판매",  # 25
+        ],
         "params": [
             "최대 HP",
             "최대 MP",

@@ -27,6 +27,8 @@ from agent.generation.state import GenerationState
 
 logger = logging.getLogger(__name__)
 
+_TEMPERATURE = 0.7  # 이벤트 대화/시나리오 — 창의적 텍스트 생성
+
 _dsl_event_adapter: TypeAdapter = TypeAdapter(DslEvent)
 
 
@@ -97,7 +99,7 @@ async def _plan_single_map(
             prompt = build_event_planner_prompt(
                 map_spec, game_spec, id_table, switch_table, connection_info, rag_context
             )
-            raw = cast(str, await invoke_llm(prompt))
+            raw = cast(str, await invoke_llm(prompt, temperature=_TEMPERATURE))
             events = _parse_dsl_safe(raw, map_spec.map_id)
             if events is None:
                 logger.warning("Map%d DSL 파싱 실패 (시도 %d)", map_spec.map_id, attempt + 1)

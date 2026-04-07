@@ -59,7 +59,7 @@ export default function GenerationProgress({ onDone }) {
     if (!generationId || !wsUrl) return
 
     // WebSocket 연결
-    const ws = new WebSocket(`${WS_BASE}/api${wsUrl}`)
+    const ws = new WebSocket(`${WS_BASE}${wsUrl}`)
     wsRef.current = ws
 
     ws.onmessage = (e) => {

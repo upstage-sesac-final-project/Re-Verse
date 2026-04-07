@@ -314,6 +314,15 @@ async def generation_validator(state: GenerationState) -> dict:
             },
         )
 
+    await publish_progress(
+        gen_id,
+        {
+            "type": "phase_complete",
+            "phase": "validation",
+            "summary": "검증 통과" if validation_passed else f"검증 완료 ({len(errors)}개 오류)",
+        },
+    )
+
     completed = list(state.get("completed_phases", []))
     completed.append("validation")
     return {

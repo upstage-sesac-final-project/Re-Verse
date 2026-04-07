@@ -17,6 +17,8 @@ from agent.generation.state import GenerationState
 
 logger = logging.getLogger(__name__)
 
+_TEMPERATURE = 0.5  # 맵 구조/연결 설계 — 일관성과 창의성 균형
+
 
 async def map_designer(state: GenerationState) -> dict:
     """D 노드: GameSpec → 상세 MapSpec 목록."""
@@ -36,7 +38,8 @@ async def map_designer(state: GenerationState) -> dict:
 
     messages = build_map_designer_prompt(spec, id_table)
     result = cast(
-        MapSpecListOutput, await invoke_llm(messages, structured_output=MapSpecListOutput)
+        MapSpecListOutput,
+        await invoke_llm(messages, structured_output=MapSpecListOutput, temperature=_TEMPERATURE),
     )
 
     # 맵 크기 강제 (LLM 출력 덮어쓰기)

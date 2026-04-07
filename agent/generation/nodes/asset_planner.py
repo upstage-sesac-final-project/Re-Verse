@@ -7,6 +7,7 @@ canonical: docs/The_world/switch_allocation.md
 import logging
 
 from agent.generation.models import GameSpec
+from agent.generation.progress import publish_progress
 from agent.generation.registry.id_table import IdTable
 from agent.generation.registry.switch_table import SwitchTable
 from agent.generation.state import GenerationState
@@ -25,8 +26,9 @@ _GENERATION_ORDER = [
 ]
 
 
-def asset_planner(state: GenerationState) -> dict:
+async def asset_planner(state: GenerationState) -> dict:
     """B 노드: GameSpec → IdTable, SwitchTable, generation_order."""
+    gen_id = state["generation_id"]
     spec: GameSpec = state["game_spec"]  # type: ignore[assignment]
 
     id_table = _build_id_table(spec)
@@ -38,6 +40,15 @@ def asset_planner(state: GenerationState) -> dict:
         len(id_table.enemies),
         len(id_table.maps),
         len(switch_table.switches),
+    )
+
+    await publish_progress(
+        gen_id,
+        {
+            "type": "phase_complete",
+            "phase": "planning",
+            "summary": f"에셋 계획 완료: 액터 {len(id_table.actors)}명, 적 {len(id_table.enemies)}종, 맵 {len(id_table.maps)}개",
+        },
     )
 
     completed = list(state.get("completed_phases", []))

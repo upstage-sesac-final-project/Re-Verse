@@ -15,19 +15,19 @@ from agent.core.config import agent_config
 
 logger = logging.getLogger(__name__)
 
-_llm: BaseChatModel | None = None
+_llm_cache: dict[float, BaseChatModel] = {}
 
 
-def get_llm() -> BaseChatModel:
-    """싱글톤 LLM 인스턴스를 반환한다."""
-    global _llm
-    if _llm is None:
-        _llm = _build_llm()
-    return _llm
+def get_llm(temperature: float | None = None) -> BaseChatModel:
+    """temperature별로 캐시된 LLM 인스턴스를 반환한다."""
+    temp = temperature if temperature is not None else agent_config.LLM_TEMPERATURE
+    if temp not in _llm_cache:
+        _llm_cache[temp] = _build_llm(temp)
+    return _llm_cache[temp]
 
 
-def _build_llm() -> BaseChatModel:
-    """AgentConfig 설정으로 적절한 LLM 인스턴스를 생성한다."""
+def _build_llm(temperature: float) -> BaseChatModel:
+    """주어진 temperature로 LLM 인스턴스를 생성한다."""
     if not agent_config.LLM_API_KEY:
         raise RuntimeError("LLM_API_KEY가 설정되지 않았습니다. 루트 .env 파일을 확인하세요.")
 
@@ -42,22 +42,28 @@ def _build_llm() -> BaseChatModel:
         llm = ChatUpstage(
             api_key=SecretStr(agent_config.LLM_API_KEY),
             model=agent_config.LLM_MODEL,
-            temperature=agent_config.LLM_TEMPERATURE,
+            temperature=temperature,
         )
-        logger.info("Upstage 전용 LLM 초기화: model=%s", agent_config.LLM_MODEL)
+        logger.info(
+            "Upstage 전용 LLM 초기화: model=%s temperature=%.1f",
+            agent_config.LLM_MODEL,
+            temperature,
+        )
     else:
         # 기타 OpenAI 호환 모델
         init_kwargs: dict[str, Any] = {
             "api_key": SecretStr(agent_config.LLM_API_KEY),
             "model": agent_config.LLM_MODEL,
             "max_tokens": agent_config.LLM_MAX_TOKENS,
-            "temperature": agent_config.LLM_TEMPERATURE,
+            "temperature": temperature,
         }
         if agent_config.LLM_BASE_URL:
             init_kwargs["base_url"] = agent_config.LLM_BASE_URL
 
         llm = ChatOpenAI(**init_kwargs)
-        logger.info("OpenAI 호환 LLM 초기화: model=%s", agent_config.LLM_MODEL)
+        logger.info(
+            "OpenAI 호환 LLM 초기화: model=%s temperature=%.1f", agent_config.LLM_MODEL, temperature
+        )
 
     return llm
 
@@ -65,17 +71,19 @@ def _build_llm() -> BaseChatModel:
 async def invoke_llm(
     messages: list[BaseMessage],
     structured_output: type[BaseModel] | None = None,
+    temperature: float | None = None,
 ) -> str | BaseModel:
     """LLM을 비동기 호출한다.
 
     Args:
         messages: LangChain 메시지 목록
         structured_output: 지정하면 해당 Pydantic 모델로 파싱된 결과를 반환
+        temperature: 호출별 temperature. None이면 config 기본값 사용
 
     Returns:
         structured_output 미지정 시 str, 지정 시 해당 Pydantic 인스턴스
     """
-    llm = get_llm()
+    llm = get_llm(temperature)
     timeout = agent_config.LLM_TIMEOUT
 
     try:
@@ -113,6 +121,5 @@ async def invoke_llm_simple(system_prompt: str, user_message: str) -> str:
 
 
 def reset_llm() -> None:
-    """싱글톤을 초기화한다. 런타임 설정 변경 후 재초기화 시 사용."""
-    global _llm
-    _llm = None
+    """캐시를 초기화한다. 런타임 설정 변경 후 재초기화 시 사용."""
+    _llm_cache.clear()
