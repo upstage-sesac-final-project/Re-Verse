@@ -1,0 +1,156 @@
+<h2>에디터 레이아웃을 선택해주세요</h2>
+<p class="subtitle">AI 채팅과 게임 프리뷰를 어떻게 배치할까요?</p>
+
+<div class="cards">
+
+  <!-- Option A: Left Chat (Current refined) -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#141416;padding:14px;font-family:system-ui;">
+      <div style="border-radius:10px;overflow:hidden;border:1px solid #2c2c2e;box-shadow:0 4px 16px #0006;">
+        <!-- Header -->
+        <div style="background:#1c1c1e;height:36px;display:flex;align-items:center;padding:0 12px;gap:8px;border-bottom:1px solid #2c2c2e;">
+          <div style="width:22px;height:22px;border-radius:6px;background:#ff3b5c;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:9px;">R</div>
+          <span style="color:#f2f2f7;font-size:10px;font-weight:600;">Re:Verse</span>
+          <span style="color:#3a3a3c;font-size:9px;">/</span>
+          <span style="color:#8e8e93;font-size:9px;">내 RPG 게임</span>
+          <div style="margin-left:auto;display:flex;gap:6px;">
+            <div style="padding:3px 8px;border-radius:4px;background:#2c2c2e;color:#8e8e93;font-size:8px;">가이드</div>
+            <div style="padding:3px 8px;border-radius:4px;background:#ff3b5c;color:#fff;font-size:8px;">저장</div>
+          </div>
+        </div>
+        <!-- Body -->
+        <div style="display:flex;height:120px;">
+          <!-- Left Chat -->
+          <div style="width:110px;background:#161618;border-right:1px solid #2c2c2e;padding:8px;display:flex;flex-direction:column;gap:4px;">
+            <div style="color:#636366;font-size:7px;letter-spacing:0.5px;margin-bottom:2px;">AI 어시스턴트</div>
+            <div style="background:#1c1c1e;border-radius:5px;padding:5px 6px;border:1px solid #2c2c2e;">
+              <div style="color:#f2f2f7;font-size:7px;">용사 캐릭터 만들어줘</div>
+            </div>
+            <div style="background:#ff3b5c18;border-radius:5px;padding:5px 6px;border:1px solid #ff3b5c22;">
+              <div style="color:#ff9f9f;font-size:7px;">✓ 아르테 생성 완료</div>
+            </div>
+            <div style="flex:1;"></div>
+            <div style="background:#1c1c1e;border-radius:5px;height:18px;border:1px solid #2c2c2e;display:flex;align-items:center;padding:0 5px;">
+              <div style="color:#48484a;font-size:7px;">명령어 입력...</div>
+            </div>
+          </div>
+          <!-- Right Preview -->
+          <div style="flex:1;background:#111113;padding:8px;display:flex;flex-direction:column;gap:4px;">
+            <div style="display:flex;gap:6px;border-bottom:1px solid #2c2c2e;padding-bottom:4px;">
+              <span style="color:#ff3b5c;font-size:7px;font-weight:600;border-bottom:1.5px solid #ff3b5c;padding-bottom:2px;">Play</span>
+              <span style="color:#48484a;font-size:7px;">Map</span>
+              <span style="color:#48484a;font-size:7px;">Data</span>
+            </div>
+            <div style="flex:1;background:#0a0a0c;border-radius:6px;border:1px solid #1c1c1e;display:flex;align-items:center;justify-content:center;">
+              <span style="color:#2c2c2e;font-size:8px;">Game Preview</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 왼쪽 채팅 (현재 방식)</h3>
+      <p>채팅이 왼쪽, 프리뷰가 오른쪽. 접기/펼치기 가능. 자연스러운 입력 흐름.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Right Chat -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#141416;padding:14px;font-family:system-ui;">
+      <div style="border-radius:10px;overflow:hidden;border:1px solid #2c2c2e;box-shadow:0 4px 16px #0006;">
+        <!-- Header -->
+        <div style="background:#1c1c1e;height:36px;display:flex;align-items:center;padding:0 12px;gap:8px;border-bottom:1px solid #2c2c2e;">
+          <div style="width:22px;height:22px;border-radius:6px;background:#ff3b5c;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:9px;">R</div>
+          <span style="color:#f2f2f7;font-size:10px;font-weight:600;">Re:Verse</span>
+          <span style="color:#3a3a3c;font-size:9px;">/</span>
+          <span style="color:#8e8e93;font-size:9px;">내 RPG 게임</span>
+          <div style="margin-left:auto;display:flex;gap:6px;">
+            <div style="padding:3px 8px;border-radius:4px;background:#2c2c2e;color:#8e8e93;font-size:8px;">가이드</div>
+            <div style="padding:3px 8px;border-radius:4px;background:#ff3b5c;color:#fff;font-size:8px;">저장</div>
+          </div>
+        </div>
+        <!-- Body -->
+        <div style="display:flex;height:120px;">
+          <!-- Left Preview -->
+          <div style="flex:1;background:#111113;padding:8px;display:flex;flex-direction:column;gap:4px;border-right:1px solid #2c2c2e;">
+            <div style="display:flex;gap:6px;border-bottom:1px solid #2c2c2e;padding-bottom:4px;">
+              <span style="color:#ff3b5c;font-size:7px;font-weight:600;border-bottom:1.5px solid #ff3b5c;padding-bottom:2px;">Play</span>
+              <span style="color:#48484a;font-size:7px;">Map</span>
+              <span style="color:#48484a;font-size:7px;">Data</span>
+            </div>
+            <div style="flex:1;background:#0a0a0c;border-radius:6px;border:1px solid #1c1c1e;display:flex;align-items:center;justify-content:center;">
+              <span style="color:#2c2c2e;font-size:8px;">Game Preview</span>
+            </div>
+          </div>
+          <!-- Right Chat -->
+          <div style="width:110px;background:#161618;padding:8px;display:flex;flex-direction:column;gap:4px;">
+            <div style="color:#636366;font-size:7px;letter-spacing:0.5px;margin-bottom:2px;">AI 어시스턴트</div>
+            <div style="background:#1c1c1e;border-radius:5px;padding:5px 6px;border:1px solid #2c2c2e;">
+              <div style="color:#f2f2f7;font-size:7px;">용사 캐릭터 만들어줘</div>
+            </div>
+            <div style="background:#ff3b5c18;border-radius:5px;padding:5px 6px;border:1px solid #ff3b5c22;">
+              <div style="color:#ff9f9f;font-size:7px;">✓ 아르테 생성 완료</div>
+            </div>
+            <div style="flex:1;"></div>
+            <div style="background:#1c1c1e;border-radius:5px;height:18px;border:1px solid #2c2c2e;display:flex;align-items:center;padding:0 5px;">
+              <div style="color:#48484a;font-size:7px;">명령어 입력...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 오른쪽 채팅</h3>
+      <p>게임 프리뷰가 먼저, 채팅이 오른쪽. 프리뷰를 보면서 오른쪽에 입력하는 직관적인 흐름.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Bottom Chat (IDE style) -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#141416;padding:14px;font-family:system-ui;">
+      <div style="border-radius:10px;overflow:hidden;border:1px solid #2c2c2e;box-shadow:0 4px 16px #0006;">
+        <!-- Header -->
+        <div style="background:#1c1c1e;height:36px;display:flex;align-items:center;padding:0 12px;gap:8px;border-bottom:1px solid #2c2c2e;">
+          <div style="width:22px;height:22px;border-radius:6px;background:#ff3b5c;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:9px;">R</div>
+          <span style="color:#f2f2f7;font-size:10px;font-weight:600;">Re:Verse</span>
+          <span style="color:#3a3a3c;font-size:9px;">/</span>
+          <span style="color:#8e8e93;font-size:9px;">내 RPG 게임</span>
+          <div style="margin-left:auto;display:flex;gap:6px;">
+            <div style="padding:3px 8px;border-radius:4px;background:#2c2c2e;color:#8e8e93;font-size:8px;">가이드</div>
+            <div style="padding:3px 8px;border-radius:4px;background:#ff3b5c;color:#fff;font-size:8px;">저장</div>
+          </div>
+        </div>
+        <!-- Body: Preview top, Chat bottom -->
+        <div style="display:flex;flex-direction:column;height:120px;">
+          <!-- Top Preview -->
+          <div style="flex:1;background:#111113;padding:8px;display:flex;flex-direction:column;gap:4px;border-bottom:1px solid #2c2c2e;">
+            <div style="display:flex;gap:6px;border-bottom:1px solid #1c1c1e;padding-bottom:3px;">
+              <span style="color:#ff3b5c;font-size:7px;font-weight:600;">Play</span>
+              <span style="color:#48484a;font-size:7px;">Map</span>
+              <span style="color:#48484a;font-size:7px;">Data</span>
+            </div>
+            <div style="flex:1;background:#0a0a0c;border-radius:5px;border:1px solid #1c1c1e;display:flex;align-items:center;justify-content:center;">
+              <span style="color:#2c2c2e;font-size:8px;">Game Preview (넓게)</span>
+            </div>
+          </div>
+          <!-- Bottom Chat -->
+          <div style="height:44px;background:#161618;padding:5px 8px;display:flex;flex-direction:column;gap:3px;">
+            <div style="display:flex;gap:4px;align-items:center;">
+              <div style="color:#ff9f9f;font-size:7px;background:#ff3b5c18;border-radius:4px;padding:2px 5px;border:1px solid #ff3b5c22;">✓ 아르테 생성 완료</div>
+              <div style="margin-left:auto;color:#636366;font-size:7px;">AI 어시스턴트 ↑</div>
+            </div>
+            <div style="background:#1c1c1e;border-radius:5px;height:18px;border:1px solid #2c2c2e;display:flex;align-items:center;padding:0 6px;gap:4px;">
+              <div style="color:#48484a;font-size:7px;flex:1;">명령어를 입력하세요...</div>
+              <div style="background:#ff3b5c;border-radius:3px;padding:2px 6px;color:#fff;font-size:6px;font-weight:600;">전송</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 하단 채팅 (IDE 스타일)</h3>
+      <p>게임 프리뷰를 최대화하고 채팅은 아래 패널로. VS Code 터미널 방식. 프리뷰 집중형.</p>
+    </div>
+  </div>
+
+</div>

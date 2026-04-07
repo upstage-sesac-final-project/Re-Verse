@@ -1,0 +1,65 @@
+<h2>타이포그래피를 선택해주세요</h2>
+<p class="subtitle">UI 전반의 폰트 조합 (Studio Pro 디자인 방향 기준)</p>
+
+<div class="cards">
+
+  <!-- Option A: System UI (현재) -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1c1c1e;padding:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;">
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="color:#f2f2f7;font-size:18px;font-weight:700;letter-spacing:-0.3px;">Re:Verse Studio</div>
+        <div style="color:#ff3b5c;font-size:13px;font-weight:600;">용사 캐릭터 생성 완료</div>
+        <div style="color:#ebebf5cc;font-size:12px;line-height:1.5;">초기 레벨 1의 전사 캐릭터 "아르테"가<br>생성되었습니다. 직업과 능력치를 확인하세요.</div>
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <div style="background:#2c2c2e;border-radius:6px;padding:5px 12px;color:#8e8e93;font-size:11px;font-weight:500;">Actors.json</div>
+          <div style="background:#ff3b5c;border-radius:6px;padding:5px 12px;color:#fff;font-size:11px;font-weight:600;">저장</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 시스템 UI (현재)</h3>
+      <p>-apple-system / Segoe UI. OS 기본 폰트라 가장 자연스럽고 렌더링이 빠름.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Inter -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1c1c1e;padding:20px;font-family:'Inter',sans-serif;">
+      <style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');</style>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="color:#f2f2f7;font-size:18px;font-weight:700;letter-spacing:-0.5px;">Re:Verse Studio</div>
+        <div style="color:#ff3b5c;font-size:13px;font-weight:600;">용사 캐릭터 생성 완료</div>
+        <div style="color:#ebebf5cc;font-size:12px;line-height:1.5;">초기 레벨 1의 전사 캐릭터 "아르테"가<br>생성되었습니다. 직업과 능력치를 확인하세요.</div>
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <div style="background:#2c2c2e;border-radius:6px;padding:5px 12px;color:#8e8e93;font-size:11px;font-weight:500;">Actors.json</div>
+          <div style="background:#ff3b5c;border-radius:6px;padding:5px 12px;color:#fff;font-size:11px;font-weight:600;">저장</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Inter</h3>
+      <p>Linear, Vercel, Notion이 쓰는 폰트. 화면 가독성 최적화. 영문에서 특히 인상적.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Pretendard -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1c1c1e;padding:20px;font-family:'Pretendard',sans-serif;">
+      <style>@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');</style>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="color:#f2f2f7;font-size:18px;font-weight:700;letter-spacing:-0.5px;">Re:Verse Studio</div>
+        <div style="color:#ff3b5c;font-size:13px;font-weight:600;">용사 캐릭터 생성 완료</div>
+        <div style="color:#ebebf5cc;font-size:12px;line-height:1.5;">초기 레벨 1의 전사 캐릭터 "아르테"가<br>생성되었습니다. 직업과 능력치를 확인하세요.</div>
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <div style="background:#2c2c2e;border-radius:6px;padding:5px 12px;color:#8e8e93;font-size:11px;font-weight:500;">Actors.json</div>
+          <div style="background:#ff3b5c;border-radius:6px;padding:5px 12px;color:#fff;font-size:11px;font-weight:600;">저장</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. Pretendard</h3>
+      <p>한국 개발자 커뮤니티 표준. 한글+영문 혼용 UI에서 균형이 가장 좋음. 가볍고 무료.</p>
+    </div>
+  </div>
+
+</div>

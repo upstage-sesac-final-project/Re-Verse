@@ -1,0 +1,90 @@
+<h2>액센트 컬러를 선택해주세요</h2>
+<p class="subtitle">버튼, 강조, 활성 상태 등 전체에 쓰이는 핵심 색상입니다</p>
+
+<div class="cards">
+
+  <!-- Option A: Keep Red -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1c1c1e; padding:20px; font-family:system-ui;">
+      <div style="display:flex;flex-direction:column;gap:10px;align-items:center;">
+        <div style="width:56px;height:56px;border-radius:14px;background:#e60012;box-shadow:0 4px 20px #e6001255;"></div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <div style="padding:6px 14px;border-radius:7px;background:#e60012;color:#fff;font-size:11px;font-weight:600;">시작하기</div>
+          <div style="padding:5px 12px;border-radius:7px;background:#2c2c2e;color:#e60012;font-size:11px;font-weight:500;border:1px solid #e6001244;">편집</div>
+        </div>
+        <div style="background:#2c2c2e;border-radius:8px;padding:8px 12px;width:100%;box-sizing:border-box;">
+          <div style="height:3px;border-radius:2px;background:#2e2e30;margin-bottom:5px;"><div style="width:60%;height:100%;background:#e60012;border-radius:2px;"></div></div>
+          <div style="color:#e60012;font-size:10px;font-weight:600;">Play</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 레드 유지 <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#e60012;vertical-align:middle;margin-left:4px;"></span></h3>
+      <p>#e60012 — 현재 브랜드 컬러. 강렬하고 기억에 남음. Re:Verse의 정체성.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Coral Red -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1c1c1e; padding:20px; font-family:system-ui;">
+      <div style="display:flex;flex-direction:column;gap:10px;align-items:center;">
+        <div style="width:56px;height:56px;border-radius:14px;background:#ff3b5c;box-shadow:0 4px 20px #ff3b5c55;"></div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <div style="padding:6px 14px;border-radius:7px;background:#ff3b5c;color:#fff;font-size:11px;font-weight:600;">시작하기</div>
+          <div style="padding:5px 12px;border-radius:7px;background:#2c2c2e;color:#ff3b5c;font-size:11px;font-weight:500;border:1px solid #ff3b5c44;">편집</div>
+        </div>
+        <div style="background:#2c2c2e;border-radius:8px;padding:8px 12px;width:100%;box-sizing:border-box;">
+          <div style="height:3px;border-radius:2px;background:#2e2e30;margin-bottom:5px;"><div style="width:60%;height:100%;background:#ff3b5c;border-radius:2px;"></div></div>
+          <div style="color:#ff3b5c;font-size:10px;font-weight:600;">Play</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 코랄 레드 <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#ff3b5c;vertical-align:middle;margin-left:4px;"></span></h3>
+      <p>#ff3b5c — 더 밝고 부드러운 레드. macOS/iOS 시스템 레드와 유사. 세련된 느낌.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Indigo -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1c1c1e; padding:20px; font-family:system-ui;">
+      <div style="display:flex;flex-direction:column;gap:10px;align-items:center;">
+        <div style="width:56px;height:56px;border-radius:14px;background:#5856d6;box-shadow:0 4px 20px #5856d655;"></div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <div style="padding:6px 14px;border-radius:7px;background:#5856d6;color:#fff;font-size:11px;font-weight:600;">시작하기</div>
+          <div style="padding:5px 12px;border-radius:7px;background:#2c2c2e;color:#5856d6;font-size:11px;font-weight:500;border:1px solid #5856d644;">편집</div>
+        </div>
+        <div style="background:#2c2c2e;border-radius:8px;padding:8px 12px;width:100%;box-sizing:border-box;">
+          <div style="height:3px;border-radius:2px;background:#2e2e30;margin-bottom:5px;"><div style="width:60%;height:100%;background:#5856d6;border-radius:2px;"></div></div>
+          <div style="color:#5856d6;font-size:10px;font-weight:600;">Play</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 인디고 <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#5856d6;vertical-align:middle;margin-left:4px;"></span></h3>
+      <p>#5856d6 — Linear, Notion 류의 퍼플-인디고. 중립적이고 프로페셔널. 눈 피로 적음.</p>
+    </div>
+  </div>
+
+  <!-- Option D: Amber -->
+  <div class="card" data-choice="d" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1c1c1e; padding:20px; font-family:system-ui;">
+      <div style="display:flex;flex-direction:column;gap:10px;align-items:center;">
+        <div style="width:56px;height:56px;border-radius:14px;background:#f59e0b;box-shadow:0 4px 20px #f59e0b55;"></div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <div style="padding:6px 14px;border-radius:7px;background:#f59e0b;color:#1c1c1e;font-size:11px;font-weight:600;">시작하기</div>
+          <div style="padding:5px 12px;border-radius:7px;background:#2c2c2e;color:#f59e0b;font-size:11px;font-weight:500;border:1px solid #f59e0b44;">편집</div>
+        </div>
+        <div style="background:#2c2c2e;border-radius:8px;padding:8px 12px;width:100%;box-sizing:border-box;">
+          <div style="height:3px;border-radius:2px;background:#2e2e30;margin-bottom:5px;"><div style="width:60%;height:100%;background:#f59e0b;border-radius:2px;"></div></div>
+          <div style="color:#f59e0b;font-size:10px;font-weight:600;">Play</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>D. 앰버 골드 <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#f59e0b;vertical-align:middle;margin-left:4px;"></span></h3>
+      <p>#f59e0b — 따뜻하고 창의적인 느낌. 게임 제작 툴로서 독특한 포지셔닝.</p>
+    </div>
+  </div>
+
+</div>
