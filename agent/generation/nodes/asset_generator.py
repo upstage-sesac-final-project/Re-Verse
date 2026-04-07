@@ -730,14 +730,18 @@ async def generate_actors(
         if not (0 <= d.get("faceIndex", 0) <= 7):
             d["faceIndex"] = 0
 
-        # battlerName 검증 (sv_actors/)
-        if d.get("battlerName") not in VALID_ACTOR_BATTLER_NAMES:
-            logger.warning(
-                "actor '%s' battlerName='%s' 유효하지 않음 → 빈 문자열로 초기화",
-                d.get("name"),
-                d.get("battlerName"),
-            )
-            d["battlerName"] = ""
+        # 이미지 일관성 강제: characterName/characterIndex를 faceName/faceIndex에 맞춤
+        d["characterName"] = d["faceName"]
+        d["characterIndex"] = d["faceIndex"]
+
+        # battlerName을 faceName/faceIndex 기반으로 자동 계산 (1-based)
+        derived_battler = f"{d['faceName']}_{d['faceIndex'] + 1}"
+        if derived_battler in VALID_ACTOR_BATTLER_NAMES:
+            d["battlerName"] = derived_battler
+        else:
+            # Actor3/SF_Actor3의 index 0~3 등 sv_actors에 없는 경우
+            if d.get("battlerName") not in VALID_ACTOR_BATTLER_NAMES:
+                d["battlerName"] = ""
 
         output.append(d)
     return _ensure_null_at_0(output)

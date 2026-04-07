@@ -231,15 +231,41 @@ _ENEMIES_SYSTEM = """\
 
 ## 규칙
 1. id는 제공된 값을 사용하세요.
-2. battlerName: 아래 목록에서만 선택 (img/enemies/ 실제 파일명 기준)
-   판타지: Goblin, Dragon, Lich, Zombie, Witch, Demon, Harpy, Medusa, Unicorn, Treant,
-           Siren, Berserker, Birdman, Blackknight, Captain, Crow, Darkelf, Demoncount,
-           Demonpot, Evilbook, Evilgod, Foxman, Gatekeeper, Gnome, Goddess, Hakutaku,
-           Highking, Hydra, Ketos, Kraken, Machinerybee, Matango, Mechascorpion,
-           Mercenary, Mimic, Petitdevil, Salamander, Sandworm, Sorcerer, Stoneknight,
-           Sylph, Tigerbunny, Undine, Wolfman, Wraith
-   SF:     SF_Agent, SF_Boss, SF_Cyborg, SF_Drone, SF_Madclown, SF_Phoenix,
-           SF_Securityrobot, SF_Shadow, SF_Slaughterrobot, SF_Wolf, SF_Zombiedog
+2. battlerName: 아래 목록에서만 선택 (img/enemies/ 실제 파일명 기준, 외형 참고)
+
+   판타지 잡몹: Goblin(초록도깨비), Zombie(좀비), Petitdevil(소악마), Matango(버섯생물),
+     Oddegg(알생물), Caitsith(고양이귀소녀), Gnome(버섯모자요정), Crow(까마귀), Crab(게)
+   판타지 중간: Wolfman(늑대인간), Tigerbunny(호랑이토끼), Birdman(독수리머리전사),
+     Harpy(날개여성), Frilledlizard(도마뱀), Demonpot(항아리악마), Sandworm(모래벌레),
+     Sylph(꽃요정), Undine(물정령), Treant(나무괴물), Foxman(여우인간), Darkelf(다크엘프),
+     Captain(선장), Mercenary(용병), Sailor(선원), Sorcerer(마법사), Salamander(화염정령),
+     Stoneknight(돌기사), Hakutaku(신수), Mimic(보물상자함정), Evilbook(마법책생물),
+     Mechascorpion(기계전갈), Machinerybee(기계벌), Plasma(에너지구체)
+   판타지 강적: Berserker(흰머리여전사), Blackknight(검은기사), Witch(흰머리마녀),
+     Medusa(뱀촉수여신), Siren(인어여성), Wraith(보라로브유령), Demoncount(악마백작),
+     Kraken(대형문어), Hydra(다머리용), Ketos(바다괴물), Unicorn(흰유니콘),
+     Hi_monster(대형강적), Gatekeeper(문지기)
+   판타지 보스: Highking(황금갑옷전사), Dragon(붉은드래곤), Demon(용형악마), Lich(번개언데드),
+     Evilgod(촉수여신), Goddess(비행여신), God_of_light(빛의신), Goddess_of_death(낫사신)
+   판타지 최종: Demon_metamorphosis(거대변이악마)
+
+   인간형 적: Actor1_3, Actor1_4, Actor1_5, Actor1_6,
+     Actor2_1, Actor2_2, Actor2_3, Actor2_4, Actor2_5, Actor2_6, Actor2_7,
+     Actor3_1, Actor3_2, Actor3_3, Actor3_4
+
+   SF 잡몹: SF_Agent(요원), SF_Drone(드론), SF_Workrobot(작업로봇),
+     SF_Zombiedog(좀비개), SF_Timebomb(시한폭탄로봇)
+   SF 중간: SF_Anaconda(아나콘다), SF_Armygorilla(군용고릴라), SF_Armymonkey(군용원숭이),
+     SF_Brownbear(갈색곰), SF_Wolf(늑대), SF_Whitewolf(흰늑대), SF_Kamaitachi(낫족제비),
+     SF_Kappa(갓파), SF_Will_o_the_wisp(도깨비불), SF_Jiangshi(강시),
+     SF_Hannyamask(한냐마스크), SF_Madclown(광대), SF_Mafia(마피아),
+     SF_Specialforces(특수부대), SF_Securityrobot(경비로봇), SF_Mechasphere(구체로봇),
+     SF_Talkingmuppet(마리오네트), SF_Evilteddybear(악마인형), SF_Shadow(그림자)
+   SF 강적: SF_Skullmask(해골마스크), SF_Slaughterrobot(학살로봇), SF_Cyborg(사이보그),
+     SF_Blueogre(파란도깨비), SF_Redogre(붉은도깨비), SF_Phoenix(불사조),
+     SF_Hermit(은둔마법사), SF_Madscientist(미친과학자)
+   SF 보스: SF_Enmadaio(염마대왕), SF_Boss(흰정장마피아두목)
+   SF 최종: SF_Demon_of_universe(우주악마)
 3. actions: 기본 공격만 (skillId=1)
 4. dropItems: [{"kind": 1, "dataId": 아이템ID, "denominator": 4}] 형식
 """
@@ -283,27 +309,78 @@ _ACTORS_SYSTEM = """\
 
 ## 이미지 파일명 — 반드시 아래 목록에서만 선택
 
-characterName (img/characters/ 파일명, 확장자 제외):
-  일반: Actor1, Actor2, Actor3, People1, People2, People3, People4, Evil, Monster
-  SF:   SF_Actor1, SF_Actor2, SF_Actor3, SF_People1, SF_People2, SF_People3
-characterIndex: 0~7 정수 (같은 파일 내 다른 캐릭터 선택)
-
-faceName (img/faces/ 파일명, 확장자 제외):
-  일반: Actor1, Actor2, Actor3, People1, People2, People3, People4, Evil, Monster, Nature
-  SF:   SF_Actor1, SF_Actor2, SF_Actor3, SF_Monster, SF_People1
-faceIndex: 0~7 정수
+characterName / faceName (동일한 이름 사용 권장):
+  판타지: Actor1, Actor2, Actor3, People1, People2, People3, People4, Evil, Monster, Nature
+  SF:     SF_Actor1, SF_Actor2, SF_Actor3, SF_People1, SF_Monster
 
 battlerName (img/sv_actors/ 파일명, 확장자 제외):
-  Actor1_1 ~ Actor1_8, Actor2_1 ~ Actor2_8, Actor3_5 ~ Actor3_8
-  SF_Actor1_1 ~ SF_Actor1_8, SF_Actor2_1 ~ SF_Actor2_8, SF_Actor3_5 ~ SF_Actor3_8
-  (또는 "" 빈 문자열: SV 전투 미사용)
+  Actor1_1~Actor1_8, Actor2_1~Actor2_8, Actor3_5~Actor3_8
+  SF_Actor1_1~SF_Actor1_8, SF_Actor2_1~SF_Actor2_8, SF_Actor3_5~SF_Actor3_8
+  "" (빈 문자열: SV 전투 미사용)
 
-## 할당 가이드
-- 주인공/전사: characterName="Actor1" 또는 "Actor2", faceName도 동일
-- 마법사/성직자: characterName="Actor2" 또는 "Actor3"
-- 도적/닌자: characterName="Actor1" index 4~7
-- SF 배경: SF_ 접두사 계열 사용
-- 여러 캐릭터가 같은 파일 공유 가능 (characterIndex로 구분)
+## characterIndex / faceIndex 상세 가이드 (0~7)
+
+**Actor1** (판타지 주인공급):
+  0=갈색단발남(파란눈·결의)   1=적갈색단발여(붉은스카프)
+  2=주황스파이크남(묵묵함)    3=적단발여(빨간머리띠·전투)
+  4=갈색중단발남(파란기사)    5=금발여(파란모자·마법사)
+  6=은발남(차분·학자)         7=초록머리여(안경·신관)
+
+**Actor2** (판타지 기사·전투형):
+  0=연파랑단발남(온화한기사)  1=분홍롱헤어여(기사)
+  2=연보라단발남(기사장식)    3=보라롱헤어여(귀족·마법사)
+  4=초록스파이크남(개성파)    5=갈색금발장발여(근거리전투)
+  6=연녹황색남(지식인·궁수)   7=은발여(성숙·궁수)
+
+**Actor3** (판타지 특수·신비형):
+  0=검은단발남(전사갑옷)      1=갈색땋은여(궁수·도적)
+  2=백은단발남(냉철)          3=흰모자흰머리여(신비마법사)
+  4=검은단발남(진지한도적)    5=금발여(활발한도적)
+  6=파란갑옷기사남             7=검은롱헤어여(신관)
+
+**SF_Actor1** (SF 학원·청소년):
+  0=갈색단발남(흰교복)        1=갈색단발여(흰교복)
+  2=빨간스파이크남(파란후드)   3=갈색스파이크여(노란자켓)
+  4=검은단발남(짙은정장)      5=보라단발여(핑크베레모·헤드폰)
+  6=갈색단발남(교복조끼)      7=파란안경여(베이지교복)
+
+**SF_Actor2** (SF 캐주얼·스포츠):
+  0=금발남(초록스웨터)        1=금발여(핑크스웨터)
+  2=갈색단발남(파란셔츠)      3=금발여(파란버킷햇)
+  4=초록스파이크남(검은티)    5=갈색운동여(파란수트)
+  6=금발남(짙은자켓)          7=갈색단발여(흰실험복·의사)
+
+**SF_Actor3** (SF 성인·요원):
+  0=검은단발남(흰폴로·근육)   1=황금롱헤어여(노란카디건)
+  2=보라롱헤어남(짙은정장)    3=빨간롱헤어여(파란장미·마스크)
+  4=회색검은마스크남(닌자)    5=갈색단발소녀(빨간캡)
+  6=검은단발남(이어피스·요원)  7=검은롱헤어여(교복·리본)
+
+## 역할별 추천 조합
+- 남자 주인공(전사): Actor1/0, Actor2/0, Actor3/0
+- 여자 주인공:       Actor1/1, Actor2/1, Actor3/7
+- 마법사(남):        Actor1/6, Actor2/6, Actor3/2
+- 마법사(여):        Actor1/5, Actor2/3, Actor3/3
+- 도적·닌자:         Actor1/4, Actor3/4, Actor3/5
+- 기사:              Actor1/4, Actor2/2, Actor3/6
+- 성직자:            Actor1/7, Actor3/7
+- SF 주인공:         SF_Actor1/0(남), SF_Actor1/1(여)
+- SF 과학자:         SF_Actor2/7
+- SF 요원:           SF_Actor3/4, SF_Actor3/6
+- 같은 characterName 파일은 characterIndex로 구분 — 한 게임 내 캐릭터마다 다른 index 부여
+
+## 이미지 일관성 규칙 (필수)
+세 필드는 반드시 같은 인물을 가리켜야 합니다:
+- characterName == faceName (동일 시트)
+- characterIndex == faceIndex (동일 index, 동일 인물)
+- battlerName == "{faceName}_{faceIndex + 1}" (sv_actors/ 1-based 넘버링)
+
+예시:
+  faceName="Actor1", faceIndex=1 → characterName="Actor1", characterIndex=1, battlerName="Actor1_2"
+  faceName="SF_Actor2", faceIndex=3 → characterName="SF_Actor2", characterIndex=3, battlerName="SF_Actor2_4"
+
+주의: Actor3/SF_Actor3는 sv_actors에 5~8번만 존재 (1~4 없음).
+  faceIndex 0~3인 Actor3/SF_Actor3 캐릭터는 battlerName="" (SV 전투 미사용)으로 설정.
 """
 
 
