@@ -402,6 +402,67 @@ VALID_BATTLER_NAMES: frozenset[str] = frozenset(
 )
 _BATTLER_FALLBACK = "Goblin"
 
+# ── 액터 이미지 유효 목록 (img/characters/, img/faces/, img/sv_actors/) ───────
+
+VALID_CHARACTER_NAMES: frozenset[str] = frozenset(
+    [
+        "Actor1",
+        "Actor2",
+        "Actor3",
+        "People1",
+        "People2",
+        "People3",
+        "People4",
+        "Evil",
+        "Monster",
+        "Nature",
+        "Vehicle",
+        "SF_Actor1",
+        "SF_Actor2",
+        "SF_Actor3",
+        "SF_People1",
+        "SF_People2",
+        "SF_People3",
+        "SF_Monster",
+        "SF_Vehicle",
+    ]
+)
+_CHARACTER_NAME_FALLBACK = "Actor1"
+
+VALID_FACE_NAMES: frozenset[str] = frozenset(
+    [
+        "Actor1",
+        "Actor2",
+        "Actor3",
+        "People1",
+        "People2",
+        "People3",
+        "People4",
+        "Evil",
+        "Monster",
+        "Nature",
+        "SF_Actor1",
+        "SF_Actor2",
+        "SF_Actor3",
+        "SF_Monster",
+        "SF_People1",
+    ]
+)
+_FACE_NAME_FALLBACK = "Actor1"
+
+# sv_actors/ 에 실제 존재하는 파일명 (Actor3는 5~8만, SF_Actor3도 5~8만)
+VALID_ACTOR_BATTLER_NAMES: frozenset[str] = frozenset(
+    [
+        *(f"Actor1_{i}" for i in range(1, 9)),
+        *(f"Actor2_{i}" for i in range(1, 9)),
+        *(f"Actor3_{i}" for i in range(5, 9)),
+        *(f"SF_Actor1_{i}" for i in range(1, 9)),
+        *(f"SF_Actor2_{i}" for i in range(1, 9)),
+        *(f"SF_Actor3_{i}" for i in range(5, 9)),
+        "",
+    ]  # 빈 문자열 = SV 전투 미사용
+)
+
 
 class RpgEnemy(BaseModel):
     id: int
@@ -639,7 +700,46 @@ async def generate_actors(
     )
     output: list[Any] = [None]
     for actor in sorted(result.items, key=lambda a: a.id):
-        output.append(actor.model_dump())
+        d = actor.model_dump()
+
+        # characterName 검증
+        if d.get("characterName") not in VALID_CHARACTER_NAMES:
+            logger.warning(
+                "actor '%s' characterName='%s' 유효하지 않음 → fallback '%s'",
+                d.get("name"),
+                d.get("characterName"),
+                _CHARACTER_NAME_FALLBACK,
+            )
+            d["characterName"] = _CHARACTER_NAME_FALLBACK
+
+        # characterIndex 범위 보정
+        if not (0 <= d.get("characterIndex", 0) <= 7):
+            d["characterIndex"] = 0
+
+        # faceName 검증
+        if d.get("faceName") not in VALID_FACE_NAMES:
+            logger.warning(
+                "actor '%s' faceName='%s' 유효하지 않음 → fallback '%s'",
+                d.get("name"),
+                d.get("faceName"),
+                _FACE_NAME_FALLBACK,
+            )
+            d["faceName"] = _FACE_NAME_FALLBACK
+
+        # faceIndex 범위 보정
+        if not (0 <= d.get("faceIndex", 0) <= 7):
+            d["faceIndex"] = 0
+
+        # battlerName 검증 (sv_actors/)
+        if d.get("battlerName") not in VALID_ACTOR_BATTLER_NAMES:
+            logger.warning(
+                "actor '%s' battlerName='%s' 유효하지 않음 → 빈 문자열로 초기화",
+                d.get("name"),
+                d.get("battlerName"),
+            )
+            d["battlerName"] = ""
+
+        output.append(d)
     return _ensure_null_at_0(output)
 
 
