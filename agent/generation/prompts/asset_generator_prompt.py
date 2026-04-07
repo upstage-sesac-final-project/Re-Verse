@@ -356,18 +356,22 @@ battlerName (img/sv_actors/ 파일명, 확장자 제외):
   4=회색검은마스크남(닌자)    5=갈색단발소녀(빨간캡)
   6=검은단발남(이어피스·요원)  7=검은롱헤어여(교복·리본)
 
-## 역할별 추천 조합
-- 남자 주인공(전사): Actor1/0, Actor2/0, Actor3/0
-- 여자 주인공:       Actor1/1, Actor2/1, Actor3/7
-- 마법사(남):        Actor1/6, Actor2/6, Actor3/2
-- 마법사(여):        Actor1/5, Actor2/3, Actor3/3
-- 도적·닌자:         Actor1/4, Actor3/4, Actor3/5
-- 기사:              Actor1/4, Actor2/2, Actor3/6
-- 성직자:            Actor1/7, Actor3/7
-- SF 주인공:         SF_Actor1/0(남), SF_Actor1/1(여)
-- SF 과학자:         SF_Actor2/7
-- SF 요원:           SF_Actor3/4, SF_Actor3/6
-- 같은 characterName 파일은 characterIndex로 구분 — 한 게임 내 캐릭터마다 다른 index 부여
+## 외형·역할별 추천 조합
+모든 캐릭터는 동등한 파티원입니다. personality와 외형 설명을 보고 어울리는 index를 선택하세요.
+
+- 전사·전투(남): Actor1/0, Actor2/0, Actor3/0
+- 전사·전투(여): Actor1/3, Actor2/1, Actor3/1
+- 마법사·학자(남): Actor1/6, Actor2/6, Actor3/2
+- 마법사·학자(여): Actor1/5, Actor2/3, Actor3/3
+- 도적·닌자(남): Actor1/2, Actor3/4
+- 도적·닌자(여): Actor1/3, Actor3/5
+- 기사·방어(남): Actor1/4, Actor2/2, Actor3/6
+- 성직자·힐러(여): Actor1/7, Actor3/7
+- SF 전투(남): SF_Actor1/0, SF_Actor3/0
+- SF 전투(여): SF_Actor1/1, SF_Actor3/1
+- SF 과학자·지원: SF_Actor2/7
+- SF 요원·닌자: SF_Actor3/4, SF_Actor3/6
+- 한 게임 내 캐릭터마다 반드시 다른 faceName+faceIndex 조합 사용 (중복 금지)
 
 ## 이미지 일관성 규칙 (필수)
 세 필드는 반드시 같은 인물을 가리켜야 합니다:
@@ -384,25 +388,137 @@ battlerName (img/sv_actors/ 파일명, 확장자 제외):
 """
 
 
+# ── 이미지 풀: (faceName, faceIndex) 조합 ────────────────────────────────────
+# role+gender 키로 우선순위 순 목록
+_IMAGE_POOL: dict[str, list[tuple[str, int]]] = {
+    "mage_female": [("Actor1", 5), ("Actor2", 3), ("Actor3", 3)],
+    "mage_male": [("Actor1", 6), ("Actor2", 6), ("Actor3", 2)],
+    "healer_female": [("Actor1", 7), ("Actor3", 7), ("Actor2", 7)],
+    "healer_male": [("Actor1", 6), ("Actor3", 2), ("Actor2", 6)],
+    "warrior_male": [("Actor1", 0), ("Actor2", 0), ("Actor3", 0)],
+    "warrior_female": [("Actor1", 3), ("Actor2", 1), ("Actor3", 1)],
+    "thief_male": [("Actor1", 2), ("Actor3", 4), ("Actor1", 4)],
+    "thief_female": [("Actor1", 3), ("Actor3", 5), ("Actor3", 1)],
+    "knight_male": [("Actor1", 4), ("Actor2", 2), ("Actor3", 6)],
+    "knight_female": [("Actor2", 1), ("Actor3", 1), ("Actor2", 5)],
+    "archer_male": [("Actor2", 6), ("Actor3", 4), ("Actor1", 2)],
+    "archer_female": [("Actor2", 7), ("Actor3", 5), ("Actor3", 1)],
+    "default": [
+        ("Actor1", 0),
+        ("Actor1", 1),
+        ("Actor1", 2),
+        ("Actor1", 3),
+        ("Actor1", 4),
+        ("Actor1", 5),
+        ("Actor1", 6),
+        ("Actor1", 7),
+        ("Actor2", 0),
+        ("Actor2", 1),
+        ("Actor2", 2),
+        ("Actor2", 3),
+        ("Actor3", 0),
+        ("Actor3", 1),
+        ("Actor3", 2),
+        ("Actor3", 3),
+    ],
+}
+
+_MAGE_KW = {"마법사", "마도사", "wizard", "mage", "소서러", "마법"}
+_HEALER_KW = {"힐러", "성직자", "치유", "사제", "priest", "healer", "클레릭", "현자"}
+_WARRIOR_KW = {"전사", "검사", "파이터", "fighter", "warrior", "근접"}
+_THIEF_KW = {"도적", "닌자", "ninja", "rogue", "어쌔신", "assassin"}
+_KNIGHT_KW = {"기사", "knight", "방어", "팔라딘", "paladin"}
+_ARCHER_KW = {"궁수", "archer", "사냥꾼", "hunter", "레인저", "ranger"}
+_FEMALE_KW = {"여", "여성", "female", "그녀", "녀", "girl", "woman", "소녀"}
+_MALE_KW = {"남", "남성", "male", "그는", "소년", "boy", "man"}
+
+
+def _detect_image_key(role: str, personality: str) -> str:
+    """role + personality 텍스트에서 image pool 키를 결정한다."""
+    text = (role + " " + personality).lower()
+    words = set(text.replace(",", " ").replace(".", " ").split())
+
+    if _MAGE_KW & words:
+        role_key = "mage"
+    elif _HEALER_KW & words:
+        role_key = "healer"
+    elif _WARRIOR_KW & words:
+        role_key = "warrior"
+    elif _THIEF_KW & words:
+        role_key = "thief"
+    elif _KNIGHT_KW & words:
+        role_key = "knight"
+    elif _ARCHER_KW & words:
+        role_key = "archer"
+    else:
+        return "default"
+
+    if _FEMALE_KW & words:
+        gender = "female"
+    elif _MALE_KW & words:
+        gender = "male"
+    else:
+        gender = "male"  # 불명확하면 male 기본
+
+    return f"{role_key}_{gender}"
+
+
+def _assign_images(spec: "GameSpec") -> dict[str, tuple[str, int]]:  # type: ignore[name-defined]
+    """캐릭터별로 중복 없이 (faceName, faceIndex)를 할당한다."""
+    used: set[tuple[str, int]] = set()
+    result: dict[str, tuple[str, int]] = {}
+
+    for c in spec.characters:
+        key = _detect_image_key(c.role, c.personality)
+        pool = _IMAGE_POOL.get(key, _IMAGE_POOL["default"])
+
+        assigned: tuple[str, int] | None = None
+        for candidate in pool:
+            if candidate not in used:
+                assigned = candidate
+                break
+
+        # 풀이 소진됐으면 default에서 찾기
+        if assigned is None:
+            for candidate in _IMAGE_POOL["default"]:
+                if candidate not in used:
+                    assigned = candidate
+                    break
+
+        if assigned is None:
+            assigned = ("Actor1", 0)  # 최후 fallback
+
+        used.add(assigned)
+        result[c.name] = assigned
+
+    return result
+
+
 def build_actors_prompt(
-    spec: GameSpec,
-    id_table: IdTable,
+    spec: "GameSpec",  # type: ignore[name-defined]
+    id_table: "IdTable",  # type: ignore[name-defined]
     classes_json: list,
 ) -> list[BaseMessage]:
-    char_lines = [
-        f"  - id={id_table.actors.get(c.name, 0)}, name={c.name}, "
-        f"classId={id_table.classes.get(c.class_name, 0)}, "
-        f"role={c.role}, personality={c.personality}"
-        for c in spec.characters
-    ]
+    image_assignments = _assign_images(spec)
 
-    human = f"""## 캐릭터 목록
+    char_lines = []
+    for c in spec.characters:
+        face_name, face_index = image_assignments[c.name]
+        char_lines.append(
+            f"  - id={id_table.actors.get(c.name, 0)}, name={c.name}, "
+            f"classId={id_table.classes.get(c.class_name, 0)}, "
+            f"personality={c.personality}, "
+            f"faceName={face_name}, faceIndex={face_index}, "
+            f"characterName={face_name}, characterIndex={face_index}"
+        )
+
+    human = f"""## 캐릭터 목록 (faceName·faceIndex는 아래 지정값을 반드시 그대로 사용)
 {chr(10).join(char_lines)}
 
 ## 초기 장비 참조
 무기 ID: {json.dumps({k: v for k, v in list(id_table.weapons.items())[:4]}, ensure_ascii=False)}
 방어구 ID: {json.dumps({k: v for k, v in list(id_table.armors.items())[:4]}, ensure_ascii=False)}
 
-Actors 데이터를 JSON으로 생성하세요 (배열 첫 요소는 null).
+위 캐릭터 목록 그대로 items 배열을 생성하세요. 캐릭터 수만큼만 생성하고 추가하거나 중복하지 마세요.
 """
     return [SystemMessage(content=_ACTORS_SYSTEM), HumanMessage(content=human)]
