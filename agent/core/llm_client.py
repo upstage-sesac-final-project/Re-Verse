@@ -16,6 +16,7 @@ from agent.core.config import agent_config
 logger = logging.getLogger(__name__)
 
 _llm_cache: dict[float, BaseChatModel] = {}
+_llm_semaphore = asyncio.Semaphore(3)  # 동시 LLM 호출 최대 3개
 
 
 def get_llm(temperature: float | None = None) -> BaseChatModel:
@@ -86,28 +87,29 @@ async def invoke_llm(
     llm = get_llm(temperature)
     timeout = agent_config.LLM_TIMEOUT
 
-    try:
-        if structured_output is not None:
-            # function_calling 방식을 유지하면서 구조화된 출력 반환
-            logger.info("구조화된 응답 생성 시작 (%s)", structured_output.__name__)
-            bound = llm.with_structured_output(structured_output, method="function_calling")
-            result = await asyncio.wait_for(bound.ainvoke(messages), timeout=timeout)
-            logger.info("구조화된 응답 수신 완료")
-            if result is None:
-                raise ValueError(
-                    f"LLM이 {structured_output.__name__} 형식으로 응답하지 못했습니다."
-                )
-            return cast(BaseModel, result)
+    async with _llm_semaphore:
+        try:
+            if structured_output is not None:
+                # function_calling 방식을 유지하면서 구조화된 출력 반환
+                logger.info("구조화된 응답 생성 시작 (%s)", structured_output.__name__)
+                bound = llm.with_structured_output(structured_output, method="function_calling")
+                result = await asyncio.wait_for(bound.ainvoke(messages), timeout=timeout)
+                logger.info("구조화된 응답 수신 완료")
+                if result is None:
+                    raise ValueError(
+                        f"LLM이 {structured_output.__name__} 형식으로 응답하지 못했습니다."
+                    )
+                return cast(BaseModel, result)
 
-        response = await asyncio.wait_for(llm.ainvoke(messages), timeout=timeout)
-        return cast(str, response.content)
+            response = await asyncio.wait_for(llm.ainvoke(messages), timeout=timeout)
+            return cast(str, response.content)
 
-    except TimeoutError:
-        logger.error("LLM 호출 타임아웃 (%ds 초과) [%s]", timeout, agent_config.LLM_MODEL)
-        raise
-    except Exception as e:
-        logger.error("LLM 호출 실패 [%s]: %s", agent_config.LLM_MODEL, e)
-        raise
+        except TimeoutError:
+            logger.error("LLM 호출 타임아웃 (%ds 초과) [%s]", timeout, agent_config.LLM_MODEL)
+            raise
+        except Exception as e:
+            logger.error("LLM 호출 실패 [%s]: %s", agent_config.LLM_MODEL, e)
+            raise
 
 
 async def invoke_llm_simple(system_prompt: str, user_message: str) -> str:
