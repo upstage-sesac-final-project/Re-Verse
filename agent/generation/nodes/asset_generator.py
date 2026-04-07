@@ -489,10 +489,10 @@ class RpgActor(BaseModel):
     classId: int
     initialLevel: int = 1
     maxLevel: int = 99
-    characterName: str
-    characterIndex: int
-    faceName: str
-    faceIndex: int
+    characterName: str = "Actor1"
+    characterIndex: int = 0
+    faceName: str = "Actor1"
+    faceIndex: int = 0
     battlerName: str = ""
     equips: list[int] = [0, 0, 0, 0, 0]
     traits: list[dict] = []
