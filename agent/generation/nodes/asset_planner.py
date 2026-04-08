@@ -66,7 +66,7 @@ def _build_id_table(spec: GameSpec) -> IdTable:
     actors = {c.name: i + 1 for i, c in enumerate(spec.characters)}
     unique_class_names = list(dict.fromkeys(c.class_name for c in spec.characters))
     classes = {name: i + 1 for i, name in enumerate(unique_class_names)}
-    skills = {s: i + 1 for i, s in enumerate(spec.skills)}
+    skills = {s.name: i + 1 for i, s in enumerate(spec.skills)}
     items = {k: i + 1 for i, k in enumerate(spec.key_items)}
     enemies = {e.name: i + 1 for i, e in enumerate(spec.enemies)}
     maps = {m.name: i + 1 for i, m in enumerate(spec.maps)}

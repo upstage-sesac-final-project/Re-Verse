@@ -638,6 +638,13 @@ async def generate_classes(spec: GameSpec, id_table: IdTable) -> list:
     llm_by_name = {cls.name: cls for cls in result.classes}
     valid_skill_ids = set(id_table.skills.values())
 
+    # Bug 1-C: 클래스별 허용 스킬 ID 집합 구축
+    class_skill_ids: dict[str, set[int]] = {}
+    for s in spec.skills:
+        sid = id_table.skills.get(s.name)
+        if sid is not None:
+            class_skill_ids.setdefault(s.class_name, set()).add(sid)
+
     output: list[Any] = [None]
     for cls_name, cid in sorted(id_table.classes.items(), key=lambda x: x[1]):
         role = class_roles.get(cls_name, "default")
@@ -646,10 +653,12 @@ async def generate_classes(spec: GameSpec, id_table: IdTable) -> list:
             logger.warning("LLM이 직업 '%s'를 누락, 기본값 사용", cls_name)
             llm_cls = LlmClass(id=cid, name=cls_name, expParams=[30, 20, 30, 30], learnings=[])
 
+        # 이 클래스에 배정된 스킬 + "공용" 스킬만 허용
+        allowed = class_skill_ids.get(cls_name, set()) | class_skill_ids.get("공용", set())
         learnings = [
             {"level": lr.level, "skillId": lr.skillId, "note": ""}
             for lr in llm_cls.learnings
-            if lr.skillId in valid_skill_ids
+            if lr.skillId in valid_skill_ids and (not allowed or lr.skillId in allowed)
         ]
         output.append(
             {

@@ -97,8 +97,9 @@ def build_skills_prompt(
     spec: GameSpec,
     id_table: IdTable,
 ) -> list[BaseMessage]:
+    skill_class_map = {s.name: s.class_name for s in spec.skills}
     skill_lines = [
-        f"  - id={sid}, name={sname}"
+        f"  - id={sid}, name={sname}, class={skill_class_map.get(sname, '공용')}"
         for sname, sid in sorted(id_table.skills.items(), key=lambda x: x[1])
     ]
 
@@ -109,6 +110,7 @@ def build_skills_prompt(
 {spec.theme}
 {", ".join(f"{c.name}({c.class_name})" for c in spec.characters)}
 
+각 스킬의 class에 맞는 특성을 반영하세요 (전사=물리, 마법사=마법, 힐러=회복 등).
 모든 스킬의 Skills 데이터를 JSON으로 생성하세요.
 """
     return [SystemMessage(content=_SKILLS_SYSTEM), HumanMessage(content=human)]

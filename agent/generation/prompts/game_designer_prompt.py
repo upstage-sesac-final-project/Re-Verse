@@ -16,7 +16,7 @@ RPG Maker MZ 게임의 기획서를 JSON으로 작성합니다.
   - connects_to는 연결된 맵 이름 목록 (양방향 일치해야 함)
   - 모든 맵이 BFS로 연결되어야 함 (고립 맵 금지)
 - key_items: 0~5개
-- skills: 2~8개 (스킬 이름 목록)
+- skills: 클래스당 3~6개, 총 6~20개 (각 스킬에 class_name 지정, 예: {{"name": "파이어볼", "class_name": "마법사"}})
 - weapons: 캐릭터 수 × 2~3개 (무기 이름 목록, 초반~후반 진행)
 - armors: 캐릭터 수 × 1~2개 (방어구 이름 목록)
 - playtime_minutes: 5~10 사이 정수
@@ -49,7 +49,14 @@ RPG Maker MZ 게임의 기획서를 JSON으로 작성합니다.
     {{"name": "마왕의 성", "type": "boss", "description": "마왕이 기다리는 최종 보스 구역", "connects_to": ["어둠의 던전"]}}
   ],
   "key_items": ["성스러운 검", "마왕의 열쇠"],
-  "skills": ["파이어볼", "힐", "대검 강타", "마나 실드"],
+  "skills": [
+    {{"name": "파이어볼", "class_name": "마법사"}},
+    {{"name": "힐", "class_name": "마법사"}},
+    {{"name": "마나 실드", "class_name": "마법사"}},
+    {{"name": "대검 강타", "class_name": "전사"}},
+    {{"name": "방패 치기", "class_name": "전사"}},
+    {{"name": "응급 처치", "class_name": "전사"}}
+  ],
   "weapons": ["단검", "장검", "미스릴 검", "나무 지팡이", "매직 완드", "포스 완드"],
   "armors": ["가죽조끼", "미늘 갑옷", "면 로브", "버클러"]
 }}
