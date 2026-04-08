@@ -235,7 +235,20 @@ _ENEMIES_SYSTEM = """\
    ⚠️ 절대 금지: 목록에 없는 이름을 창작하거나 테마 기반으로 만드는 것
       예) PirateQueen, GhostShip, SeaKing, IceDragon → 이런 이름은 파일이 존재하지 않아 전투 그래픽이 깨짐
       테마와 맞지 않더라도 외형이 비슷한 목록 내 이름을 선택하세요
-   외형 선택 팁: 해적→Captain/Sailor, 마법사→Sorcerer/Witch, 기계→Mechascorpion/SF_Workrobot
+   외형 선택 팁 (테마별 추천, 정확한 이름만 사용):
+     해적·선원   → Captain, Sailor, Mercenary
+     마법사·주술사 → Sorcerer, Witch, Lich, Evilbook
+     기계·로봇   → Mechascorpion, Machinerybee, SF_Workrobot, SF_Securityrobot, SF_Mechasphere
+     해양생물    → Ketos(바다괴물), Kraken(대형문어), Crab(게), Siren(인어), Sandworm
+     해골·언데드  → Zombie, Wraith, Lich, SF_Jiangshi(강시)
+     새·조류     → Crow, Birdman, Harpy
+     식물·균류   → Treant, Matango, Gnome
+     곤충·벌레   → Mechascorpion, Machinerybee
+     정령·원소   → Undine(물), Salamander(불), Sylph(바람), Gnome(땅), Plasma
+     인어·바다요정 → Siren, Ketos, Kraken
+     늑대·개과   → Wolfman, SF_Wolf, SF_Whitewolf
+     도깨비·오우거 → SF_Blueogre, SF_Redogre, Petitdevil, Demoncount
+     ⚠️ "상어", "물고기", "오징어", "해파리" 같은 이름은 파일 없음 → Ketos/Crab/Kraken 사용
 
    판타지 잡몹: Goblin(초록도깨비), Zombie(좀비), Petitdevil(소악마), Matango(버섯생물),
      Oddegg(알생물), Caitsith(고양이귀소녀), Gnome(버섯모자요정), Crow(까마귀), Crab(게)
