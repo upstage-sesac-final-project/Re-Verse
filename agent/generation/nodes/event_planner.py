@@ -169,6 +169,37 @@ def _validate_coords(events: list, spec: MapSpec) -> list:
     return valid
 
 
+def _correct_troop_name(raw: str, all_troop_names: set[str]) -> str | None:
+    """LLM이 suffix를 생략하거나 잘못 붙인 troop 이름을 자동 보정한다.
+
+    보정 순서:
+      1. × 앞 공백/언더스코어 제거 ("이름 ×2" → "이름×2")
+      2. _단독 suffix 추가 ("이름" → "이름_단독")
+      3. ×1 suffix 추가 ("이름" → "이름×1")
+      4. 접두 부분 매칭 (all_troop_names 중 raw로 시작하는 첫 번째)
+    """
+    # 1. × 앞 공백/underscore 정규화
+    normalized = re.sub(r"[\s_]+×", "×", raw)
+    if normalized in all_troop_names:
+        return normalized
+
+    base = normalized  # 이후 suffix 시도는 정규화된 이름 기준
+
+    # 2. _단독 suffix
+    candidate = f"{base}_단독"
+    if candidate in all_troop_names:
+        return candidate
+
+    # 3. ×1 suffix
+    candidate = f"{base}×1"
+    if candidate in all_troop_names:
+        return candidate
+
+    # 4. 접두 부분 매칭 (정렬해서 가장 짧은 것 우선)
+    matches = sorted(t for t in all_troop_names if t.startswith(base))
+    return matches[0] if matches else None
+
+
 def _validate_name_refs(events: list, id_table: IdTable, switch_table: SwitchTable) -> list:
     """id_table에 없는 이름을 참조하는 이벤트 필터링."""
     valid = []
@@ -184,11 +215,15 @@ def _validate_name_refs(events: list, id_table: IdTable, switch_table: SwitchTab
                 )
                 continue
             if hasattr(e, "troop") and e.troop not in all_troop_names:
-                # LLM이 × 앞에 _ 또는 공백을 붙이는 경우 정규화 후 재시도
-                # e.g., "헬리오스_워리어_×3" → "헬리오스_워리어×3"
-                normalized = re.sub(r"[\s_]+×", "×", e.troop)
-                if normalized in all_troop_names:
-                    e.troop = normalized
+                corrected = _correct_troop_name(e.troop, all_troop_names)
+                if corrected:
+                    logger.info(
+                        "battle 이벤트 '%s': troop '%s' → '%s' 자동 보정",
+                        e.name,
+                        e.troop,
+                        corrected,
+                    )
+                    e.troop = corrected
                 else:
                     logger.warning(
                         "battle 이벤트 '%s': troop '%s' 존재하지 않음 → 제거", e.name, e.troop

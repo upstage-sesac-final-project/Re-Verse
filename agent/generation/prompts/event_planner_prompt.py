@@ -110,7 +110,9 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
   name: {이벤트 이름}
   type: battle
   trigger: player_touch
-  troop: {적 그룹 이름}
+  troop: {적 그룹 이름}  # ⚠️ 반드시 아래 "적 그룹" 목록의 정확한 이름 그대로 사용
+                         # 형식: "적이름×숫자" 또는 "적이름_단독"
+                         # 예시 ❌ 틀림: "고블린"  ✅ 맞음: "고블린×2" 또는 "고블린_단독"
   escape_allowed: true
   lose_condition: game_over  # game_over | continue
   on_win:
@@ -154,6 +156,7 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
 - 동일한 (x, y)에 이벤트 2개 배치 금지
 - to_map에 존재하지 않는 맵 이름 사용 금지
 - 제공된 아이템/무기/방어구/적 그룹 목록에 없는 이름 사용 금지
+- battle의 troop에 적 이름만 쓰는 것 금지 → 반드시 "이름×숫자" 또는 "이름_단독" 형식 사용
 
 ## 출력 형식
 
