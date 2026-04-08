@@ -2,14 +2,15 @@
 
 Reader는 `게임_요소_조회` intent에 대한 빠른 처리 경로다.
 기존 workflow의 definition → planner → executor → validator → synthesizer 5단계를 건너뛰고,
-LLM 1회 + 직접 파일 읽기로 조회 결과를 즉시 반환한다.
+기본적으로 LLM 1회 + 직접 파일 읽기로 조회 결과를 즉시 반환한다.
+필요한 경우에만 entity_type 추정, semantic name matching fallback을 위해 LLM을 추가 호출한다.
 
 ## 파일 구성
 
 ```
 agent/graph/nodes/reader.py      # 노드 함수 본체
 agent/prompts/reader_prompt.py   # 프롬프트 빌더 (다른 노드들과 동일한 구조)
-agent/tests/test_reader.py       # 단위/통합 테스트
+agent/tests/test_reader.py       # 인터랙티브 smoke 스크립트
 ```
 
 ## 역할
@@ -17,10 +18,12 @@ agent/tests/test_reader.py       # 단위/통합 테스트
 - LLM 1회로 사용자 쿼리를 구조화된 조회 의도로 변환한다.
 - 변환된 의도를 기반으로 게임 JSON 파일을 직접 읽고 결과를 rule-based 템플릿으로 포맷해서 `final_response`로 반환한다.
 
-LLM은 쿼리 이해와 entity_type 분류 fallback에만 사용한다. 파일 읽기와 응답 포맷은 전부 rule-based다.
+LLM은 쿼리 이해, entity_type 분류 fallback, semantic name matching fallback에만 사용한다.
+파일 읽기, 직접 매칭, 대부분의 응답 포맷은 rule-based다.
 파일을 수정하지 않으므로 snapshot, backup, validation이 필요 없다.
 
-**entity_name은 사용자 입력 그대로 넘긴다.** 게임 데이터가 한국어로 저장돼 있으므로 영문 변환을 하지 않는다. 매칭은 reader.py의 `_find_candidates()`가 담당한다.
+**entity_name은 Step 1에서 사용자 입력 그대로 파싱한다.** 게임 데이터가 한국어로 저장돼 있으므로 영문 변환을 하지 않는다.
+직접 매칭은 reader.py의 `_find_candidates()`가 담당하고, 실패 시 `_apply_semantic_name_match()`가 의미론적 fallback을 한 번 더 시도한다.
 
 ## 입력
 
@@ -51,8 +54,12 @@ from pydantic import BaseModel, Field
 
 from agent.core.llm_client import invoke_llm
 from agent.graph.state import AgentState
-from agent.prompts.reader_prompt import build_prompt
-from agent.utils.game_data_io import read_game_json
+from agent.prompts.reader_prompt import (
+    build_entity_name_match_prompt,
+    build_entity_type_guess_prompt,
+    build_prompt,
+)
+from agent.utils.game_data_io import CATEGORY_TO_PLURAL, read_game_json
 
 logger = logging.getLogger(__name__)
 
@@ -63,17 +70,10 @@ async def reader(state: AgentState) -> dict:
     logger.info("  input : %r", state.get("user_input"))
     logger.info("  game  : %s", state.get("game_id"))
 
-    # Step 1 — LLM으로 조회 의도 구조화
-    # Step 2 — 파일 읽기
-    # Step 3 — 엔티티 매칭
-    # Step 4 — 조회 실행
-    # Step 5 — 포맷
-
-    logger.info(
-        "─── ✅ Reader END (elapsed=%.2fs) ────────────────────",
-        time.perf_counter() - _t0,
-    )
-    return {"final_response": response}
+    messages = build_prompt(state)
+    ...
+    response = ...
+    return _finish_reader(_t0, response)
 ```
 
 에러가 발생하면 exception을 밖으로 던지지 않고 `final_response`에 안내 메시지를 담아 반환한다. 이는 다른 모든 노드의 공통 규칙이다.
@@ -84,6 +84,7 @@ async def reader(state: AgentState) -> dict:
 
 ```python
 class _ReaderQuery(BaseModel):
+    reasoning: str
     query_type: Literal["single_entity", "field_value", "bulk_list", "existence", "aggregate"]
     entity_type: str | None   # 카테고리 (영문 단수형). 예: "enemy", "item", "actor"
     entity_name: str | None   # 사용자 입력 그대로. 영문 변환하지 않음.
@@ -91,7 +92,7 @@ class _ReaderQuery(BaseModel):
                               # bulk_list / aggregate 전체 대상이면 None
     field_name: str | None    # 조회할 JSON 필드명 (영문). 예: "maxHp", "atk", "price"
                               # single_entity / bulk_list / existence 에서는 None
-    filters: dict | None      # 조건 필터. 현재 미구현, 향후 확장용 슬롯
+    filters: dict | None      # 역방향 참조 필터. 예: {"classId": "마법사"}, {"effects": "독"}
     sort: str | None          # 정렬 기준 필드명. ranked_list 패턴을 별도 타입 없이 흡수
     limit: int | None         # 반환 최대 개수
     aggregate_fn: Literal["count", "min", "max", "avg", "sum"] | None
@@ -123,21 +124,24 @@ except Exception as e:
 
 ## 프롬프트 구조 (reader_prompt.py)
 
-router_prompt.py와 동일한 구조다. `_SYSTEM` 상수 + `build_prompt(state)` 함수.
+`reader_prompt.py`는 세 종류의 프롬프트를 가진다.
+- Step 1 구조화용: `_SYSTEM` + `build_prompt(state)`
+- Step 3b entity_type fallback용: `_ENTITY_TYPE_GUESS_SYSTEM` + `build_entity_type_guess_prompt(entity_name)`
+- Step 3c semantic name match fallback용: `_ENTITY_NAME_MATCH_SYSTEM` + `build_entity_name_match_prompt(query_name, available_names)`
 
 ```python
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from agent.graph.state import AgentState
 
-_SYSTEM = """\
-...
-"""
-
-def build_prompt(state: AgentState) -> list[BaseMessage]:
+def _build_messages(system_content: str, human_content: str) -> list[BaseMessage]:
     return [
-        SystemMessage(content=_SYSTEM),
-        HumanMessage(content=f"## 사용자 입력\n{state['user_input']}"),
+        SystemMessage(content=system_content),
+        HumanMessage(content=human_content),
     ]
+
+def build_prompt(state: AgentState) -> list[BaseMessage]: ...
+def build_entity_type_guess_prompt(entity_name: str) -> list[BaseMessage]: ...
+def build_entity_name_match_prompt(query_name: str, available_names: list[str]) -> list[BaseMessage]: ...
 ```
 
 프롬프트에서 반드시 명시해야 하는 내용:
@@ -156,7 +160,7 @@ def build_prompt(state: AgentState) -> list[BaseMessage]:
 from agent.utils.game_data_io import read_game_json, CATEGORY_TO_PLURAL
 
 # entity_type → 파일명 변환
-file_name = CATEGORY_TO_PLURAL.get(entity_type, entity_type.capitalize()) + ".json"
+file_name = CATEGORY_TO_PLURAL[entity_type] + ".json"
 data = read_game_json(game_id, file_name)  # None이면 파일 없음
 ```
 
@@ -164,13 +168,8 @@ snapshot을 만들지 않고 원본 게임 JSON을 바로 읽는다.
 
 ## 매칭 결과 상태 (resolution_status)
 
-`ambiguous_lookup`을 query_type으로 두지 않고, 엔티티 매칭 결과를 내부 상태로 관리한다.
-코드 내부에서만 사용하며 state나 LLM 출력에 노출되지 않는다.
-
-```python
-# 내부 사용 전용 — state 필드 아님
-ResolutionStatus = Literal["matched", "ambiguous", "not_found"]
-```
+`ambiguous_lookup`을 query_type으로 두지 않고, 엔티티 매칭 결과를 내부 분기로 처리한다.
+코드에 별도 `ResolutionStatus` 타입을 선언하지는 않지만, 동작상 아래 세 상태로 나뉜다.
 
 | resolution_status | 조건 | 처리 |
 |---|---|---|
@@ -183,7 +182,9 @@ ResolutionStatus = Literal["matched", "ambiguous", "not_found"]
 0. **ID 숫자 직접 접근** — entity_name이 숫자면 `item["id"]`와 비교 (예: "7번 아이템" → id=7)
 1. **exact match** — 대소문자 구분 완전 일치
 2. **case-insensitive exact** — 대소문자 무시 일치
-3. **fuzzy match** — SequenceMatcher 기반 유사도 매칭
+3. **prefix match** — `entity_name`으로 시작하는 이름 전부
+4. **fuzzy match** — SequenceMatcher 기반 유사도 매칭
+5. **semantic name match fallback** — 직접 매칭 결과가 없을 때 `_guess_entity_name()`으로 의미론적 보정
 
 fuzzy threshold는 초기 구현 후 테스트 결과 기반으로 조정한다. 0.6은 과매칭 위험이 있어 TODO로 남긴다.
 
@@ -191,9 +192,11 @@ fuzzy threshold는 초기 구현 후 테스트 결과 기반으로 조정한다.
 
 | 상황 | LLM 호출 |
 |---|---|
-| entity_type 정상 추출 | 1회 (Step 1만) |
+| entity_type 정상 추출 + 직접 매칭 성공 | 1회 (Step 1만) |
+| entity_type 정상 추출 + 직접 매칭 실패 | 2회 (Step 1 + semantic name match) |
 | entity_type=None + 전체 JSON 검색으로 발견 | 1회 (Step 1만) |
-| entity_type=None + 전체 JSON 검색 실패 | 2회 (Step 1 + Step 3b) |
+| entity_type=None + 전체 JSON 검색 실패 + entity_type fallback으로 해결 | 2회 (Step 1 + Step 3b) |
+| entity_type=None + 전체 JSON 검색 실패 + 재검색도 이름 불일치 | 3회 (Step 1 + Step 3b + semantic name match) |
 
 ## 처리 흐름
 
@@ -202,16 +205,17 @@ fuzzy threshold는 초기 구현 후 테스트 결과 기반으로 조정한다.
 `build_prompt(state)`로 메시지를 만들고 `invoke_llm(..., structured_output=_ReaderQuery)`로 파싱한다.
 실패 시 즉시 fallback 메시지를 반환한다.
 
-### Step 2 — entity_type 확정 (정상 경로)
+### Step 2 — 파일 읽기
 
-Step 1에서 `entity_type`이 결정된 경우 `CATEGORY_TO_PLURAL`로 파일명으로 변환하고 Step 3으로 진행한다.
+`entity_type=system`이면 `System.json`을 직접 읽는다.
+그 외에 Step 1에서 `entity_type`이 결정된 경우 `_load_items_for_entity_type()`가 `CATEGORY_TO_PLURAL`로 파일명으로 변환해 해당 JSON을 읽고 `_valid_items()`까지 적용한다.
 
 `entity_type`이 None인데 `entity_name`도 없으면 (bulk_list / aggregate 전체 대상이 아닌 경우) 에러를 반환한다.
 
-### Step 3 — 파일 읽기 및 엔티티 매칭
+### Step 3 — 엔티티 매칭
 
-`read_game_json(game_id, file_name)`으로 원본 JSON을 읽는다.
-`entity_name`이 있으면 SequenceMatcher로 퍼지 매칭 후 resolution_status 결정.
+`entity_name`이 있으면 `_find_candidates()`로 후보를 찾는다.
+우선순위는 `ID 숫자 직접 접근 → exact → case-insensitive exact → prefix → fuzzy`다.
 `bulk_list` / `aggregate`처럼 entity_name이 None이면 매칭 단계를 건너뛴다.
 
 ### Step 3a — entity_type=None + entity_name 있음: global entity lookup
@@ -225,7 +229,7 @@ Step 1에서 `entity_type`이 None이고 `entity_name`이 있으면 (`single_ent
 ```python
 for category, plural in CATEGORY_TO_PLURAL.items():
     data = read_game_json(game_id, plural + ".json")
-    candidates = _fuzzy_match(entity_name, _valid_items(data or []))
+    candidates = _find_candidates(entity_name, _valid_items(data or []))
     if candidates:
         entity_type = category  # 첫 번째 매칭 카테고리로 확정
         break
@@ -255,7 +259,7 @@ _ENTITY_TYPE_GUESS_SYSTEM = """\
 
 ```python
 class _EntityTypeGuess(BaseModel):
-    category: str   # "actor" | "enemy" | "item" | ... 중 하나
+    entity_type: str | None
     reasoning: str
 ```
 
@@ -268,14 +272,25 @@ class _EntityTypeGuess(BaseModel):
 
 유저는 이 응답을 보고 "액터 페가수스" 등으로 카테고리를 명시해 재요청할 수 있다.
 
+### Step 3c — 직접 매칭 실패: semantic name matching fallback
+
+직접 매칭 결과가 0개이면 `_guess_entity_name()`이 LLM으로 의미론적 이름 매핑을 한 번 더 시도한다.
+이 fallback은 다음 두 경로에서만 실행된다.
+
+- `entity_type`이 이미 있는 상태에서 `_find_candidates()`가 실패한 경우
+- Step 3b의 entity_type fallback 후 재검색에서도 후보가 없는 경우
+
+`build_entity_name_match_prompt(query_name, available_names)`로 후보 이름 목록을 함께 보내고,
+LLM이 반환한 이름이 실제 목록에 존재할 때만 `query.entity_name`을 그 이름으로 갱신한다.
+
 ### Step 4 — 조회 실행
 
 query_type별 처리:
 
 - `single_entity`: 매칭된 엔티티의 **핵심 필드**만 반환. raw dump 전체 출력은 하지 않는다 (아래 참고).
 - `field_value`: 매칭된 엔티티에서 `field_name` 필드만 반환.
-- `bulk_list`: 파일 전체 `id` + `name` 목록 반환. `sort` / `limit` 적용. 결과가 30개를 초과하면 상위 30개만 출력하고 안내 메시지를 덧붙인다 (아래 참고).
-- `existence`: resolution_status 그대로 응답.
+- `bulk_list`: 파일 전체 `id` + `name` 목록 반환. `filters` / `sort` / `limit` 적용. 결과가 30개를 초과하면 상위 30개만 출력하고 안내 메시지를 덧붙인다 (아래 참고).
+- `existence`: 후보 수에 따라 존재 / 모호 / 미발견 응답을 반환한다.
 - `aggregate`: `aggregate_fn`에 따라 집계. `count`를 제외하면 거의 항상 `field_name`이 필요하다 (아래 참고).
 
 #### single_entity 핵심 필드 노출 기준
@@ -405,7 +420,6 @@ atk이(가) 가장 높은 무기는 엑스칼리버 (ID: 7)입니다. (atk: 200)
 | `related_entities` (참조 따라가기) | 교차 파일 조회 필요. Reader 범위 밖 |
 | cross-file traversal | 예: "이 스킬을 가진 캐릭터 있어?" — 여러 파일 교차 필요 |
 | 복합 질의 | 조회 + 수정이 이어지는 경우. router에서 `복합_의도`로 처리 |
-| `filters` 슬롯 활용 | 스키마에는 있으나 현재 미구현. 향후 조건 검색 확장용 |
 
 미지원 패턴이 감지되면 `"현재 지원하지 않는 조회 유형입니다"` 안내를 담고 END로 흘러간다.
 
@@ -420,133 +434,37 @@ Reader는 조회 전용이라 아래 노드들과 완전히 독립적이다.
 ## 테스트 계획 (test_reader.py)
 
 파일 위치: `agent/tests/test_reader.py`
-다른 테스트 파일(`test_router.py`, `test_synthesizer.py`)과 동일한 구조를 따른다.
 
-```
-실행 방법:
-    # 단위 테스트만 (LLM 호출 없음, 빠름)
-    uv run pytest agent/tests/test_reader.py -v
-
-    # 실제 LLM 호출 포함 (API 키 필요)
-    uv run pytest agent/tests/test_reader.py -v -m integration -s
-```
-
-### 헬퍼
-
-다른 테스트와 동일하게 `_state()` 팩토리와 `_mock_query()` 팩토리를 만든다.
+현재 저장소의 `test_reader.py`는 pytest 스위트가 아니라 **인터랙티브 smoke 스크립트**다.
+입력마다 아래 state를 만들어 실제 `reader(state)`를 호출한다.
 
 ```python
-def _state(user_input: str, game_id: str = "test_game") -> AgentState:
-    return {"user_input": user_input, "game_id": game_id}
-
-def _mock_query(
-    query_type: str,
-    entity_type: str | None = None,
-    entity_name: str | None = None,
-    field_name: str | None = None,
-    sort: str | None = None,
-    limit: int | None = None,
-    aggregate_fn: str | None = None,
-) -> _ReaderQuery: ...
+state = {
+    "user_input": user_input,
+    "game_id": "game_001",
+    "conversation_history": [],
+}
 ```
 
-mocking 대상은 두 가지다.
-- `patch("agent.graph.nodes.reader.invoke_llm")` — LLM 호출
-- `patch("agent.graph.nodes.reader.read_game_json")` — 파일 읽기
+실행 방법:
 
-### TestBuildPrompt
+```python
+uv run python agent/tests/test_reader.py
+```
 
-| 테스트 | 검증 내용 |
-|---|---|
-| `test_returns_two_messages` | `SystemMessage` + `HumanMessage` 2개 반환 |
-| `test_user_input_in_human_message` | user_input이 HumanMessage에 포함됨 |
-| `test_system_mentions_field_mapping` | 시스템 프롬프트에 field_name 매핑 지시가 있음 (예: "maxHp", "atk") |
+동작 방식:
+- `game_id`는 현재 `"game_001"`로 고정돼 있다.
+- LLM 호출과 파일 읽기를 모두 실제 환경 그대로 사용한다.
+- 종료하려면 `exit`, `q`, `quit` 중 하나를 입력한다.
 
-### TestReader (LLM + 파일 읽기 모두 mock)
+향후 pytest 기반 단위/통합 테스트를 추가한다면 아래 항목을 우선 검증 대상으로 삼는다.
+- `invoke_llm(..., structured_output=_ReaderQuery)` 호출 여부
+- entity_type fallback (`_guess_entity_type`) 호출 여부
+- semantic name matching fallback (`_guess_entity_name`) 호출 여부
+- `filters` / `sort` / `limit` / aggregate 경로
+- 파일 없음 / LLM 실패 시 `final_response` fallback
 
-**LLM 호출 관련**
-
-| 테스트 | 검증 내용 |
-|---|---|
-| `test_llm_called_with_reader_query_schema` | `invoke_llm`이 `structured_output=_ReaderQuery`로 호출되는지 확인 |
-| `test_llm_failure_returns_fallback_response` | LLM이 exception 던지면 `final_response`에 안내 메시지 담아 반환, exception 전파 안 함 |
-
-**entity_type=None fallback (cross-file 검색 + LLM 2nd call)**
-
-| 테스트 | 검증 내용 |
-|---|---|
-| `test_entity_type_none_found_via_cross_file` | entity_type=None, 전체 JSON 검색으로 발견 → LLM 2nd call 없이 결과 반환 |
-| `test_entity_type_none_not_found_triggers_llm_2nd_call` | entity_type=None, 전체 JSON에 없음 → `invoke_llm` 2회 호출 확인 |
-| `test_entity_type_none_not_found_includes_category_in_response` | LLM 2nd call 후 not_found → 응답에 LLM이 추정한 카테고리명 포함 |
-
-**field_value**
-
-| 테스트 | 검증 내용 |
-|---|---|
-| `test_field_value_returns_field` | `field_name="maxHp"`, 매칭 엔티티 있음 → `final_response`에 필드값 포함 |
-| `test_field_value_entity_not_found` | 매칭 실패 → "찾지 못했습니다" 포함 |
-
-**single_entity**
-
-| 테스트 | 검증 내용 |
-|---|---|
-| `test_single_entity_returns_all_fields` | 매칭 성공 → `final_response`에 엔티티 전체 필드 포함 |
-| `test_single_entity_ambiguous` | 유사 후보 2개 이상 → `final_response`에 후보 목록 포함 |
-
-**bulk_list**
-
-| 테스트 | 검증 내용 |
-|---|---|
-| `test_bulk_list_under_limit` | 결과 30개 이하 → 목록 바로 출력 |
-| `test_bulk_list_over_limit_asks_confirmation` | 결과 31개 이상 → "그대로 전부 출력할까요?" 포함 |
-| `test_bulk_list_with_sort_and_limit` | `sort="atk"`, `limit=3` → 상위 3개만 반환, 정렬 순서 맞음 |
-
-**existence**
-
-| 테스트 | 검증 내용 |
-|---|---|
-| `test_existence_matched` | 정확히 1개 매칭 → "존재합니다" 포함 |
-| `test_existence_not_found` | 0개 매칭 → "찾지 못했습니다" 포함 |
-| `test_existence_ambiguous` | 2개 이상 매칭 → 후보 목록 포함 |
-
-**aggregate**
-
-| 테스트 | 검증 내용 |
-|---|---|
-| `test_aggregate_count` | `aggregate_fn="count"` → 숫자 포함 |
-| `test_aggregate_max` | `aggregate_fn="max"`, `field_name="atk"` → 최댓값 엔티티명 포함 |
-
-**파일 오류**
-
-| 테스트 | 검증 내용 |
-|---|---|
-| `test_file_not_found_returns_error_message` | `read_game_json`이 `None` 반환 → 에러 메시지, exception 전파 안 함 |
-
-### TestReaderIntegration (실제 LLM 호출, 파일 읽기는 mock)
-
-파일 읽기는 실제 게임 데이터 없이도 돌릴 수 있도록 `read_game_json`을 고정 fixture로 mock한다.
-
-| 테스트 | 입력 | 검증 내용 |
-|---|---|---|
-| `test_entity_name_kept_as_korean` | `"고블린 HP 알려줘"` | entity_name이 "고블린" 그대로 유지됨 (영문 변환 없음) |
-| `test_list_query` | `"적 목록 보여줘"` | `query_type="bulk_list"`, `entity_type="enemy"` |
-| `test_existence_query` | `"드래곤이라는 적 있어?"` | `query_type="existence"`, `entity_type="enemy"` |
-| `test_aggregate_count_query` | `"스킬이 몇 개야?"` | `query_type="aggregate"`, `aggregate_fn="count"` |
-| `test_ranked_list_query` | `"공격력 높은 무기 3개 알려줘"` | `query_type="bulk_list"`, `sort` + `limit=3` |
-
-### TestReaderIntegrationRealistic (실제 LLM + 실제 파일 읽기)
-
-실제 `game_id`가 필요하다. 프로젝트 내 테스트용 게임 데이터(`game_001` 등)를 사용한다.
-다른 integration 테스트들과 동일하게 `@pytest.mark.integration`으로 마킹한다.
-
-| 테스트 | 입력 | 검증 내용 |
-|---|---|---|
-| `test_full_field_value` | `"페가수스 HP 얼마야?"` | `final_response`에 숫자값 포함, 에러 없음 |
-| `test_full_bulk_list` | `"아이템 목록 보여줘"` | `final_response`에 아이템 이름 포함 |
-| `test_full_existence` | `"슬라임 있어?"` | `final_response`에 존재 여부 포함 |
-| `test_full_aggregate` | `"적이 총 몇 마리야?"` | `final_response`에 숫자 포함 |
-
-## 라우팅 변경 (reader 완성 후 적용)
+## 라우팅 변경 (현재 적용됨)
 
 ### routing.py
 

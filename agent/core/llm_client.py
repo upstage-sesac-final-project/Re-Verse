@@ -80,7 +80,7 @@ async def invoke_llm(
         if structured_output is not None:
             # function_calling 방식을 유지하면서 구조화된 출력 반환
             logger.info("구조화된 응답 생성 시작 (%s)", structured_output.__name__)
-            bound = llm.with_structured_output(structured_output, method="function_calling")
+            bound = llm.with_structured_output(structured_output, method="json_schema", strict=True)
             result = await bound.ainvoke(messages)
             logger.info("구조화된 응답 수신 완료")
             if result is None:

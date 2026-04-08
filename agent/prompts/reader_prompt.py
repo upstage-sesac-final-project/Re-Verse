@@ -133,11 +133,15 @@ ranked_list 유형("공격력 높은 무기 3개")은 bulk_list + sort + limit�
 """
 
 
-def build_prompt(state: AgentState) -> list[BaseMessage]:
+def _build_messages(system_content: str, human_content: str) -> list[BaseMessage]:
     return [
-        SystemMessage(content=_SYSTEM),
-        HumanMessage(content=f"## 사용자 입력\n{state.get('user_input', '')}"),
+        SystemMessage(content=system_content),
+        HumanMessage(content=human_content),
     ]
+
+
+def build_prompt(state: AgentState) -> list[BaseMessage]:
+    return _build_messages(_SYSTEM, f"## 사용자 입력\n{state.get('user_input', '')}")
 
 
 # ── entity_type 추정 프롬프트 (2nd LLM call) ──────────────────────────────────
@@ -166,7 +170,28 @@ _ENTITY_TYPE_GUESS_SYSTEM = """\
 
 def build_entity_type_guess_prompt(entity_name: str) -> list[BaseMessage]:
     """entity_name으로 entity_type을 추정하는 LLM 2nd call용 메시지를 생성한다."""
-    return [
-        SystemMessage(content=_ENTITY_TYPE_GUESS_SYSTEM),
-        HumanMessage(content=f"## 엔티티 이름\n{entity_name}"),
-    ]
+    return _build_messages(_ENTITY_TYPE_GUESS_SYSTEM, f"## 엔티티 이름\n{entity_name}")
+
+
+# ── 엔티티 이름 의미론적 매칭 프롬프트 ────────────────────────────────────────
+
+_ENTITY_NAME_MATCH_SYSTEM = """\
+당신은 RPG 게임 데이터에서 사용자 입력과 의미적으로 가장 유사한 엔티티 이름을 찾는 AI입니다.
+
+사용자가 입력한 이름이 게임에 정확히 없을 때, 아래 목록에서 의미적으로 가장 가까운 항목 하나를 선택합니다.
+동의어, 번역어, 축약어, 발음 유사 표현을 모두 고려합니다.
+예) "밀크" → "우유", "포이즌" → "독", "힐링 포션" → "치유의 물약", "파이어" → "화염볼"
+
+## 출력 규칙
+- 목록 중 가장 유사한 이름 하나를 **정확히 그대로** 반환합니다.
+- 유사하다고 볼 수 없으면 null을 반환합니다.
+"""
+
+
+def build_entity_name_match_prompt(query_name: str, available_names: list[str]) -> list[BaseMessage]:
+    """entity_name을 게임 내 실제 이름으로 의미론적으로 매핑하는 LLM call용 메시지를 생성한다."""
+    names_text = "\n".join(f"- {n}" for n in available_names)
+    return _build_messages(
+        _ENTITY_NAME_MATCH_SYSTEM,
+        f"## 사용자 입력 이름\n{query_name}\n\n## 게임 데이터 이름 목록\n{names_text}",
+    )
