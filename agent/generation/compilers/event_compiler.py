@@ -378,11 +378,11 @@ class EventCompiler:
 
         pages = [
             _make_page(
-                page1_cmds, _empty_conditions(), trigger=3
-            ),  # Page 1: 항상 유효, 아무것도 안 함
+                page1_cmds, _empty_conditions(), trigger=0
+            ),  # Page 1: Action Button — switch OFF 시 대기 (autorun 금지, 소프트락 방지)
             _make_page(
                 cmds, _make_switch_condition(cond_sw_id), trigger=3
-            ),  # Page 2: switch ON 시 엔딩
+            ),  # Page 2: switch ON 시 Auto-Run 엔딩
         ]
         return _make_event(event.name, event.x, event.y, pages)
 
