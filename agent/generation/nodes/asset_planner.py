@@ -71,14 +71,15 @@ def _build_id_table(spec: GameSpec) -> IdTable:
     enemies = {e.name: i + 1 for i, e in enumerate(spec.enemies)}
     maps = {m.name: i + 1 for i, m in enumerate(spec.maps)}
 
-    # weapons / armors: 기본 1개씩 (캐릭터당 starter 장비)
-    weapons: dict[str, int] = {}
-    armors: dict[str, int] = {}
-    for i, char in enumerate(spec.characters):
-        weapon_name = f"{char.name}의 무기"
-        armor_name = f"{char.name}의 방어구"
-        weapons[weapon_name] = i + 1
-        armors[armor_name] = i + 1
+    # weapons / armors: GameSpec에서 가져오거나 fallback (하위 호환)
+    if spec.weapons:
+        weapons = {w: i + 1 for i, w in enumerate(spec.weapons)}
+    else:
+        weapons = {f"{char.name}의 무기": i + 1 for i, char in enumerate(spec.characters)}
+    if spec.armors:
+        armors = {a: i + 1 for i, a in enumerate(spec.armors)}
+    else:
+        armors = {f"{char.name}의 방어구": i + 1 for i, char in enumerate(spec.characters)}
 
     # troops: 적 그룹 (weak/normal/elite 3변형 + boss 단독)
     troops: dict[str, int] = {}

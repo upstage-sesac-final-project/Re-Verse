@@ -45,6 +45,8 @@ class GameSpec(BaseModel):
     maps: list[GameMapInfo]
     key_items: list[str] = []
     skills: list[str] = []
+    weapons: list[str] = []
+    armors: list[str] = []
 
 
 # ── D 노드 (map_designer) 출력 ──────────────────────────────────────────────
