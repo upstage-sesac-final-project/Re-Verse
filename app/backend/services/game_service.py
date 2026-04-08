@@ -138,8 +138,9 @@ class GameService:
                 detail="프로젝트 삭제 중 오류가 발생했습니다.",
             )
         # DB 삭제 성공 후 리소스 정리
-        from app.backend.services.llm_service import remove_game_lock
+        from app.backend.services.session_manager import remove_game_lock, unregister_session
 
+        unregister_session(game_id)
         remove_game_lock(game_id)
         try:
             self._delete_game_folder(game_id)
@@ -152,10 +153,11 @@ class GameService:
         if settings.STORAGE_BACKEND == "s3":
             self._s3_copy_base_game(game_id)
         else:
-            src = Path(settings.BASE_GAME_PATH).resolve()
-            dst = Path(settings.STORAGE_PATH).resolve() / game_id
+            # data/ 만 복사 — img/audio 등 정적 에셋은 base_game 공유
+            src = Path(settings.BASE_GAME_PATH).resolve() / "data"
+            dst = Path(settings.STORAGE_PATH).resolve() / game_id / "data"
             if not src.exists():
-                raise FileNotFoundError(f"base_game 경로 없음: {src}")
+                raise FileNotFoundError(f"base_game/data 경로 없음: {src}")
             shutil.copytree(src, dst)
 
     def _delete_game_folder(self, game_id: str) -> None:
@@ -176,8 +178,9 @@ class GameService:
         client = boto3.client("s3", region_name=settings.AWS_REGION)
         bucket = settings.S3_BUCKET_NAME
         prefix = settings.S3_PREFIX.strip("/")
-        src_prefix = f"{prefix}/base_game/"
-        dst_prefix = f"{prefix}/{game_id}/"
+        # data/ 만 복사 — img/audio 등 정적 에셋은 base_game 공유
+        src_prefix = f"{prefix}/base_game/data/"
+        dst_prefix = f"{prefix}/{game_id}/data/"
         paginator = client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=bucket, Prefix=src_prefix):
             for obj in page.get("Contents", []):
