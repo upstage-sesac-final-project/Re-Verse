@@ -673,6 +673,43 @@ def _resolve_icon(tag: str, tag_map: dict[str, int], fallback: int) -> int:
     return tag_map.get(tag, fallback)
 
 
+# effects code 31=버프, 32=디버프 → dataId별 구체 태그
+_BUFF_DATAID_TAG: dict[int, str] = {
+    0: "buff_atk",
+    1: "buff_atk",
+    2: "buff_atk",
+    3: "buff_def",
+    4: "buff_mat",
+    5: "buff_mdf",
+    6: "buff_agi",
+    7: "buff_agi",
+}
+_DEBUFF_DATAID_TAG: dict[int, str] = {
+    0: "debuff_atk",
+    1: "debuff_atk",
+    2: "debuff_atk",
+    3: "debuff_def",
+    4: "debuff_mat",
+    5: "debuff_mdf",
+    6: "debuff_agi",
+    7: "debuff_agi",
+}
+
+
+def _refine_buff_tag(tag: str, effects: list[dict]) -> str:
+    """'buff'/'debuff' 범용 태그를 effects dataId 기반으로 세분화."""
+    if tag not in ("buff", "debuff") or not effects:
+        return tag
+    first = effects[0]
+    code = first.get("code", 0)
+    data_id = first.get("dataId", 0)
+    if code == 31:  # Add Buff
+        return _BUFF_DATAID_TAG.get(data_id, "buff")
+    if code == 32:  # Add Debuff
+        return _DEBUFF_DATAID_TAG.get(data_id, "debuff")
+    return tag
+
+
 def _inject_fallback_effect(d: dict) -> None:
     """damage.type=0 + effects=[] 스킬에 기본 효과 주입."""
     scope = d.get("scope", 1)
@@ -743,8 +780,9 @@ async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
     output: list[Any] = [None]
     for skill in sorted(result.items, key=lambda s: s.id):
         d = skill.model_dump()
-        # iconTag → iconIndex 변환
+        # iconTag → iconIndex 변환 (buff/debuff는 effects로 세분화)
         tag = d.pop("iconTag", "physical_melee")
+        tag = _refine_buff_tag(tag, d.get("effects", []))
         d["iconIndex"] = _resolve_icon(tag, SKILL_ICON_TAG, 0)
         # Bug 5: message1이 있는데 messageType=0이면 → 1로 보정
         if d.get("message1") and d.get("messageType") == 0:
