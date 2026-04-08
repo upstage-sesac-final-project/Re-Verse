@@ -588,10 +588,20 @@ _ARMOR_ICON_MAP: dict[tuple[int, int], int] = {
 
 _ARMOR_ETYPE_FALLBACK: dict[int, int] = {2: 129, 3: 130, 4: 135, 5: 145}
 
+# 유효 아이콘 범위 (base_game IconSet 기준)
+_VALID_WEAPON_ICONS = frozenset(range(96, 108))  # 96~107
+_VALID_ARMOR_ICONS = frozenset(range(128, 152)) | {205}  # 128~151, 205
+_VALID_SKILL_ICONS = (
+    frozenset(range(2, 10))  # 상태이상: 2~9
+    | frozenset(range(34, 39))  # 버프: 34~38
+    | frozenset(range(50, 55))  # 디버프: 50~54
+    | frozenset(range(64, 83))  # 마법/물리/회복/특수: 64~82
+)
+
 
 def _fix_skill_icon(d: dict) -> None:
-    """iconIndex가 0이면 damage/scope/element 기반으로 보정."""
-    if d.get("iconIndex", 0) != 0:
+    """iconIndex가 유효 스킬 아이콘 범위 밖이면 damage/scope/element 기반으로 보정."""
+    if d.get("iconIndex", 0) in _VALID_SKILL_ICONS:
         return
     dmg = d.get("damage", {})
     dmg_type = dmg.get("type", 0)
@@ -720,9 +730,11 @@ async def generate_weapons(spec: GameSpec, id_table: IdTable) -> list:
         d = weapon.model_dump()
         if len(d["params"]) != 8:
             d["params"] = [0] * 8
-        # Bug 4: iconIndex=0 보정 (wtypeId 기반)
-        if d.get("iconIndex", 0) == 0 and d.get("wtypeId", 0) in _WEAPON_ICON_MAP:
-            d["iconIndex"] = _WEAPON_ICON_MAP[d["wtypeId"]]
+        # Bug 4: 유효 무기 아이콘 범위(96~107) 밖이면 wtypeId 기반 강제 매핑
+        if d.get("iconIndex", 0) not in _VALID_WEAPON_ICONS:
+            wtype = d.get("wtypeId", 0)
+            if wtype in _WEAPON_ICON_MAP:
+                d["iconIndex"] = _WEAPON_ICON_MAP[wtype]
         output.append(d)
     return _ensure_null_at_0(output)
 
@@ -738,8 +750,8 @@ async def generate_armors(spec: GameSpec, id_table: IdTable) -> list:
         d = armor.model_dump()
         if len(d["params"]) != 8:
             d["params"] = [0] * 8
-        # Bug 4: iconIndex=0 보정 (etypeId+atypeId 기반)
-        if d.get("iconIndex", 0) == 0:
+        # Bug 4: 유효 방어구 아이콘 범위(128~151) 밖이면 etypeId+atypeId 기반 강제 매핑
+        if d.get("iconIndex", 0) not in _VALID_ARMOR_ICONS:
             key = (d.get("etypeId", 4), d.get("atypeId", 1))
             d["iconIndex"] = _ARMOR_ICON_MAP.get(
                 key, _ARMOR_ETYPE_FALLBACK.get(d.get("etypeId", 4), 135)
