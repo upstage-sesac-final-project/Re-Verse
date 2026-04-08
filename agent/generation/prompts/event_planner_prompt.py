@@ -231,6 +231,7 @@ def build_event_planner_prompt(
     )
 
     existing_switches = "\n".join(f"  - {s}" for s in switch_table.switches)
+    filtered_troops = _filter_troops_for_map(map_spec.map_type, id_table, game_spec)
 
     human = f"""\
 ## 맵 정보
@@ -257,7 +258,8 @@ def build_event_planner_prompt(
 아이템: {", ".join(list(id_table.items.keys())[:10])}
 무기:   {", ".join(list(id_table.weapons.keys())[:8])}
 방어구: {", ".join(list(id_table.armors.keys())[:8])}
-적 그룹: {", ".join(list(id_table.troops.keys()))}
+적 그룹 (이 맵 타입에 적합한 그룹만 표시):
+{filtered_troops}
 이동 가능한 맵: {", ".join(id_table.maps.keys())}
 
 ## 이벤트 생성 가이드
@@ -267,6 +269,56 @@ def build_event_planner_prompt(
 YAML 출력:
 """
     return [SystemMessage(content=_SYSTEM), HumanMessage(content=human)]
+
+
+def _filter_troops_for_map(
+    map_type: str,
+    id_table: IdTable,
+    game_spec: GameSpec,
+) -> str:
+    """맵 타입에 맞는 troop 목록만 반환.
+
+    - boss 맵: boss + elite 티어 troop만 (클라이막스 전투)
+    - dungeon 맵: weak + normal + elite 티어 troop (보스 제외)
+    - town 등 기타: 전체 troop (참고용)
+    """
+    # 적 이름 → 티어 매핑
+    enemy_tier: dict[str, str] = {e.name: e.tier for e in game_spec.enemies}
+
+    def _troop_enemy_name(troop_name: str) -> str:
+        """troop 이름에서 적 이름 추출."""
+        if "×" in troop_name:
+            return troop_name.rsplit("×", 1)[0].rstrip("_").strip()
+        if troop_name.endswith("_단독"):
+            return troop_name[: -len("_단독")]
+        return troop_name
+
+    all_troops = list(id_table.troops.keys())
+
+    if map_type == "boss":
+        filtered = [
+            t
+            for t in all_troops
+            if enemy_tier.get(_troop_enemy_name(t), "normal") in ("boss", "elite")
+        ]
+        label = "보스/엘리트급 (boss/elite 티어)"
+    elif map_type == "dungeon":
+        filtered = [
+            t
+            for t in all_troops
+            if enemy_tier.get(_troop_enemy_name(t), "normal") in ("weak", "normal", "elite")
+        ]
+        label = "던전용 (weak/normal/elite 티어, boss 제외)"
+    else:
+        filtered = all_troops
+        label = "전체"
+
+    # 필터 결과가 없으면 전체 반환
+    if not filtered:
+        filtered = all_troops
+        label = "전체 (필터 결과 없어 전체 표시)"
+
+    return f"  [{label}]: {', '.join(filtered)}"
 
 
 def _describe_required_events(

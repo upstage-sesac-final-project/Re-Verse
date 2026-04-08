@@ -231,7 +231,11 @@ _ENEMIES_SYSTEM = """\
 
 ## 규칙
 1. id는 제공된 값을 사용하세요.
-2. battlerName: 아래 목록에서만 선택 (img/enemies/ 실제 파일명 기준, 외형 참고)
+2. battlerName: 반드시 아래 목록의 정확한 이름(대소문자 포함)만 사용 (img/enemies/ 실제 파일명 기준)
+   ⚠️ 절대 금지: 목록에 없는 이름을 창작하거나 테마 기반으로 만드는 것
+      예) PirateQueen, GhostShip, SeaKing, IceDragon → 이런 이름은 파일이 존재하지 않아 전투 그래픽이 깨짐
+      테마와 맞지 않더라도 외형이 비슷한 목록 내 이름을 선택하세요
+   외형 선택 팁: 해적→Captain/Sailor, 마법사→Sorcerer/Witch, 기계→Mechascorpion/SF_Workrobot
 
    판타지 잡몹: Goblin(초록도깨비), Zombie(좀비), Petitdevil(소악마), Matango(버섯생물),
      Oddegg(알생물), Caitsith(고양이귀소녀), Gnome(버섯모자요정), Crow(까마귀), Crab(게)
@@ -357,10 +361,10 @@ battlerName (img/sv_actors/ 파일명, 확장자 제외):
   6=검은단발남(이어피스·요원)  7=검은롱헤어여(교복·리본)
 
 ## 역할별 추천 조합
-- 남자 주인공(전사): Actor1/0, Actor2/0, Actor3/0
+- 남자 주인공(전사): Actor1/0, Actor2/0, Actor2/2
 - 여자 주인공:       Actor1/1, Actor2/1, Actor3/7
-- 마법사(남):        Actor1/6, Actor2/6, Actor3/2
-- 마법사(여):        Actor1/5, Actor2/3, Actor3/3
+- 마법사(남):        Actor1/6, Actor2/6
+- 마법사(여):        Actor1/5, Actor2/3
 - 도적·닌자:         Actor1/4, Actor3/4, Actor3/5
 - 기사:              Actor1/4, Actor2/2, Actor3/6
 - 성직자:            Actor1/7, Actor3/7
@@ -379,8 +383,10 @@ battlerName (img/sv_actors/ 파일명, 확장자 제외):
   faceName="Actor1", faceIndex=1 → characterName="Actor1", characterIndex=1, battlerName="Actor1_2"
   faceName="SF_Actor2", faceIndex=3 → characterName="SF_Actor2", characterIndex=3, battlerName="SF_Actor2_4"
 
-주의: Actor3/SF_Actor3는 sv_actors에 5~8번만 존재 (1~4 없음).
+⚠️ Actor3/SF_Actor3 주의: sv_actors에 5~8번(faceIndex 4~7)만 존재, 1~4번(faceIndex 0~3) 없음.
   faceIndex 0~3인 Actor3/SF_Actor3 캐릭터는 battlerName="" (SV 전투 미사용)으로 설정.
+  SV 전투 스프라이트가 필요한 주인공/동료 캐릭터는 Actor3/SF_Actor3 인덱스 0~3을 피하고
+  Actor1, Actor2, SF_Actor1, SF_Actor2를 우선 사용하세요.
 """
 
 
