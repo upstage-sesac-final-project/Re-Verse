@@ -602,8 +602,16 @@ async def definition(state: AgentState) -> dict:
     categories_with_real_names = {
         cls["category"] for cls in classifications if not cls.get("is_category_label")
     }
+    has_non_label_entity = any(not c.get("is_category_label") for c in classifications)
 
     for cls in classifications:
+        # "루시퍼 액터 추가"처럼 구체 이름이 있는데 '액터'만 category=None 지칭어로 남는 경우 제거
+        if cls.get("is_category_label") and has_non_label_entity:
+            logger.info(
+                "[Definition] 구체 대상이 있어 카테고리 지칭어 분류 제외: %s",
+                cls.get("name"),
+            )
+            continue
         # 지칭어인데 해당 카테고리에 이미 구체적인 이름의 엔티티가 있다면 제외
         if cls.get("is_category_label") and cls["category"] in categories_with_real_names:
             logger.info(
