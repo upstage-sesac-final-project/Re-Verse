@@ -475,7 +475,6 @@ class RpgEnemy(BaseModel):
     dropItems: list[dict] = []
     actions: list[RpgEnemyAction] = [RpgEnemyAction()]
     traits: list[dict] = []
-    note: str = ""
 
 
 class EnemyListOutput(BaseModel):
