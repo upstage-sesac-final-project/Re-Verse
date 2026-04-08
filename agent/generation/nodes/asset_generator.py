@@ -765,7 +765,7 @@ async def generate_items(spec: GameSpec, id_table: IdTable) -> list:
     for item in sorted(result.items, key=lambda i: i.id):
         d = item.model_dump()
         tag = d.pop("iconTag", "potion")
-        d["iconIndex"] = _resolve_icon(tag, ITEM_ICON_TAG, 176)
+        d["iconIndex"] = _resolve_icon(tag, ITEM_ICON_TAG, 0)
         output.append(d)
     return _ensure_null_at_0(output)
 
@@ -781,12 +781,9 @@ async def generate_weapons(spec: GameSpec, id_table: IdTable) -> list:
         d = weapon.model_dump()
         if len(d["params"]) != 8:
             d["params"] = [0] * 8
-        # iconTag → iconIndex 변환, 실패 시 wtypeId fallback
+        # iconTag → iconIndex 변환 (디버깅: fallback=0으로 할루시네이션 식별)
         tag = d.pop("iconTag", "sword")
-        icon = _resolve_icon(tag, WEAPON_ICON_TAG, 0)
-        if icon == 0:
-            icon = _WEAPON_WTYPE_FALLBACK.get(d.get("wtypeId", 1), 97)
-        d["iconIndex"] = icon
+        d["iconIndex"] = _resolve_icon(tag, WEAPON_ICON_TAG, 0)
         output.append(d)
     return _ensure_null_at_0(output)
 
@@ -802,12 +799,9 @@ async def generate_armors(spec: GameSpec, id_table: IdTable) -> list:
         d = armor.model_dump()
         if len(d["params"]) != 8:
             d["params"] = [0] * 8
-        # iconTag → iconIndex 변환, 실패 시 etypeId fallback
+        # iconTag → iconIndex 변환 (디버깅: fallback=0으로 할루시네이션 식별)
         tag = d.pop("iconTag", "light_armor")
-        icon = _resolve_icon(tag, ARMOR_ICON_TAG, 0)
-        if icon == 0:
-            icon = _ARMOR_ETYPE_FALLBACK.get(d.get("etypeId", 4), 135)
-        d["iconIndex"] = icon
+        d["iconIndex"] = _resolve_icon(tag, ARMOR_ICON_TAG, 0)
         output.append(d)
     return _ensure_null_at_0(output)
 
