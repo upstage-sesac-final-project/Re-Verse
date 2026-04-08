@@ -51,6 +51,15 @@ async def event_planner(state: GenerationState) -> dict:
         for e in enemies_json
         if e and isinstance(e, dict) and e.get("id") and e.get("battlerName")
     }
+    # note에 (fallback) 포함된 적 ID 수집
+    fallback_enemy_ids: set[int] = {
+        e["id"]
+        for e in enemies_json
+        if e and isinstance(e, dict) and e.get("id") and "(fallback)" in (e.get("note") or "")
+    }
+    fallback_enemy_names: set[str] = {
+        name for name, eid in id_table.enemies.items() if eid in fallback_enemy_ids
+    }
     battler_map: dict[str, str] = {
         name: enemy_id_to_battler[eid]
         for name, eid in id_table.enemies.items()
@@ -75,6 +84,7 @@ async def event_planner(state: GenerationState) -> dict:
             switch_table=switch_table,
             connection_info=connection_info.get(spec.map_id, _empty_connection(spec.map_id)),
             battler_map=battler_map,
+            fallback_enemy_names=fallback_enemy_names,
         )
         for spec in map_specs
     ]
@@ -110,6 +120,7 @@ async def _plan_single_map(
     switch_table: SwitchTable,
     connection_info: MapConnectionInfo,
     battler_map: dict[str, str],
+    fallback_enemy_names: set[str],
 ) -> list:
     rag_context = get_event_planner_context(map_spec.map_type)
     for attempt in range(3):
@@ -125,7 +136,9 @@ async def _plan_single_map(
             valid = _validate_coords(events, map_spec)
             valid = _validate_name_refs(valid, id_table, switch_table)
             if valid is not None:
-                return _fix_battle_sprites(valid, game_spec, id_table, battler_map)
+                return _fix_battle_sprites(
+                    valid, game_spec, id_table, battler_map, fallback_enemy_names
+                )
         except Exception as e:
             logger.warning("Map%d 이벤트 기획 시도 %d 실패: %s", map_spec.map_id, attempt + 1, e)
 
@@ -324,9 +337,11 @@ def _fix_battle_sprites(
     game_spec: GameSpec,
     id_table: IdTable,
     battler_map: dict[str, str],
+    fallback_enemy_names: set[str],
 ) -> list:
     """BattleEvent의 map sprite를 battlerName 시각적 매핑 테이블로 결정.
 
+    0순위: fallback 적 (note에 (fallback) 표시) → Nature/1 (식별용 마커)
     1순위: battler_map[enemy_name] → _BATTLER_TO_MAP_SPRITE 직접 조회 (이미지 기반)
     2순위: tier 기반 폴백 (테이블에 없는 battler)
     """
@@ -344,6 +359,12 @@ def _fix_battle_sprites(
             enemy_name = troop_name[: -len("_단독")]
         else:
             enemy_name = troop_name
+
+        # 0순위: battlerName fallback 적 → Nature/1 (식별용)
+        if enemy_name in fallback_enemy_names:
+            event.character_name = "Nature"
+            event.character_index = 1
+            continue
 
         # 1순위: battlerName 직접 매핑
         battler_name = battler_map.get(enemy_name)

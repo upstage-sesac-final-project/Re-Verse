@@ -669,6 +669,8 @@ async def generate_enemies(spec: GameSpec, id_table: IdTable) -> list:
                 _BATTLER_FALLBACK,
             )
             d["battlerName"] = _BATTLER_FALLBACK
+            existing_note = d.get("note") or ""
+            d["note"] = f"{existing_note} (fallback)".strip()
 
         # dropItems: RPG Maker MZ 스펙상 반드시 3개 슬롯
         drops = d.get("dropItems") or []
