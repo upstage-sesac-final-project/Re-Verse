@@ -1073,6 +1073,52 @@ def test_search_items_mcp_enrichment_sets_exists_from_items_json(tmp_path):
     assert out["item_id"] == 10
 
 
+def test_structured_create_item_sync_writes_items_json(tmp_path):
+    """item_id가 있으면 dispatcher 없이 Items.json 슬롯에 스키마 검증 후 기록한다."""
+    import importlib
+    import json
+
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    data_path = tmp_path / "data"
+    data_path.mkdir()
+    (data_path / "Items.json").write_text(
+        json.dumps([None, None], ensure_ascii=False), encoding="utf-8"
+    )
+
+    target_info = {
+        "item_id": 1,
+        "name": "체력 포션",
+        "description": "테스트 설명",
+        "iconIndex": 64,
+        "price": 0,
+        "itypeId": 1,
+        "consumable": True,
+        "scope": 7,
+        "occasion": 0,
+        "speed": 0,
+        "successRate": 100,
+        "repeats": 1,
+        "tpGain": 0,
+        "hitType": 0,
+        "animationId": -1,
+        "damage": {
+            "type": 3,
+            "elementId": 1,
+            "formula": "b.mhp",
+            "variance": 0,
+            "critical": False,
+        },
+        "effects": [{"code": 11, "dataId": 0, "value1": 0, "value2": 100}],
+        "note": "",
+    }
+    r = executor_module._structured_create_item_sync(data_path, target_info)
+    assert r["success"] is True
+    arr = json.loads((data_path / "Items.json").read_text(encoding="utf-8"))
+    assert arr[1]["name"] == "체력 포션"
+    assert arr[1]["id"] == 1
+    assert arr[1]["effects"][0]["value2"] == 100
+
+
 if __name__ == "__main__":
     # 단독 실행시 테스트
     print("=" * 60)
