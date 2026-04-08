@@ -319,14 +319,16 @@ async def test_structured_mcp_alias_actor_update_routes_update_actor(monkeypatch
 
     called: dict[str, object] = {}
 
-    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+    async def fake_call_mcp_tool(
+        tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
+    ):
         called["tool_name"] = tool_name
         called["arguments"] = arguments
         called["path_arg_name"] = path_arg_name
         return {"success": True, "data": {"ok": True}, "modified_files": ["Actors.json"]}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
-    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda *a, **k: object())
     monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
 
     state: AgentState = {
@@ -362,13 +364,15 @@ async def test_structured_mcp_actor_update_merges_top_level_max_level(monkeypatc
 
     called: dict[str, object] = {}
 
-    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+    async def fake_call_mcp_tool(
+        tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
+    ):
         called["tool_name"] = tool_name
         called["arguments"] = dict(arguments or {})
         return {"success": True, "data": {"ok": True}, "modified_files": ["Actors.json"]}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
-    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda *a, **k: object())
     monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
 
     state: AgentState = {
@@ -400,12 +404,14 @@ async def test_structured_mcp_actor_update_snake_case_maps_to_schema(monkeypatch
 
     called: dict[str, object] = {}
 
-    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+    async def fake_call_mcp_tool(
+        tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
+    ):
         called["arguments"] = dict(arguments or {})
         return {"success": True, "data": {"ok": True}, "modified_files": ["Actors.json"]}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
-    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda *a, **k: object())
     monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
 
     state: AgentState = {
@@ -438,13 +444,15 @@ async def test_structured_mcp_alias_system_update_game_title(monkeypatch):
 
     called: dict[str, object] = {}
 
-    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+    async def fake_call_mcp_tool(
+        tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
+    ):
         called["tool_name"] = tool_name
         called["arguments"] = arguments
         return {"success": True, "data": {"ok": True}, "modified_files": ["System.json"]}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
-    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda *a, **k: object())
     monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
 
     state: AgentState = {
@@ -477,13 +485,15 @@ async def test_structured_mcp_alias_system_update_starting_position(monkeypatch)
 
     called: dict[str, object] = {}
 
-    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+    async def fake_call_mcp_tool(
+        tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
+    ):
         called["tool_name"] = tool_name
         called["arguments"] = arguments
         return {"success": True, "data": {"ok": True}, "modified_files": ["System.json"]}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
-    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda *a, **k: object())
     monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
 
     state: AgentState = {
@@ -734,13 +744,15 @@ async def test_structured_mcp_alias_actor_query_by_id(monkeypatch):
     executor_module = importlib.import_module("agent.graph.nodes.executor")
     called: dict[str, object] = {}
 
-    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+    async def fake_call_mcp_tool(
+        tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
+    ):
         called["tool_name"] = tool_name
         called["arguments"] = arguments
         return {"success": True, "data": {"id": 3, "name": "Harold"}, "modified_files": []}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
-    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda *a, **k: object())
     monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
 
     state: AgentState = {
@@ -772,13 +784,15 @@ async def test_structured_mcp_alias_system_update_set_variable_name(monkeypatch)
     executor_module = importlib.import_module("agent.graph.nodes.executor")
     called: dict[str, object] = {}
 
-    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+    async def fake_call_mcp_tool(
+        tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
+    ):
         called["tool_name"] = tool_name
         called["arguments"] = arguments
         return {"success": True, "data": {"ok": True}, "modified_files": ["System.json"]}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
-    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda *a, **k: object())
     monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
 
     state: AgentState = {
@@ -810,13 +824,15 @@ async def test_structured_mcp_alias_system_update_set_switch_name(monkeypatch):
     executor_module = importlib.import_module("agent.graph.nodes.executor")
     called: dict[str, object] = {}
 
-    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+    async def fake_call_mcp_tool(
+        tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
+    ):
         called["tool_name"] = tool_name
         called["arguments"] = arguments
         return {"success": True, "data": {"ok": True}, "modified_files": ["System.json"]}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
-    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda *a, **k: object())
     monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
 
     state: AgentState = {
@@ -848,12 +864,14 @@ async def test_mcp_failure_fallback_policy_actors_create(monkeypatch):
     executor_module = importlib.import_module("agent.graph.nodes.executor")
     unique_name = f"ZZZ_MCP_FALLBACK_{uuid.uuid4().hex[:8]}"
 
-    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+    async def fake_call_mcp_tool(
+        tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
+    ):
         # MCP가 실패하도록 강제: executor가 정책에 따라 레거시로 폴백하는지 확인한다.
         return {"success": False, "error": "simulated mcp failure"}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
-    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda *a, **k: object())
     monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
 
     state: AgentState = {
@@ -883,12 +901,14 @@ async def test_mcp_failure_abort_policy_system_update_game_title(monkeypatch):
     """MCP 실패 시 레거시 분기가 없는 액션은 중단(Abort)되어야 한다."""
     executor_module = importlib.import_module("agent.graph.nodes.executor")
 
-    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+    async def fake_call_mcp_tool(
+        tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
+    ):
         # MCP 실패 강제: System의 update_game_title은 레거시 핸들러가 없으므로 abort로 떨어져야 한다.
         return {"success": False, "error": "simulated mcp failure"}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
-    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda *a, **k: object())
     monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
 
     state: AgentState = {
@@ -920,12 +940,14 @@ async def test_items_query_normalizes_to_search_for_planner(monkeypatch):
     executor_module = importlib.import_module("agent.graph.nodes.executor")
     calls: list[tuple[str, dict]] = []
 
-    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+    async def fake_call_mcp_tool(
+        tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
+    ):
         calls.append((tool_name, dict(arguments or {})))
         return {"success": True, "data": {"found": False}, "modified_files": []}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
-    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda *a, **k: object())
     monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
 
     state: AgentState = {
@@ -983,11 +1005,13 @@ async def test_unsupported_structured_step_error_is_standardized():
 async def test_executor_returns_modified_file_paths_for_reported_changes(monkeypatch):
     executor_module = importlib.import_module("agent.graph.nodes.executor")
 
-    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+    async def fake_call_mcp_tool(
+        tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
+    ):
         return {"success": True, "data": {"ok": True}, "modified_files": ["Actors.json"]}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
-    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda *a, **k: object())
     monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
 
     state: AgentState = {
@@ -1016,11 +1040,13 @@ async def test_executor_returns_modified_file_paths_for_reported_changes(monkeyp
 async def test_executor_returns_empty_modified_file_paths_for_read_only_query(monkeypatch):
     executor_module = importlib.import_module("agent.graph.nodes.executor")
 
-    async def fake_call_mcp_tool(tool_name, arguments, data_path, path_arg_name="targetDir"):
+    async def fake_call_mcp_tool(
+        tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
+    ):
         return {"success": True, "data": {"id": 3, "name": "Harold"}, "modified_files": []}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
-    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda: object())
+    monkeypatch.setattr(executor_module, "build_stdio_server_parameters", lambda *a, **k: object())
     monkeypatch.setattr(executor_module, "call_mcp_tool", fake_call_mcp_tool)
 
     state: AgentState = {

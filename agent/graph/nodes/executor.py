@@ -30,7 +30,12 @@ from pydantic import BaseModel, Field, ValidationError
 
 from agent.core.llm_client import invoke_llm
 from agent.graph.state import AgentState
-from agent.mcp_toolbox import build_stdio_server_parameters, call_mcp_tool, is_mcp_enabled
+from agent.mcp_toolbox import (
+    build_stdio_server_parameters,
+    call_mcp_tool,
+    is_mcp_enabled,
+    resolve_mcp_server_key,
+)
 from app.backend.core.game_paths import get_game_data_path
 from app.backend.services.json_modify_tools.dispatcher import (
     run_enemies,
@@ -57,6 +62,8 @@ game_locks: defaultdict[str, asyncio.Lock] = defaultdict(lambda: asyncio.Lock())
 # Actors.json `update`는 레거시(ActorManager 클래스 변경)용이므로 MCP `update_actor`는 action `update_actor`로 구분.
 # ────────────────────────────────────────────────────────────
 MCP_TOOL_MAP: dict[tuple[str, str], dict[str, Any]] = {
+    # (선택) "mcp_server": "MCP_SERVERS_JSON" 키 — 없으면 .env 의 MCP_SERVER_BY_TOOL_JSON /
+    # MCP_SERVER_BY_TARGET_FILE_JSON → MCP_DEFAULT_SERVER 순으로 결정.
     # Actors.json
     ("Actors.json", "list"): {"tool": "get_actors", "backup_files": []},
     ("Actors.json", "search"): {"tool": "search_actors", "backup_files": []},
@@ -1535,7 +1542,27 @@ async def _execute_one_structured_step(
         # 성공 시 즉시 반환. 실패·미설정 시 아래 Class/Actor/System 매니저로 폴백한다.
         if is_mcp_enabled():
             mcp_entry = MCP_TOOL_MAP.get((target_file, action))
-            if mcp_entry and build_stdio_server_parameters() is not None:
+            mcp_server_id: str | None = None
+            if isinstance(mcp_entry, dict):
+                _explicit = (
+                    str(mcp_entry["mcp_server"]).strip() if mcp_entry.get("mcp_server") else None
+                )
+                _tool_nm = str(mcp_entry["tool"]).strip() if mcp_entry.get("tool") else None
+                mcp_server_id = resolve_mcp_server_key(target_file, _tool_nm, _explicit)
+                _eff_srv = (
+                    mcp_server_id
+                    or os.environ.get("MCP_DEFAULT_SERVER", "default").strip()
+                    or "default"
+                )
+                logger.debug(
+                    "[Executor] MCP 서버 키=%s (effective=%s) target_file=%s tool=%s step=%d",
+                    mcp_server_id,
+                    _eff_srv,
+                    target_file,
+                    _tool_nm,
+                    sid,
+                )
+            if mcp_entry and build_stdio_server_parameters(mcp_server=mcp_server_id) is not None:
                 logger.debug("[Executor] MCP 시도: tool=%s, step=%d", mcp_entry["tool"], sid)
                 # MCP 툴은 구조화 step의 target_info를 툴 inputSchema에 맞게 정규화한 뒤 호출한다.
                 # 결과 성공 여부는 call_mcp_tool이 {success,data,error,modified_files}로 정리한 값을 사용한다.
@@ -1547,6 +1574,7 @@ async def _execute_one_structured_step(
                         norm,
                         data_path,
                         path_arg_name=path_key,
+                        mcp_server=mcp_server_id,
                     )
                 if r.get("success"):
                     modified_files = r.get("modified_files") or mcp_entry.get(
