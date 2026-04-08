@@ -649,6 +649,9 @@ async def generate_enemies(spec: GameSpec, id_table: IdTable) -> list:
         EnemyListOutput,
         await invoke_llm(messages, structured_output=EnemyListOutput, temperature=_TEMPERATURE),
     )
+    # 이름 → EnemySpec 빠른 조회용
+    spec_by_name: dict[str, Any] = {e.name: e for e in spec.enemies}
+
     output: list[Any] = [None]
     for enemy in sorted(result.items, key=lambda e: e.id):
         d = enemy.model_dump()
@@ -659,6 +662,11 @@ async def generate_enemies(spec: GameSpec, id_table: IdTable) -> list:
         for i, min_val in enumerate(_ENEMY_PARAM_MINS):
             if d["params"][i] < min_val:
                 d["params"][i] = min_val
+
+        # note: 게임 스펙의 tier/location 메타 자동 기록 (RPG Maker 에디터 가독성)
+        enemy_spec = spec_by_name.get(d.get("name", ""))
+        if enemy_spec:
+            d["note"] = f"tier:{enemy_spec.tier} location:{enemy_spec.location}"
 
         # battlerName 유효성 확인
         if d.get("battlerName") not in VALID_BATTLER_NAMES:
