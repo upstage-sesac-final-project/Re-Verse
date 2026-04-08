@@ -28,14 +28,17 @@ def _game_s3_prefix(game_id: str) -> str:
 
 
 def sync_game_from_s3(game_id: str) -> None:
-    """S3의 games/{game_id}/ 아래 객체를 STORAGE_PATH/{game_id}/ 로 내려받는다."""
+    """S3의 games/{game_id}/data/ 아래 객체를 STORAGE_PATH/{game_id}/data/ 로 내려받는다.
+
+    img/audio 등 정적 에셋은 base_game 공유이므로 다운로드하지 않는다.
+    """
     if settings.STORAGE_BACKEND != "s3":
         return
 
     client = _s3_client()
     bucket = settings.S3_BUCKET_NAME
-    prefix = _game_s3_prefix(game_id)
-    local_root = Path(settings.STORAGE_PATH).resolve() / game_id
+    prefix = _game_s3_prefix(game_id) + "data/"
+    local_root = Path(settings.STORAGE_PATH).resolve() / game_id / "data"
     local_root.mkdir(parents=True, exist_ok=True)
 
     paginator = client.get_paginator("list_objects_v2")
@@ -61,18 +64,21 @@ def sync_game_from_s3(game_id: str) -> None:
 
 
 def sync_game_to_s3(game_id: str) -> None:
-    """STORAGE_PATH/{game_id}/ 전체를 S3 prefix games/{game_id}/ 로 업로드한다."""
+    """STORAGE_PATH/{game_id}/data/ 를 S3 prefix games/{game_id}/data/ 로 업로드한다.
+
+    img/audio 등 정적 에셋은 base_game 공유이므로 업로드하지 않는다.
+    """
     if settings.STORAGE_BACKEND != "s3":
         return
 
-    local_root = Path(settings.STORAGE_PATH).resolve() / game_id
+    local_root = Path(settings.STORAGE_PATH).resolve() / game_id / "data"
     if not local_root.is_dir():
-        logger.warning("업로드할 로컬 게임 폴더 없음: %s", local_root)
+        logger.warning("업로드할 로컬 data 폴더 없음: %s", local_root)
         return
 
     client = _s3_client()
     bucket = settings.S3_BUCKET_NAME
-    prefix = _game_s3_prefix(game_id)
+    prefix = _game_s3_prefix(game_id) + "data/"
     uploaded = 0
     try:
         for path in local_root.rglob("*"):
