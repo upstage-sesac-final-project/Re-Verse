@@ -750,11 +750,28 @@ async def generate_classes(spec: GameSpec, id_table: IdTable) -> list:
 
         # 이 클래스에 배정된 스킬 + "공용" 스킬만 허용
         allowed = class_skill_ids.get(cls_name, set()) | class_skill_ids.get("공용", set())
-        learnings = [
-            {"level": lr.level, "skillId": lr.skillId, "note": ""}
-            for lr in llm_cls.learnings
-            if lr.skillId in valid_skill_ids and (not allowed or lr.skillId in allowed)
-        ]
+        seen_skills: set[int] = set()
+        learnings: list[dict] = []
+        for lr in llm_cls.learnings:
+            sid = lr.skillId
+            if sid in seen_skills:
+                continue  # 중복 스킬 제거
+            if sid not in valid_skill_ids:
+                continue
+            if allowed and sid not in allowed:
+                continue
+            seen_skills.add(sid)
+            learnings.append({"level": lr.level, "skillId": sid, "note": ""})
+
+        # 허용된 스킬 중 learnings에 빠진 것을 레벨 균등 분배로 추가
+        missing = (allowed - seen_skills) & valid_skill_ids
+        if missing:
+            max_lv = 20
+            step = max(1, max_lv // (len(missing) + 1))
+            for i, sid in enumerate(sorted(missing)):
+                lv = min(max_lv, step * (i + 1))
+                learnings.append({"level": lv, "skillId": sid, "note": ""})
+            learnings.sort(key=lambda x: x["level"])
         output.append(
             {
                 "id": cid,
@@ -769,28 +786,200 @@ async def generate_classes(spec: GameSpec, id_table: IdTable) -> list:
     return output
 
 
+# ── 시스템 스킬 (id=1 공격, id=2 방어) ─────────────────────────────────────
+
+_SYSTEM_SKILL_ATTACK: dict[str, Any] = {
+    "id": 1,
+    "name": "공격",
+    "description": "",
+    "animationId": -1,
+    "iconIndex": 76,
+    "stypeId": 0,
+    "scope": 1,
+    "occasion": 1,
+    "mpCost": 0,
+    "tpCost": 0,
+    "tpGain": 5,
+    "speed": 0,
+    "repeats": 1,
+    "successRate": 100,
+    "hitType": 1,
+    "messageType": 1,
+    "message1": "%1이(가) 공격합니다!",
+    "message2": "",
+    "requiredWtypeId1": 0,
+    "requiredWtypeId2": 0,
+    "damage": {
+        "type": 1,
+        "elementId": -1,
+        "formula": "a.atk * 4 - b.def * 2",
+        "variance": 20,
+        "critical": True,
+    },
+    "effects": [{"code": 21, "dataId": 0, "value1": 1, "value2": 0}],
+    "note": "",
+}
+
+_SYSTEM_SKILL_GUARD: dict[str, Any] = {
+    "id": 2,
+    "name": "방어",
+    "description": "",
+    "animationId": 0,
+    "iconIndex": 81,
+    "stypeId": 0,
+    "scope": 11,
+    "occasion": 1,
+    "mpCost": 0,
+    "tpCost": 0,
+    "tpGain": 10,
+    "speed": 2000,
+    "repeats": 1,
+    "successRate": 100,
+    "hitType": 0,
+    "messageType": 1,
+    "message1": "%1이(가) 방어합니다.",
+    "message2": "",
+    "requiredWtypeId1": 0,
+    "requiredWtypeId2": 0,
+    "damage": {"type": 0, "elementId": 0, "formula": "0", "variance": 20, "critical": False},
+    "effects": [{"code": 21, "dataId": 2, "value1": 1, "value2": 0}],
+    "note": "",
+}
+
+# ── 적 전용 스킬 템플릿 ────────────────────────────────────────────────────
+
+_ENEMY_SKILL_DATA: dict[str, dict[str, Any]] = {
+    "적_강타": {
+        "name": "강타",
+        "iconIndex": 77,
+        "stypeId": 2,
+        "scope": 1,
+        "hitType": 1,
+        "messageType": 1,
+        "message1": "%1이(가) 강타합니다!",
+        "damage": {
+            "type": 1,
+            "elementId": -1,
+            "formula": "a.atk * 5 - b.def * 2",
+            "variance": 20,
+            "critical": True,
+        },
+        "effects": [{"code": 21, "dataId": 0, "value1": 1, "value2": 0}],
+    },
+    "적_전체공격": {
+        "name": "전체 공격",
+        "iconIndex": 78,
+        "stypeId": 2,
+        "scope": 2,
+        "hitType": 1,
+        "messageType": 1,
+        "message1": "%1이(가) 전체 공격을 가합니다!",
+        "damage": {
+            "type": 1,
+            "elementId": -1,
+            "formula": "a.atk * 3 - b.def * 2",
+            "variance": 20,
+            "critical": False,
+        },
+        "effects": [],
+    },
+    "적_자가회복": {
+        "name": "자가 회복",
+        "iconIndex": 72,
+        "stypeId": 1,
+        "scope": 11,
+        "hitType": 0,
+        "messageType": 1,
+        "message1": "%1이(가) 회복합니다!",
+        "damage": {
+            "type": 3,
+            "elementId": 0,
+            "formula": "b.mhp * 0.15",
+            "variance": 0,
+            "critical": False,
+        },
+        "effects": [],
+    },
+    "적_버프": {
+        "name": "기합",
+        "iconIndex": 34,
+        "stypeId": 2,
+        "scope": 11,
+        "hitType": 0,
+        "messageType": 1,
+        "message1": "%1이(가) 기합을 넣습니다!",
+        "damage": {"type": 0, "elementId": 0, "formula": "0", "variance": 0, "critical": False},
+        "effects": [{"code": 31, "dataId": 2, "value1": 3, "value2": 0}],
+    },
+}
+
+
+def _build_enemy_skill(template_name: str, skill_id: int) -> dict[str, Any]:
+    """적 스킬 템플릿 → 완전한 RPG Maker MZ 스킬 dict."""
+    tmpl = _ENEMY_SKILL_DATA[template_name]
+    return {
+        "id": skill_id,
+        "name": tmpl["name"],
+        "description": "",
+        "animationId": -1,
+        "iconIndex": tmpl["iconIndex"],
+        "stypeId": tmpl["stypeId"],
+        "scope": tmpl["scope"],
+        "occasion": 1,
+        "mpCost": 0,
+        "tpCost": 0,
+        "tpGain": 0,
+        "speed": 0,
+        "repeats": 1,
+        "successRate": 100,
+        "hitType": tmpl["hitType"],
+        "messageType": tmpl["messageType"],
+        "message1": tmpl["message1"],
+        "message2": "",
+        "requiredWtypeId1": 0,
+        "requiredWtypeId2": 0,
+        "damage": tmpl["damage"],
+        "effects": tmpl["effects"],
+        "note": "",
+    }
+
+
 async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
     if not id_table.skills:
         return [None]
-    messages = build_skills_prompt(spec, id_table)
-    result = cast(
-        SkillListOutput,
-        await invoke_llm(messages, structured_output=SkillListOutput, temperature=_TEMPERATURE),
-    )
-    output: list[Any] = [None]
-    for skill in sorted(result.items, key=lambda s: s.id):
-        d = skill.model_dump()
-        # iconTag → iconIndex 변환 (buff/debuff는 effects로 세분화)
-        tag = d.pop("iconTag", "physical_melee")
-        tag = _refine_buff_tag(tag, d.get("effects", []))
-        d["iconIndex"] = _resolve_icon(tag, SKILL_ICON_TAG, 0)
-        # Bug 5: message1이 있는데 messageType=0이면 → 1로 보정
-        if d.get("message1") and d.get("messageType") == 0:
-            d["messageType"] = 1
-        # Bug 3-B: damage.type=0 + effects 없음 → 기본 효과 주입
-        if d["damage"]["type"] == 0 and not d.get("effects"):
-            _inject_fallback_effect(d)
-        output.append(d)
+
+    # 1. 시스템 스킬 (id=1 공격, id=2 방어)
+    output: list[Any] = [None, _SYSTEM_SKILL_ATTACK, _SYSTEM_SKILL_GUARD]
+
+    # 2. LLM 생성 플레이어 스킬 (id=3~)
+    # build_skills_prompt에는 id=1,2 ("공격","방어")를 제외하고 전달
+    player_skill_ids = {
+        name: sid
+        for name, sid in id_table.skills.items()
+        if sid >= 3 and name not in _ENEMY_SKILL_DATA
+    }
+    if player_skill_ids:
+        messages = build_skills_prompt(spec, id_table)
+        result = cast(
+            SkillListOutput,
+            await invoke_llm(messages, structured_output=SkillListOutput, temperature=_TEMPERATURE),
+        )
+        for skill in sorted(result.items, key=lambda s: s.id):
+            d = skill.model_dump()
+            tag = d.pop("iconTag", "physical_melee")
+            tag = _refine_buff_tag(tag, d.get("effects", []))
+            d["iconIndex"] = _resolve_icon(tag, SKILL_ICON_TAG, 0)
+            if d.get("message1") and d.get("messageType") == 0:
+                d["messageType"] = 1
+            if d["damage"]["type"] == 0 and not d.get("effects"):
+                _inject_fallback_effect(d)
+            output.append(d)
+
+    # 3. 적 전용 스킬 (알고리즘 생성)
+    for sname, sid in sorted(id_table.skills.items(), key=lambda x: x[1]):
+        if sname in _ENEMY_SKILL_DATA:
+            output.append(_build_enemy_skill(sname, sid))
+
     return _ensure_null_at_0(output)
 
 
@@ -865,10 +1054,36 @@ async def generate_enemies(spec: GameSpec, id_table: IdTable) -> list:
             if d["params"][i] < min_val:
                 d["params"][i] = min_val
 
-        # note: 게임 스펙의 tier/location 메타 자동 기록 (RPG Maker 에디터 가독성)
+        # note + tier별 actions 배정
         enemy_spec = spec_by_name.get(d.get("name", ""))
         if enemy_spec:
             d["note"] = f"tier:{enemy_spec.tier} location:{enemy_spec.location}"
+            # tier별 적 스킬 배정 (id=1 "공격" 기본 + 적 전용 스킬)
+            from agent.generation.nodes.asset_planner import _ENEMY_SKILL_TEMPLATES
+
+            tier_skills = _ENEMY_SKILL_TEMPLATES.get(enemy_spec.tier, [])
+            actions = [
+                {
+                    "conditionParam1": 0,
+                    "conditionParam2": 0,
+                    "conditionType": 0,
+                    "rating": 5,
+                    "skillId": 1,
+                }
+            ]  # 기본 공격
+            for sname in tier_skills:
+                sid = id_table.skills.get(sname)
+                if sid:
+                    actions.append(
+                        {
+                            "conditionParam1": 0,
+                            "conditionParam2": 0,
+                            "conditionType": 0,
+                            "rating": 4,
+                            "skillId": sid,
+                        }
+                    )
+            d["actions"] = actions
 
         # battlerName 유효성 확인
         if d.get("battlerName") not in VALID_BATTLER_NAMES:
