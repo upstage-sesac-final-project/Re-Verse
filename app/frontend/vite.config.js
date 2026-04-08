@@ -37,9 +37,9 @@ function serveGameFiles() {
     name: 'serve-game-files',
     configureServer(server) {
       server.middlewares.use('/game', (req, res, next) => {
-
-        const urlPath = decodeURIComponent(req.url.split('?')[0])
-        const filePath = resolve(join(storagePath, urlPath))
+        const rawUrl = decodeURIComponent(req.url.split('?')[0])
+        const normalized = rawUrl.replace(/^\//, '')
+        const filePath = resolve(join(storagePath, normalized))
         if (!filePath.startsWith(storagePath + sep) && filePath !== storagePath) {
           return next()
         }
@@ -50,15 +50,14 @@ function serveGameFiles() {
             res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
           }
           createReadStream(filePath).pipe(res)
-        } else {
-          next()
+          return
+        }
 
-        const urlPath = decodeURIComponent(req.url.split('?')[0]).replace(/^\//, '')
-        const slashIdx = urlPath.indexOf('/')
+        const slashIdx = normalized.indexOf('/')
         if (slashIdx === -1) return next()
 
-        const gameId = urlPath.slice(0, slashIdx)
-        const filePart = urlPath.slice(slashIdx + 1) || 'index.html'
+        const gameId = normalized.slice(0, slashIdx)
+        const filePart = normalized.slice(slashIdx + 1) || 'index.html'
 
         // 1) 프로젝트별 파일 (data/ JSON 등)
         const projectFile = resolve(join(storagePath, gameId, filePart))
