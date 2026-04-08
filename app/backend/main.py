@@ -8,14 +8,14 @@ Docker(EC2)에서 `uvicorn app.backend.main:app` 으로 실행됩니다.
 
 # ruff: noqa: E402
 import logging
+import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 
 # Agent config를 먼저 로드하여 load_dotenv() 실행
 from agent.core.config import agent_config  # noqa: F401
@@ -41,6 +41,25 @@ async def lifespan(app: FastAPI):
     # 게임 정적 서빙/에이전트가 쓸 디렉터리 보장
     Path(settings.STORAGE_PATH).mkdir(parents=True, exist_ok=True)
 
+    # Orphan 정리: 이전 비정상 종료로 남아있는 game 폴더 → S3 업로드 후 삭제
+    if settings.STORAGE_BACKEND == "s3":
+        from app.backend.services.s3_game_storage import sync_game_to_s3
+        from app.backend.services.session_manager import get_orphan_game_ids
+
+        storage_path = Path(settings.STORAGE_PATH).resolve()
+        orphans = get_orphan_game_ids(storage_path)
+        if orphans:
+            logger.info("Orphan cleanup: %d 개 폴더 발견", len(orphans))
+        for game_id in orphans:
+            orphan_dir = storage_path / game_id
+            try:
+                sync_game_to_s3(game_id)
+                shutil.rmtree(orphan_dir)
+                logger.info("Orphan cleanup: S3 업로드 + 삭제 완료 | %s", game_id)
+            except Exception:
+                logger.warning("Orphan cleanup 실패, 폴더 삭제 | %s", game_id)
+                shutil.rmtree(orphan_dir, ignore_errors=True)
+
     # DB 테이블 생성 (checkfirst=True, 기존 데이터 보존)
     await init_db()
 
@@ -48,8 +67,24 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
+    # Shutdown — 활성 세션 일괄 S3 업로드
     logger.info("Re:Verse Backend Shutting down...")
+    if settings.STORAGE_BACKEND == "s3":
+        from app.backend.services.s3_game_storage import sync_game_to_s3
+        from app.backend.services.session_manager import get_all_active
+
+        active = get_all_active()
+        if active:
+            logger.info("Shutdown: %d 개 활성 세션 S3 업로드 중...", len(active))
+        for game_id in active:
+            try:
+                sync_game_to_s3(game_id)
+                local_dir = Path(settings.STORAGE_PATH).resolve() / game_id
+                if local_dir.is_dir():
+                    shutil.rmtree(local_dir)
+                logger.info("Shutdown: S3 업로드 + 정리 완료 | %s", game_id)
+            except Exception:
+                logger.error("Shutdown: S3 업로드 실패 | %s", game_id, exc_info=True)
 
 
 app = FastAPI(
@@ -119,12 +154,34 @@ async def root():
 
 app.include_router(api_router, prefix="/api/v1")
 
-# 게임 뷰어: 로컬/EC2 모두 STORAGE_PATH 아래 파일을 그대로 서빙
-app.mount(
-    "/game",
-    StaticFiles(directory=settings.STORAGE_PATH, html=True),
-    name="game",
-)
+
+# 게임 뷰어: data/는 프로젝트별 파일, 나머지는 base_game 공유 에셋으로 서빙
+@app.get("/game/{game_id}/{path:path}")
+async def serve_game_file(game_id: str, path: str):
+    """프로젝트별 data/ → base_game fallback 순으로 게임 파일 서빙."""
+    if not path:
+        path = "index.html"
+    # 1) 프로젝트별 파일 (data/ JSON 등)
+    project_file = Path(settings.STORAGE_PATH).resolve() / game_id / path
+    if project_file.is_file():
+        return FileResponse(str(project_file))
+    # 2) base_game 공유 에셋 (img, js, css, audio 등)
+    base_file = Path(settings.BASE_GAME_PATH).resolve() / path
+    if base_file.is_file():
+        return FileResponse(str(base_file))
+    # 3) S3 redirect fallback (EC2에 base_game 없을 때)
+    if settings.STORAGE_BACKEND == "s3":
+        s3_prefix = settings.S3_PREFIX.strip("/")
+        if path.startswith("data/"):
+            s3_key = f"{s3_prefix}/{game_id}/{path}"
+        else:
+            s3_key = f"{s3_prefix}/base_game/{path}"
+        s3_url = (
+            f"https://{settings.S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{s3_key}"
+        )
+        return RedirectResponse(url=s3_url, status_code=302)
+    raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+
 
 if __name__ == "__main__":
     import uvicorn

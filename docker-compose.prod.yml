@@ -16,6 +16,7 @@ services:
       # STORAGE_BACKEND, DATABASE_URL, S3_* 는 EC2의 .env(또는 GitHub ENV_FILE)에서 주입 권장
     volumes: []  # 프로덕션에서는 볼륨 마운트 제거 (override)
     restart: unless-stopped
+    stop_grace_period: 30s  # shutdown hook이 S3 업로드할 시간 확보
 
     # 로그 설정
     logging:
