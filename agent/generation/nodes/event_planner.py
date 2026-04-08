@@ -228,8 +228,10 @@ _SF_KEYWORDS = ("sf", "sci-fi", "science", "사이버", "로봇", "우주", "미
 #                                   4=흰여우구미호, 5=검은뿔소악마, 6=금관좀비보스, 7=보라악마날개보스
 # characters/Evil.png 레이아웃:     0=초록두건고글불량배, 1=갈색안경학자악당, 2=흰은발여성마법사,
 #                                   3=황금가면마왕, 6=황금갑옷기사, 7=갈색로브흑막
-# characters/$BigMonster1.png:      0=보라마왕마법사, 1=초록나무괴물, 2=보라곤충두족류, 3=다머리초록용
-# characters/$BigMonster2.png:      0=붉은드래곤, 1=황금천마기사, 2=보라촉수여신, 3=붉은변이악마
+# characters/$BigMonster1.png:      4캐릭터×3프레임, 3개씩 묶음
+#   0~2=보라마왕마법사, 3~5=초록나무괴물, 6~8=보라곤충두족류(크라켄), 9~11=다머리초록용(히드라)
+# characters/$BigMonster2.png:      4캐릭터×3프레임, 3개씩 묶음
+#   0~2=붉은드래곤, 3~5=황금천마기사, 6~8=보라촉수여신(이블갓), 9~11=붉은변이악마
 # characters/SF_Monster.png 레이아웃: 0=흰정장마피아, 1=검은군복요원, 2=검은그림자빨간눈,
 #                                     3=빨간광대, 4=파란메카로봇, 5=검은육중전투로봇,
 #                                     6=보라리치, 7=붉은도깨비장군
@@ -279,20 +281,28 @@ _BATTLER_TO_MAP_SPRITE: dict[str, tuple[str, int]] = {
     "Captain": ("Evil", 6),
     "Blackknight": ("Evil", 6),
     "Stoneknight": ("Evil", 6),
-    # ── 판타지: $BigMonster1 (대형, index 0-3) ──────────────────────────
+    # ── 판타지: $BigMonster1 (대형, 4캐릭터×3프레임 — 3개씩 묶음) ──────────
+    # index 0~2:  보라 마왕형 마법사
     "Lich": ("$BigMonster1", 0),
     "Goddess_of_death": ("$BigMonster1", 0),
-    "Treant": ("$BigMonster1", 1),
-    "Kraken": ("$BigMonster1", 2),
-    "Ketos": ("$BigMonster1", 2),
-    "Hydra": ("$BigMonster1", 3),
-    # ── 판타지: $BigMonster2 (대형, index 0-3) ──────────────────────────
+    # index 3~5:  초록 나무 괴물
+    "Treant": ("$BigMonster1", 3),
+    # index 6~8:  보라 곤충/두족류 (크라켄형)
+    "Kraken": ("$BigMonster1", 6),
+    "Ketos": ("$BigMonster1", 6),
+    # index 9~11: 다머리 초록 용 (히드라형)
+    "Hydra": ("$BigMonster1", 9),
+    # ── 판타지: $BigMonster2 (대형, 4캐릭터×3프레임 — 3개씩 묶음) ──────────
+    # index 0~2:  붉은 드래곤
     "Dragon": ("$BigMonster2", 0),
     "Demon": ("$BigMonster2", 0),
-    "God_of_light": ("$BigMonster2", 1),
-    "Goddess": ("$BigMonster2", 1),
-    "Evilgod": ("$BigMonster2", 2),
-    "Demon_metamorphosis": ("$BigMonster2", 3),
+    # index 3~5:  황금+날개 천마 기사
+    "God_of_light": ("$BigMonster2", 3),
+    "Goddess": ("$BigMonster2", 3),
+    # index 6~8:  보라+촉수 여신형
+    "Evilgod": ("$BigMonster2", 6),
+    # index 9~11: 붉은 변이 악마 (최종 보스)
+    "Demon_metamorphosis": ("$BigMonster2", 9),
     # ── SF: SF_Monster 시트 ─────────────────────────────────────────────
     "SF_Boss": ("SF_Monster", 0),
     "SF_Madscientist": ("SF_Monster", 0),
