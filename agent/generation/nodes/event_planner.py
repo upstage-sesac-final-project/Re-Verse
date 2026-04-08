@@ -6,6 +6,7 @@ canonical: docs/The_world/prompt_engineering.md §F. 이벤트 기획자
 
 import asyncio
 import logging
+import re
 from typing import cast
 
 import yaml
@@ -132,6 +133,9 @@ async def _plan_single_map(
     return _fallback_events(map_spec, id_table)
 
 
+_YAML_BANG_RE = re.compile(r"(:\s+)(![^\s\n\"']+)")
+
+
 def _parse_dsl_safe(raw_yaml: str, map_id: int) -> list | None:
     """YAML 파싱 실패 시 None 반환."""
     try:
@@ -140,6 +144,10 @@ def _parse_dsl_safe(raw_yaml: str, map_id: int) -> list | None:
         if text.startswith("```"):
             lines = text.split("\n")
             text = "\n".join(lines[1:-1]) if lines[-1].strip() == "```" else "\n".join(lines[1:])
+
+        # !로 시작하는 unquoted 값은 YAML 타입 태그로 해석 → 따옴표로 감싸기
+        # e.g., "character_name: !Crystal" → "character_name: \"!Crystal\""
+        text = _YAML_BANG_RE.sub(r'\1"\2"', text)
 
         data = yaml.safe_load(text)
         if not isinstance(data, dict) or "events" not in data:
