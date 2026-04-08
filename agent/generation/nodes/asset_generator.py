@@ -603,7 +603,7 @@ WEAPON_ICON_TAG: dict[str, int] = {
     "claw": 105,
     "gauntlet": 106,
     "spear": 107,
-    "gun": 78,
+    "gun": 104,
 }
 
 ARMOR_ICON_TAG: dict[str, int] = {
@@ -626,6 +626,7 @@ ARMOR_ICON_TAG: dict[str, int] = {
     "belt": 144,
     "boots": 135,
     "cloak": 139,
+    "bell": 205,
 }
 
 ITEM_ICON_TAG: dict[str, int] = {
@@ -637,6 +638,16 @@ ITEM_ICON_TAG: dict[str, int] = {
     "scroll": 189,
     "food": 208,
     "gem": 163,
+    "stat_up_hp": 32,
+    "stat_up_mp": 33,
+    "stat_up_atk": 34,
+    "stat_up_def": 35,
+    "stat_up_mat": 36,
+    "stat_up_mdf": 37,
+    "stat_up_agi": 38,
+    "stat_up_luk": 39,
+    "encounter_down": 176,
+    "drop_up": 176,
 }
 
 _WEAPON_WTYPE_FALLBACK: dict[int, int] = {
@@ -647,6 +658,7 @@ _WEAPON_WTYPE_FALLBACK: dict[int, int] = {
     6: 101,
     7: 102,
     8: 103,
+    9: 104,
     10: 105,
     11: 106,
     12: 107,
@@ -732,7 +744,7 @@ async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
         d = skill.model_dump()
         # iconTag → iconIndex 변환
         tag = d.pop("iconTag", "physical_melee")
-        d["iconIndex"] = _resolve_icon(tag, SKILL_ICON_TAG, 76)
+        d["iconIndex"] = _resolve_icon(tag, SKILL_ICON_TAG, 0)
         # Bug 5: message1이 있는데 messageType=0이면 → 1로 보정
         if d.get("message1") and d.get("messageType") == 0:
             d["messageType"] = 1
