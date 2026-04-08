@@ -9,8 +9,6 @@ import importlib
 import json
 from pathlib import Path
 
-import pytest
-
 executor_module = importlib.import_module("agent.graph.nodes.executor")
 
 
@@ -190,7 +188,8 @@ class TestNormalizeMcpArguments:
 
     def test_actors_update_actor(self) -> None:
         result = self.fn(
-            "Actors.json", "update_actor",
+            "Actors.json",
+            "update_actor",
             {"actor_id": 1, "updates": {"maxLevel": 99}},
         )
         assert result == {"actorId": 1, "updates": {"maxLevel": 99}}
@@ -205,7 +204,8 @@ class TestNormalizeMcpArguments:
 
     def test_items_update_merges_fields(self) -> None:
         result = self.fn(
-            "Items.json", "update",
+            "Items.json",
+            "update",
             {"item_id": 5, "new_description": "Good potion", "new_name": "Hi-Potion"},
         )
         assert result["itemId"] == 5

@@ -147,6 +147,7 @@ async def test_structured_execution_plan_actors(monkeypatch):
     assert c is not None and c.get("success") is True
 
     from app.backend.core.config import settings
+
     data_path = Path(settings.STORAGE_PATH) / "game_001" / "data"
     mgr = ActorManager(data_path, "test_verify")
     verify = await mgr.execute("query", actor_name=unique_name)
@@ -242,6 +243,7 @@ async def test_structured_execution_plan_full_update_flow(monkeypatch):
     )
 
     from app.backend.core.config import settings
+
     data_path = Path(settings.STORAGE_PATH) / "game_001" / "data"
     class_mgr = ClassManager(data_path, "verify_class")
     actor_mgr = ActorManager(data_path, "verify_actor")
@@ -269,6 +271,7 @@ async def test_skill_manager_directly():
     print("\n🛠️ SkillManager 직접 테스트")
 
     from app.backend.core.config import settings
+
     data_path = Path(settings.STORAGE_PATH) / "game_001" / "data"
 
     if not data_path.exists():
@@ -297,6 +300,7 @@ def check_game_files():
     print("\n📂 게임 파일 체크")
 
     from app.backend.core.config import settings
+
     data_path = Path(settings.STORAGE_PATH) / "game_001" / "data"
     required_files = ["Skills.json", "Enemies.json", "Items.json"]
 
@@ -636,6 +640,7 @@ async def test_actors_update_class_inherits_actor_id_from_create(monkeypatch):
     assert logs[1].get("success") is True
 
     from app.backend.core.config import settings
+
     data_path = Path(settings.STORAGE_PATH) / "game_001" / "data"
     mgr = ActorManager(data_path, "verify_upd_cls")
     verify = await mgr.execute("query", actor_name=unique_name)
@@ -684,6 +689,7 @@ async def test_actors_update_rename_by_new_name_after_create(monkeypatch):
     assert logs[1].get("success") is True
 
     from app.backend.core.config import settings
+
     data_path = Path(settings.STORAGE_PATH) / "game_001" / "data"
     mgr = ActorManager(data_path, "verify_ren")
     assert (await mgr.execute("query", actor_name=old_name)).get("exists") is False
@@ -732,6 +738,7 @@ async def test_actors_rename_reconciles_wrong_planner_actor_id(monkeypatch):
     assert logs[1].get("success") is True
 
     from app.backend.core.config import settings
+
     data_path = Path(settings.STORAGE_PATH) / "game_001" / "data"
     mgr = ActorManager(data_path, "verify_rid")
     assert (await mgr.execute("query", actor_name=unique)).get("exists") is False
@@ -1173,7 +1180,9 @@ def _make_items_json(data_path: Path, arr: list | None = None):
 
     data_path.mkdir(parents=True, exist_ok=True)
     content = arr if arr is not None else [None, None]
-    (data_path / "Items.json").write_text(_json.dumps(content, ensure_ascii=False), encoding="utf-8")
+    (data_path / "Items.json").write_text(
+        _json.dumps(content, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def test_create_item_sync_missing_id(tmp_path):
@@ -1205,13 +1214,14 @@ def test_create_item_sync_no_file(tmp_path):
 
 def test_create_item_sync_slot_conflict(tmp_path):
     """슬롯에 이미 다른 이름의 아이템이 있으면 충돌 에러."""
-    import json as _json
 
     executor_module = importlib.import_module("agent.graph.nodes.executor")
     dp = tmp_path / "data"
     existing_item = {**_VALID_ITEM_BASE, "id": 1, "name": "기존 포션"}
     _make_items_json(dp, [None, existing_item])
-    r = executor_module._structured_create_item_sync(dp, {**_VALID_ITEM_BASE, "item_id": 1, "name": "새 포션"})
+    r = executor_module._structured_create_item_sync(
+        dp, {**_VALID_ITEM_BASE, "item_id": 1, "name": "새 포션"}
+    )
     assert r["success"] is False
     assert "기존 포션" in r["stderr"]
 

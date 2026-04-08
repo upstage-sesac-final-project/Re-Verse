@@ -10,7 +10,6 @@ from agent.prompts.synthesizer_prompt import (
     _extract_actual_changes_from_snapshots,
 )
 
-
 # ── _extract_actual_changes_from_snapshots ───────────────────
 
 

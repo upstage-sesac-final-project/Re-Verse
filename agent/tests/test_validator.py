@@ -501,9 +501,7 @@ async def test_validator_validates_all_modified_game_state_files():
     result = await validator(state)
 
     # 기본 state는 query 없이 create → query_consistency 실패하지만 스키마는 통과
-    schema_results = [
-        item for item in result["validation_results"] if item["category"] == "schema"
-    ]
+    schema_results = [item for item in result["validation_results"] if item["category"] == "schema"]
     schema_targets = [item["target"] for item in schema_results]
     assert "Actors.json" in schema_targets
     assert "Classes.json" in schema_targets
@@ -535,9 +533,7 @@ async def test_validator_supports_snapshot_path_inputs(tmp_path: Path):
     )
 
     assert result == expected
-    schema_results = [
-        item for item in result["validation_results"] if item["category"] == "schema"
-    ]
+    schema_results = [item for item in result["validation_results"] if item["category"] == "schema"]
     schema_targets = [item["target"] for item in schema_results]
     assert "Actors.json" in schema_targets
     assert "Map001.json" in schema_targets
@@ -554,7 +550,8 @@ async def test_validator_schema_failure_increments_retry_count():
     assert result["retry_count"] == 1
     assert "스키마 실패" in result["validation_summary"]
     actor_results = [
-        item for item in result["validation_results"]
+        item
+        for item in result["validation_results"]
         if item["target"] == "Actors.json" and item["category"] == "schema"
     ]
     assert len(actor_results) == 1
@@ -639,9 +636,7 @@ async def test_validator_partial_changes_log_still_validates_schema():
 
     result = await validator(state)
 
-    schema_results = [
-        item for item in result["validation_results"] if item["category"] == "schema"
-    ]
+    schema_results = [item for item in result["validation_results"] if item["category"] == "schema"]
     assert all(item["success"] for item in schema_results)
 
 
@@ -659,9 +654,7 @@ async def test_validator_executor_failure_in_log_still_validates_schema():
 
     result = await validator(state)
 
-    schema_results = [
-        item for item in result["validation_results"] if item["category"] == "schema"
-    ]
+    schema_results = [item for item in result["validation_results"] if item["category"] == "schema"]
     assert all(item["success"] for item in schema_results)
 
 
@@ -693,7 +686,8 @@ async def test_validator_query_step_allows_empty_modified_files():
     result = await validator(state)
     # query 스텝 자체는 성공이어야 함
     step1_failures = [
-        item for item in result["validation_results"]
+        item
+        for item in result["validation_results"]
         if item["target"] == "step:1" and not item["success"]
     ]
     assert len(step1_failures) == 0
@@ -711,9 +705,7 @@ async def test_validator_debug_print_execution_plan_changes_log_and_result():
 
     # 기본 state는 query 없이 create → query_consistency 실패 가능
     # 최소한 스키마 검증은 통과해야 함
-    schema_results = [
-        item for item in result["validation_results"] if item["category"] == "schema"
-    ]
+    schema_results = [item for item in result["validation_results"] if item["category"] == "schema"]
     assert all(item["success"] for item in schema_results)
 
 

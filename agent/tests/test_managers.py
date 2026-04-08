@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import json
 import uuid
 from pathlib import Path
 
@@ -17,8 +16,10 @@ from app.backend.services.json_modify_tools.managers.class_manager import ClassM
 from app.backend.services.json_modify_tools.managers.skill_manager import SkillManager
 from app.backend.services.json_modify_tools.managers.system_manager import SystemManager
 
+
 def _get_data_path() -> Path:
     from app.backend.core.config import settings
+
     return Path(settings.STORAGE_PATH) / "game_001" / "data"
 
 
@@ -60,9 +61,7 @@ class TestSystemManager:
         assert system["variables"][5] == "test_var"
 
         # 복원
-        await self.mgr.execute(
-            "set_variable_name", target_info={"variable_id": 5, "name": ""}
-        )
+        await self.mgr.execute("set_variable_name", target_info={"variable_id": 5, "name": ""})
 
     @pytest.mark.asyncio
     async def test_set_variable_name_invalid_id(self) -> None:
@@ -81,9 +80,7 @@ class TestSystemManager:
         assert system["switches"][3] == "test_switch"
 
         # 복원
-        await self.mgr.execute(
-            "set_switch_name", target_info={"switch_id": 3, "name": ""}
-        )
+        await self.mgr.execute("set_switch_name", target_info={"switch_id": 3, "name": ""})
 
     @pytest.mark.asyncio
     async def test_update_starting_position(self) -> None:
@@ -211,7 +208,10 @@ class TestActorManager:
 
         r = await self.mgr.execute(
             "update_general",
-            target_info={"actor_id": actor_id, "updates": {"nickname": "테스트닉", "initialLevel": 10}},
+            target_info={
+                "actor_id": actor_id,
+                "updates": {"nickname": "테스트닉", "initialLevel": 10},
+            },
         )
         assert r.get("success") is True
         assert "nickname" in r.get("updated_fields", [])

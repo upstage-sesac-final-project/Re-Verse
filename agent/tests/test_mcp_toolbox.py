@@ -12,7 +12,6 @@ import pytest
 
 from agent import mcp_toolbox as mt
 
-
 # ──────────────────────────────────────────────────────────────
 # parse_mcp_servers_json
 # ──────────────────────────────────────────────────────────────
@@ -50,7 +49,7 @@ class TestParseMcpServersJson:
         assert mt.parse_mcp_servers_json() is None
 
     def test_json_array_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MCP_SERVERS_JSON", '[1, 2, 3]')
+        monkeypatch.setenv("MCP_SERVERS_JSON", "[1, 2, 3]")
         assert mt.parse_mcp_servers_json() is None
 
     def test_empty_dict_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -284,8 +283,8 @@ class TestGetMcpServerArgs:
         assert mt.get_mcp_server_args() == []
 
     def test_invalid_json_array(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MCP_ARGS", '[broken')
-        assert mt.get_mcp_server_args() == ['[broken']
+        monkeypatch.setenv("MCP_ARGS", "[broken")
+        assert mt.get_mcp_server_args() == ["[broken"]
 
 
 # ──────────────────────────────────────────────────────────────
