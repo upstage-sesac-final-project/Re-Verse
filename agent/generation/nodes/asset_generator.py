@@ -631,9 +631,10 @@ ARMOR_ICON_TAG: dict[str, int] = {
 
 ITEM_ICON_TAG: dict[str, int] = {
     "potion": 176,
-    "ether": 177,
+    "ether": 178,
     "antidote": 176,
-    "revive": 176,
+    "revive": 246,
+    "feather": 297,
     "key_item": 195,
     "scroll": 189,
     "food": 208,
@@ -765,7 +766,7 @@ async def generate_items(spec: GameSpec, id_table: IdTable) -> list:
     for item in sorted(result.items, key=lambda i: i.id):
         d = item.model_dump()
         tag = d.pop("iconTag", "potion")
-        d["iconIndex"] = _resolve_icon(tag, ITEM_ICON_TAG, 0)
+        d["iconIndex"] = _resolve_icon(tag, ITEM_ICON_TAG, 302)
         output.append(d)
     return _ensure_null_at_0(output)
 
