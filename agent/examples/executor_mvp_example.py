@@ -86,11 +86,18 @@ async def example_3_validation_failure_simulation():
     print("📥 1차 실행:")
     result1 = await executor(state)
 
-    # 2차 재시도 (validation_result에 에러 포함)
+    # 2차 재시도 (validation_results에 에러 포함)
     retry_state = {
         **state,
         "retry_count": 1,
-        "validation_result": {"passed": False, "errors": ["이전 번역에서 키워드 인식 실패"]},
+        "validation_results": [
+            {
+                "target": "state",
+                "category": "query_consistency",
+                "success": False,
+                "errors": [{"loc": "$", "msg": "이전 번역에서 키워드 인식 실패"}],
+            }
+        ],
     }
 
     print("📥 2차 재시도 (에러 컨텍스트 포함):")

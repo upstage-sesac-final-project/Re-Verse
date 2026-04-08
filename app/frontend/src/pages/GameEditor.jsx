@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { fetchProjects, setCurrentProject } from '../store/gameSlice'
+import { enterEditor, exitEditor, exitEditorBeacon } from '../services/editorApi'
 import Header from '../components/layout/Header'
 import ChatInterface from '../components/chat/ChatInterface'
 import GamePreview from '../components/game/GamePreview'
@@ -15,6 +16,15 @@ export default function GameEditor() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [verified, setVerified] = useState(false)
+  const sessionEnteredRef = useRef(false)
+
+  // 편집 세션 종료 (beforeunload + cleanup 공용)
+  const handleExit = useCallback(() => {
+    if (sessionEnteredRef.current) {
+      exitEditorBeacon(projectId)
+      sessionEnteredRef.current = false
+    }
+  }, [projectId])
 
   useEffect(() => {
     setVerified(false)
@@ -35,7 +45,33 @@ export default function GameEditor() {
 
     dispatch(setCurrentProject(project))
     setVerified(true)
-  }, [projectId, projects, isLoading, dispatch, navigate])
+
+    // 편집 세션 시작
+    enterEditor(projectId)
+      .then(() => {
+        sessionEnteredRef.current = true
+      })
+      .catch((err) => {
+        console.error('편집 세션 시작 실패:', err)
+        if (err.message?.includes('409')) {
+          alert('이미 다른 탭에서 편집 중입니다.')
+        }
+        navigate('/dashboard', { replace: true })
+      })
+
+    // 페이지 이탈 시 세션 종료
+    const onBeforeUnload = () => handleExit()
+    window.addEventListener('beforeunload', onBeforeUnload)
+
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      // React cleanup (라우팅 이동 등)
+      if (sessionEnteredRef.current) {
+        exitEditor(projectId).catch(() => {})
+        sessionEnteredRef.current = false
+      }
+    }
+  }, [projectId, projects, isLoading, dispatch, navigate, handleExit])
 
   if (!verified) {
     return (
