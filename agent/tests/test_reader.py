@@ -53,6 +53,7 @@ async def run_interactive_test():
         except Exception as e:
             print(f"\n[!] 오류 발생: {e}")
             import traceback
+
             traceback.print_exc()
 
 

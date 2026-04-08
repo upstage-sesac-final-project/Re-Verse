@@ -125,31 +125,14 @@ except Exception as e:
 ## 프롬프트 구조 (reader_prompt.py)
 
 `reader_prompt.py`는 세 종류의 프롬프트를 가진다.
-- Step 1 구조화용: `_SYSTEM` + `build_prompt(state)`
-- Step 3b entity_type fallback용: `_ENTITY_TYPE_GUESS_SYSTEM` + `build_entity_type_guess_prompt(entity_name)`
-- Step 3c semantic name match fallback용: `_ENTITY_NAME_MATCH_SYSTEM` + `build_entity_name_match_prompt(query_name, available_names)`
 
-```python
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from agent.graph.state import AgentState
+| 용도 | 시스템 프롬프트 | 빌더 함수 |
+|---|---|---|
+| Step 1 구조화 | `_SYSTEM` | `build_prompt(state)` |
+| Step 3b entity_type fallback | `_ENTITY_TYPE_GUESS_SYSTEM` | `build_entity_type_guess_prompt(entity_name)` |
+| Step 3c semantic name match | `_ENTITY_NAME_MATCH_SYSTEM` | `build_entity_name_match_prompt(query_name, available_names)` |
 
-def _build_messages(system_content: str, human_content: str) -> list[BaseMessage]:
-    return [
-        SystemMessage(content=system_content),
-        HumanMessage(content=human_content),
-    ]
-
-def build_prompt(state: AgentState) -> list[BaseMessage]: ...
-def build_entity_type_guess_prompt(entity_name: str) -> list[BaseMessage]: ...
-def build_entity_name_match_prompt(query_name: str, available_names: list[str]) -> list[BaseMessage]: ...
-```
-
-프롬프트에서 반드시 명시해야 하는 내용:
-- `entity_name`은 사용자 입력 그대로 반환한다. 영문 변환하지 않는다.
-- `field_name`은 영문 JSON 필드명으로 반환한다 (예: "HP" → "maxHp", "공격력" → "atk")
-- `entity_type`은 영문 단수형으로 반환한다 (예: "적" → "enemy", "아이템" → "item")
-- "누구누구 있어?", "뭐가 있어?" 형태는 bulk_list로 분류한다 (entity_name=null)
-- 게임 제목 등 시스템 설정 조회는 entity_type=system으로 분류한다
+세 빌더 모두 내부의 `_build_messages(system, human)` 헬퍼를 공유한다.
 
 ## 파일 읽기
 
@@ -196,7 +179,7 @@ fuzzy threshold는 초기 구현 후 테스트 결과 기반으로 조정한다.
 | entity_type 정상 추출 + 직접 매칭 실패 | 2회 (Step 1 + semantic name match) |
 | entity_type=None + 전체 JSON 검색으로 발견 | 1회 (Step 1만) |
 | entity_type=None + 전체 JSON 검색 실패 + entity_type fallback으로 해결 | 2회 (Step 1 + Step 3b) |
-| entity_type=None + 전체 JSON 검색 실패 + 재검색도 이름 불일치 | 3회 (Step 1 + Step 3b + semantic name match) |
+| entity_type=None + 전체 JSON 검색 실패 + 재검색도 이름 불일치 | 3회 (Step 1 + Step 3b + Step 3c) |
 
 ## 처리 흐름
 
@@ -240,37 +223,13 @@ for category, plural in CATEGORY_TO_PLURAL.items():
 
 ### Step 3b — entity_type=None + 전체 검색 실패: LLM 2nd call (fallback)
 
-9개 파일 어디에도 없는 경우 LLM이 entity_type을 추정한다.
-
-`agent/prompts/definition_prompt.py`의 `STEP2_SYSTEM_PROMPT`를 직접 import하지 않는다.
-reader는 definition 내부 규칙에 묶여서는 안 된다 — definition 프롬프트가 바뀌면 reader도 흔들린다.
-대신 `reader_prompt.py` 안에 entity-type-guess 전용 system prompt를 별도로 선언한다.
-
-```python
-# agent/prompts/reader_prompt.py
-_ENTITY_TYPE_GUESS_SYSTEM = """\
-사용자가 언급한 이름이 RPG Maker MZ의 9개 카테고리 중 어느 것에 해당하는지 판별하라.
-카테고리: actor, enemy, item, weapon, armor, class, state, skill, system
-...
-"""
-```
-
-`_EntityTypeGuess`는 reader.py 내부 private 클래스로 선언한다.
-
-```python
-class _EntityTypeGuess(BaseModel):
-    entity_type: str | None
-    reasoning: str
-```
-
-분류된 entity_type으로 해당 파일을 재검색한다. 여기서도 미발견이면 LLM이 추정한 카테고리를 포함해 안내한다.
+9개 파일 어디에도 없는 경우 `_guess_entity_type()`이 LLM으로 entity_type을 추정하고 해당 파일을 재검색한다.
+재검색에서도 미발견이면 유사 이름 제안과 함께 안내 메시지를 반환한다.
 
 ```
 'Pegasus'라는 적을 찾지 못했습니다.
 유사한 이름: Dragon (ID: 3), Pegasos (ID: 7)
 ```
-
-유저는 이 응답을 보고 "액터 페가수스" 등으로 카테고리를 명시해 재요청할 수 있다.
 
 ### Step 3c — 직접 매칭 실패: semantic name matching fallback
 

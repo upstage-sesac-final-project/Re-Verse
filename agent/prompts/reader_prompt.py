@@ -188,7 +188,9 @@ _ENTITY_NAME_MATCH_SYSTEM = """\
 """
 
 
-def build_entity_name_match_prompt(query_name: str, available_names: list[str]) -> list[BaseMessage]:
+def build_entity_name_match_prompt(
+    query_name: str, available_names: list[str]
+) -> list[BaseMessage]:
     """entity_name을 게임 내 실제 이름으로 의미론적으로 매핑하는 LLM call용 메시지를 생성한다."""
     names_text = "\n".join(f"- {n}" for n in available_names)
     return _build_messages(
