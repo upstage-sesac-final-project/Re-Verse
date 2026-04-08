@@ -206,10 +206,16 @@ def _validate_name_refs(events: list, id_table: IdTable, switch_table: SwitchTab
                 )
                 continue
             if hasattr(e, "troop") and e.troop not in all_troop_names:
-                logger.warning(
-                    "battle 이벤트 '%s': troop '%s' 존재하지 않음 → 제거", e.name, e.troop
-                )
-                continue
+                # LLM이 × 앞에 _ 또는 공백을 붙이는 경우 정규화 후 재시도
+                # e.g., "헬리오스_워리어_×3" → "헬리오스_워리어×3"
+                normalized = re.sub(r"[\s_]+×", "×", e.troop)
+                if normalized in all_troop_names:
+                    e.troop = normalized
+                else:
+                    logger.warning(
+                        "battle 이벤트 '%s': troop '%s' 존재하지 않음 → 제거", e.name, e.troop
+                    )
+                    continue
             if hasattr(e, "item") and e.item not in all_item_names:
                 logger.warning("chest 이벤트 '%s': item '%s' 존재하지 않음 → 제거", e.name, e.item)
                 continue
