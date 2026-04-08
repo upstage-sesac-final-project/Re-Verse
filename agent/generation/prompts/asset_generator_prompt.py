@@ -82,13 +82,15 @@ _SKILLS_SYSTEM = """\
    - 아군 디버프: [{"code": 32, "dataId": 스탯ID, "value1": 턴수, "value2": 0}]
      스탯 dataId: 2=ATK, 3=DEF, 4=MAT, 5=MDF, 6=AGI, 7=LUK
    - HP/MP 회복 효과: [{"code": 11, "dataId": 0, "value1": 비율, "value2": 고정값}]
-8. iconIndex (반드시 1 이상, 0 금지):
-   - 물리 공격: 76(단일), 77(강공격), 78(범위/사격)
-   - 마법: 64(불), 65(얼음), 66(번개), 67(물), 68(땅), 69(바람), 70(성), 71(암)
-   - 회복: 72
-   - 버프: 34~38, 디버프: 50~54
-   - 상태이상: 2(독), 3(실명), 9(마비)
-   - 방어/반사: 81, 도망: 82
+8. iconTag (숫자 대신 태그 문자열 사용, 시스템이 자동 변환):
+   - 물리: "physical_melee"(검), "physical_strong"(강타), "physical_ranged"(사격/활)
+   - 마법: "fire_magic", "ice_magic", "thunder_magic", "water_magic",
+           "earth_magic", "wind_magic", "holy_magic", "dark_magic"
+   - 회복: "heal"
+   - 흡수: "drain"(HP), "mp_drain"(MP)
+   - 상태이상: "poison", "blind", "silence", "confusion", "sleep", "paralyze"
+   - 버프: "buff_atk", "buff_def", "buff_mat", "buff_mdf", "buff_agi", "buff", "debuff"
+   - 특수: "defense"(방어), "escape"(도망), "song"(노래), "explosive"(폭발)
 9. messageType: message1이 있으면 반드시 1 (0=메시지 미표시)
 """
 
@@ -131,6 +133,9 @@ _ITEMS_SYSTEM = """\
 4. itype_id: 1=일반, 2=핵심아이템
 5. scope: 7=아군 1체 (회복), 0=없음 (핵심아이템)
 6. price: 100~2000 사이
+7. iconTag (태그 문자열, 시스템이 아이콘 번호로 변환):
+   "potion"(회복약), "ether"(마나약), "antidote"(해독제), "revive"(부활),
+   "key_item"(핵심아이템), "scroll"(두루마리), "food"(음식), "gem"(보석)
 """
 
 
@@ -167,11 +172,14 @@ _WEAPONS_SYSTEM = """\
 
 ## 규칙
 1. id는 제공된 값을 사용하세요.
-2. wtypeId: 1=단검, 2=검, 3=도끼, 4=창, 5=도리깨, 6=지팡이
+2. wtypeId: 1=단검, 2=검, 3=철퇴, 4=도끼, 6=지팡이, 7=활, 8=석궁, 10=클로, 11=격투장갑, 12=창
 3. params: [MHP, MMP, ATK, DEF, MAT, MDF, AGI, LUK] 8개 보정값
    - 검: ATK+15~25
    - 지팡이: MAT+15~25
 4. price: 초반 300~800, 중반 1000~2500, 후반 3000~8000
+5. iconTag (태그 문자열, 시스템이 아이콘 번호로 변환):
+   "dagger"(단검), "sword"(검), "mace"(철퇴), "axe"(도끼), "staff"(지팡이),
+   "bow"(활), "crossbow"(석궁), "claw"(클로), "gauntlet"(격투장갑), "spear"(창), "gun"(총)
 """
 
 
@@ -204,10 +212,16 @@ _ARMORS_SYSTEM = """\
 
 ## 규칙
 1. id는 제공된 값을 사용하세요.
-2. atypeId: 1=일반방어구, 2=방패, 3=투구, 4=갑옷, 5=장신구
+2. atypeId: 1=일반방어구, 2=마법장비, 3=경량장비, 4=무거운장비, 5=소형방패, 6=대형방패
 3. etypeId: 2=방패, 3=머리, 4=몸통, 5=장신구 (슬롯 ID)
 4. params: DEF, MDF 위주 보정
 5. price: 초반 200~600, 중반 800~2000, 후반 2500~6000
+6. iconTag (태그 문자열, 시스템이 아이콘 번호로 변환):
+   몸통: "light_armor"(일반옷), "medium_armor"(경량갑옷), "heavy_armor"(중장갑), "robe"(로브)
+   방패: "buckler"(소형방패), "shield"(대형방패), "bracelet"(팔찌)
+   머리: "hat"(모자), "cap"(캡), "helmet"(투구), "circlet"(서클릿), "bandana"(반다나)
+   장신구: "ring"(반지), "stone"(스톤), "necklace"(목걸이), "belt"(벨트),
+           "glasses"(안경), "boots"(부츠), "cloak"(망토)
 """
 
 

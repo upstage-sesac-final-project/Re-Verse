@@ -174,7 +174,7 @@ class RpgSkill(BaseModel):
     name: str
     description: str = ""
     animationId: int = -1
-    iconIndex: int = 0
+    iconTag: str = "physical_melee"
     stypeId: int = 1
     scope: int = 1
     occasion: int = 1
@@ -212,7 +212,7 @@ class RpgItem(BaseModel):
     name: str
     description: str = ""
     animationId: int = -1
-    iconIndex: int = 0
+    iconTag: str = "potion"
     itypeId: int = 1
     price: int = 100
     consumable: bool = True
@@ -236,7 +236,7 @@ class RpgWeapon(BaseModel):
     id: int
     name: str
     description: str = ""
-    iconIndex: int = 0
+    iconTag: str = "sword"
     wtypeId: int = 1
     etypeId: int = 1
     price: int = 500
@@ -254,7 +254,7 @@ class RpgArmor(BaseModel):
     id: int
     name: str
     description: str = ""
-    iconIndex: int = 0
+    iconTag: str = "light_armor"
     atypeId: int = 1
     etypeId: int = 4
     price: int = 300
@@ -545,20 +545,101 @@ def _ensure_null_at_0(lst: list) -> list:
     return lst
 
 
-# ── 아이콘 매핑 테이블 (base_game 데이터 기준) ─────────────────────────────────
+# ── iconTag → iconIndex DSL 매핑 (base_game IconSet.png 기준) ────────────────
 
-_ELEMENT_ICON_MAP: dict[int, int] = {
-    2: 64,
-    3: 65,
-    4: 66,
-    5: 67,
-    6: 68,
-    7: 69,
-    8: 70,
-    9: 71,
+SKILL_ICON_TAG: dict[str, int] = {
+    # 마법 원소
+    "fire_magic": 64,
+    "ice_magic": 65,
+    "thunder_magic": 66,
+    "water_magic": 67,
+    "earth_magic": 68,
+    "wind_magic": 69,
+    "holy_magic": 70,
+    "dark_magic": 71,
+    # 회복/흡수
+    "heal": 72,
+    "drain": 5,
+    "mp_drain": 80,
+    # 물리
+    "physical_melee": 76,
+    "physical_strong": 77,
+    "physical_ranged": 78,
+    # 상태이상
+    "poison": 2,
+    "blind": 3,
+    "silence": 4,
+    "confusion": 6,
+    "sleep": 8,
+    "paralyze": 9,
+    # 버프/디버프
+    "buff_atk": 34,
+    "buff_def": 35,
+    "buff_mat": 36,
+    "buff_mdf": 37,
+    "buff_agi": 38,
+    "debuff_atk": 50,
+    "debuff_def": 51,
+    "debuff_mat": 52,
+    "debuff_mdf": 53,
+    "debuff_agi": 54,
+    "buff": 34,
+    "debuff": 50,
+    # 특수
+    "defense": 81,
+    "escape": 82,
+    "song": 80,
+    "explosive": 78,
 }
 
-_WEAPON_ICON_MAP: dict[int, int] = {
+WEAPON_ICON_TAG: dict[str, int] = {
+    "dagger": 96,
+    "sword": 97,
+    "mace": 98,
+    "axe": 99,
+    "staff": 101,
+    "bow": 102,
+    "crossbow": 103,
+    "claw": 105,
+    "gauntlet": 106,
+    "spear": 107,
+    "gun": 78,
+}
+
+ARMOR_ICON_TAG: dict[str, int] = {
+    "light_armor": 135,
+    "medium_armor": 136,
+    "heavy_armor": 137,
+    "robe": 139,
+    "buckler": 129,
+    "shield": 128,
+    "bracelet": 144,
+    "hat": 130,
+    "cap": 130,
+    "helmet": 132,
+    "circlet": 133,
+    "bandana": 150,
+    "ring": 145,
+    "stone": 147,
+    "necklace": 151,
+    "glasses": 151,
+    "belt": 144,
+    "boots": 135,
+    "cloak": 139,
+}
+
+ITEM_ICON_TAG: dict[str, int] = {
+    "potion": 176,
+    "ether": 177,
+    "antidote": 176,
+    "revive": 176,
+    "key_item": 195,
+    "scroll": 189,
+    "food": 208,
+    "gem": 163,
+}
+
+_WEAPON_WTYPE_FALLBACK: dict[int, int] = {
     1: 96,
     2: 97,
     3: 98,
@@ -571,58 +652,12 @@ _WEAPON_ICON_MAP: dict[int, int] = {
     12: 107,
 }
 
-_ARMOR_ICON_MAP: dict[tuple[int, int], int] = {
-    (4, 1): 135,
-    (4, 2): 139,
-    (4, 3): 136,
-    (4, 4): 137,
-    (2, 5): 129,
-    (2, 6): 128,
-    (2, 2): 144,
-    (3, 1): 130,
-    (3, 2): 133,
-    (3, 3): 130,
-    (3, 4): 132,
-    (5, 1): 145,
-}
-
 _ARMOR_ETYPE_FALLBACK: dict[int, int] = {2: 129, 3: 130, 4: 135, 5: 145}
 
-# 유효 아이콘 범위 (base_game IconSet 기준)
-_VALID_WEAPON_ICONS = frozenset(range(96, 108))  # 96~107
-_VALID_ARMOR_ICONS = frozenset(range(128, 152)) | {205}  # 128~151, 205
-_VALID_SKILL_ICONS = (
-    frozenset(range(2, 10))  # 상태이상: 2~9
-    | frozenset(range(34, 39))  # 버프: 34~38
-    | frozenset(range(50, 55))  # 디버프: 50~54
-    | frozenset(range(64, 83))  # 마법/물리/회복/특수: 64~82
-)
 
-
-def _fix_skill_icon(d: dict) -> None:
-    """iconIndex가 유효 스킬 아이콘 범위 밖이면 damage/scope/element 기반으로 보정."""
-    if d.get("iconIndex", 0) in _VALID_SKILL_ICONS:
-        return
-    dmg = d.get("damage", {})
-    dmg_type = dmg.get("type", 0)
-    element_id = dmg.get("elementId", 0)
-    scope = d.get("scope", 1)
-
-    if dmg_type in (1, 5) and element_id in _ELEMENT_ICON_MAP:
-        d["iconIndex"] = _ELEMENT_ICON_MAP[element_id]
-        return
-    if dmg_type == 1:
-        d["iconIndex"] = 76
-    elif dmg_type == 3:
-        d["iconIndex"] = 72
-    elif dmg_type == 5:
-        d["iconIndex"] = 76
-    elif dmg_type == 6:
-        d["iconIndex"] = 80
-    elif dmg_type == 0:
-        d["iconIndex"] = 34 if scope in (7, 8, 9, 10, 11, 12, 14) else 9
-    else:
-        d["iconIndex"] = 76
+def _resolve_icon(tag: str, tag_map: dict[str, int], fallback: int) -> int:
+    """iconTag → iconIndex 변환. 알 수 없는 태그면 fallback."""
+    return tag_map.get(tag, fallback)
 
 
 def _inject_fallback_effect(d: dict) -> None:
@@ -695,11 +730,12 @@ async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
     output: list[Any] = [None]
     for skill in sorted(result.items, key=lambda s: s.id):
         d = skill.model_dump()
-        # Bug 5: message1이 있는데 messageType=0이면 메시지 미표시 → 1로 보정
+        # iconTag → iconIndex 변환
+        tag = d.pop("iconTag", "physical_melee")
+        d["iconIndex"] = _resolve_icon(tag, SKILL_ICON_TAG, 76)
+        # Bug 5: message1이 있는데 messageType=0이면 → 1로 보정
         if d.get("message1") and d.get("messageType") == 0:
             d["messageType"] = 1
-        # Bug 4: iconIndex=0 보정
-        _fix_skill_icon(d)
         # Bug 3-B: damage.type=0 + effects 없음 → 기본 효과 주입
         if d["damage"]["type"] == 0 and not d.get("effects"):
             _inject_fallback_effect(d)
@@ -715,7 +751,10 @@ async def generate_items(spec: GameSpec, id_table: IdTable) -> list:
     )
     output: list[Any] = [None]
     for item in sorted(result.items, key=lambda i: i.id):
-        output.append(item.model_dump())
+        d = item.model_dump()
+        tag = d.pop("iconTag", "potion")
+        d["iconIndex"] = _resolve_icon(tag, ITEM_ICON_TAG, 176)
+        output.append(d)
     return _ensure_null_at_0(output)
 
 
@@ -730,11 +769,12 @@ async def generate_weapons(spec: GameSpec, id_table: IdTable) -> list:
         d = weapon.model_dump()
         if len(d["params"]) != 8:
             d["params"] = [0] * 8
-        # Bug 4: 유효 무기 아이콘 범위(96~107) 밖이면 wtypeId 기반 강제 매핑
-        if d.get("iconIndex", 0) not in _VALID_WEAPON_ICONS:
-            wtype = d.get("wtypeId", 0)
-            if wtype in _WEAPON_ICON_MAP:
-                d["iconIndex"] = _WEAPON_ICON_MAP[wtype]
+        # iconTag → iconIndex 변환, 실패 시 wtypeId fallback
+        tag = d.pop("iconTag", "sword")
+        icon = _resolve_icon(tag, WEAPON_ICON_TAG, 0)
+        if icon == 0:
+            icon = _WEAPON_WTYPE_FALLBACK.get(d.get("wtypeId", 1), 97)
+        d["iconIndex"] = icon
         output.append(d)
     return _ensure_null_at_0(output)
 
@@ -750,12 +790,12 @@ async def generate_armors(spec: GameSpec, id_table: IdTable) -> list:
         d = armor.model_dump()
         if len(d["params"]) != 8:
             d["params"] = [0] * 8
-        # Bug 4: 유효 방어구 아이콘 범위(128~151) 밖이면 etypeId+atypeId 기반 강제 매핑
-        if d.get("iconIndex", 0) not in _VALID_ARMOR_ICONS:
-            key = (d.get("etypeId", 4), d.get("atypeId", 1))
-            d["iconIndex"] = _ARMOR_ICON_MAP.get(
-                key, _ARMOR_ETYPE_FALLBACK.get(d.get("etypeId", 4), 135)
-            )
+        # iconTag → iconIndex 변환, 실패 시 etypeId fallback
+        tag = d.pop("iconTag", "light_armor")
+        icon = _resolve_icon(tag, ARMOR_ICON_TAG, 0)
+        if icon == 0:
+            icon = _ARMOR_ETYPE_FALLBACK.get(d.get("etypeId", 4), 135)
+        d["iconIndex"] = icon
         output.append(d)
     return _ensure_null_at_0(output)
 
