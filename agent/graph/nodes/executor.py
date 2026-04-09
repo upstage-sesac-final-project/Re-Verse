@@ -2588,7 +2588,11 @@ async def _executor_structured(
 
     current_game_state = _copy_snapshot_files_to_disk(data_path, target_files, snap_dir, "before")
     backup_targets = _collect_structured_backup_files(execution_plan)
-    backup_paths = _create_backup(data_path, backup_targets)
+    if retry_count == 0:
+        backup_paths = _create_backup(data_path, backup_targets)
+    else:
+        backup_paths = {}
+        logger.info("[Executor structured] retry=%d → 백업 생성 skip (중복 방지)", retry_count)
     logger.info(
         "[Executor structured] before 스냅샷: %d개 파일, 백업: %d개 파일",
         len(current_game_state),
