@@ -143,14 +143,12 @@ def _build_params_2d(role: str) -> list[list[int]]:
 
 
 def _validate_exp_params(ep: list[int]) -> list[int]:
-    if len(ep) != 4:
-        return [30, 20, 30, 30]
-    return [
-        max(10, min(50, ep[0])),
-        max(10, min(40, ep[1])),
-        max(15, min(50, ep[2])),
-        max(20, min(50, ep[3])),
-    ]
+    """expParams 강제 — maxLevel=20 게임용 빠른 레벨업 곡선.
+
+    [5,5,2,30]: 총 ~16전으로 lv1→lv20 달성 (5~15분 플레이 기준).
+    LLM 출력은 무시하고 고정값 사용.
+    """
+    return [5, 5, 2, 30]
 
 
 # ── LLM 응답 스키마 ──────────────────────────────────────────────────────────
@@ -290,8 +288,8 @@ _ENEMY_STAT_BY_TIER: dict[str, dict[str, int]] = {
         "mdf": 8,
         "agi": 8,
         "luk": 5,
-        "exp": 12,
-        "gold": 8,
+        "exp": 30,
+        "gold": 15,
     },
     "normal": {
         "mhp": 500,
@@ -302,8 +300,8 @@ _ENEMY_STAT_BY_TIER: dict[str, dict[str, int]] = {
         "mdf": 14,
         "agi": 14,
         "luk": 8,
-        "exp": 35,
-        "gold": 25,
+        "exp": 350,
+        "gold": 50,
     },
     "elite": {
         "mhp": 1500,
@@ -314,8 +312,8 @@ _ENEMY_STAT_BY_TIER: dict[str, dict[str, int]] = {
         "mdf": 24,
         "agi": 22,
         "luk": 14,
-        "exp": 100,
-        "gold": 70,
+        "exp": 2000,
+        "gold": 150,
     },
     "boss": {
         "mhp": 4000,
@@ -326,8 +324,8 @@ _ENEMY_STAT_BY_TIER: dict[str, dict[str, int]] = {
         "mdf": 34,
         "agi": 30,
         "luk": 18,
-        "exp": 400,
-        "gold": 250,
+        "exp": 4500,
+        "gold": 500,
     },
 }
 
@@ -962,7 +960,7 @@ async def generate_classes(spec: GameSpec, id_table: IdTable) -> list:
         llm_cls = llm_by_name.get(cls_name)
         if llm_cls is None:
             logger.warning("LLM이 직업 '%s'를 누락, 기본값 사용", cls_name)
-            llm_cls = LlmClass(id=cid, name=cls_name, expParams=[30, 20, 30, 30], learnings=[])
+            llm_cls = LlmClass(id=cid, name=cls_name, expParams=[5, 5, 2, 30], learnings=[])
 
         # 이 클래스에 배정된 스킬 + "공용" 스킬만 허용
         allowed = class_skill_ids.get(cls_name, set()) | class_skill_ids.get("공용", set())
