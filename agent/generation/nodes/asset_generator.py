@@ -50,70 +50,82 @@ def _normalize_role(raw: str) -> str:
 
 # ── Classes.json 알고리즘 params ─────────────────────────────────────────────
 
+# maxLevel=20 기준 (lv1, lv20) — 시뮬레이션 검증 완료
+# docs/The_world/BALANCE_IMPROVEMENT_PLAN.md 참조
 _CLASS_STAT_TEMPLATE: dict[str, dict[str, tuple[int, int]]] = {
     "warrior": {
-        "mhp": (180, 2500),
-        "mmp": (60, 800),
-        "atk": (18, 280),
-        "def": (10, 150),
-        "mat": (8, 135),
-        "mdf": (8, 110),
-        "agi": (9, 110),
-        "luk": (8, 80),
+        "mhp": (400, 3000),
+        "mmp": (30, 300),
+        "atk": (15, 60),
+        "def": (12, 50),
+        "mat": (5, 25),
+        "mdf": (8, 35),
+        "agi": (10, 35),
+        "luk": (8, 25),
     },
     "mage": {
-        "mhp": (130, 1600),
-        "mmp": (100, 1400),
-        "atk": (10, 140),
-        "def": (6, 90),
-        "mat": (18, 280),
-        "mdf": (12, 160),
-        "agi": (10, 120),
-        "luk": (9, 90),
+        "mhp": (250, 1800),
+        "mmp": (80, 800),
+        "atk": (5, 20),
+        "def": (6, 25),
+        "mat": (15, 65),
+        "mdf": (12, 50),
+        "agi": (10, 35),
+        "luk": (8, 25),
     },
     "healer": {
-        "mhp": (150, 2000),
-        "mmp": (90, 1200),
-        "atk": (10, 150),
-        "def": (8, 120),
-        "mat": (14, 200),
-        "mdf": (14, 200),
-        "agi": (9, 110),
-        "luk": (10, 100),
+        "mhp": (350, 2500),
+        "mmp": (60, 600),
+        "atk": (8, 30),
+        "def": (10, 40),
+        "mat": (12, 50),
+        "mdf": (14, 55),
+        "agi": (9, 30),
+        "luk": (10, 30),
     },
     "thief": {
-        "mhp": (140, 1800),
-        "mmp": (50, 700),
-        "atk": (15, 220),
-        "def": (7, 110),
-        "mat": (8, 100),
-        "mdf": (8, 100),
-        "agi": (18, 280),
-        "luk": (15, 200),
+        "mhp": (300, 2200),
+        "mmp": (40, 400),
+        "atk": (12, 50),
+        "def": (7, 30),
+        "mat": (5, 20),
+        "mdf": (7, 30),
+        "agi": (18, 70),
+        "luk": (15, 50),
     },
     "default": {
-        "mhp": (150, 2000),
-        "mmp": (70, 1000),
-        "atk": (14, 200),
-        "def": (8, 120),
-        "mat": (12, 160),
-        "mdf": (8, 120),
-        "agi": (10, 140),
-        "luk": (9, 90),
+        "mhp": (350, 2500),
+        "mmp": (50, 500),
+        "atk": (12, 45),
+        "def": (10, 40),
+        "mat": (10, 40),
+        "mdf": (10, 40),
+        "agi": (12, 40),
+        "luk": (10, 30),
     },
 }
 
 _STAT_ORDER = ["mhp", "mmp", "atk", "def", "mat", "mdf", "agi", "luk"]
 
 
-def _generate_class_params(lv1: int, lv99: int, growth: str = "linear") -> list[int]:
-    """lv1~lv99 값의 99개 정수 배열 생성."""
+_MAX_LEVEL = 20  # 생성 게임의 최대 레벨
+
+
+def _generate_class_params(lv1: int, lv_max: int, growth: str = "linear") -> list[int]:
+    """lv1~lv99 값의 99개 정수 배열 생성. lv_max는 _MAX_LEVEL 시점 목표값.
+
+    lv1~lv_MAX_LEVEL 구간에서 lv1→lv_max로 성장하고,
+    lv_MAX_LEVEL 이후는 lv_max 값을 유지한다.
+    """
     result = []
     for lv in range(1, 100):
-        t = (lv - 1) / 98.0
+        if lv <= _MAX_LEVEL:
+            t = (lv - 1) / max(1, _MAX_LEVEL - 1)
+        else:
+            t = 1.0
         if growth == "accelerate":
             t = t * t
-        val = round(lv1 + (lv99 - lv1) * t)
+        val = round(lv1 + (lv_max - lv1) * t)
         result.append(val)
     assert len(result) == 99, f"params row length error: {len(result)}"
     return result
@@ -124,9 +136,9 @@ def _build_params_2d(role: str) -> list[list[int]]:
     template = _CLASS_STAT_TEMPLATE.get(role, _CLASS_STAT_TEMPLATE["default"])
     params_2d = []
     for stat in _STAT_ORDER:
-        lv1, lv99 = template[stat]
+        lv1, lv_max = template[stat]
         growth = "accelerate" if stat in ("mhp", "mmp") else "linear"
-        params_2d.append(_generate_class_params(lv1, lv99, growth=growth))
+        params_2d.append(_generate_class_params(lv1, lv_max, growth=growth))
     return params_2d
 
 
@@ -266,6 +278,60 @@ class RpgArmor(BaseModel):
 class ArmorListOutput(BaseModel):
     items: list[RpgArmor]
 
+
+# ── 적 tier별 스탯 테이블 (시뮬레이션 검증 완료) ────────────────────────────
+# docs/The_world/BALANCE_IMPROVEMENT_PLAN.md Phase 1
+
+_ENEMY_STAT_BY_TIER: dict[str, dict[str, int]] = {
+    "weak": {
+        "mhp": 200,
+        "mmp": 20,
+        "atk": 16,
+        "def": 10,
+        "mat": 11,
+        "mdf": 8,
+        "agi": 8,
+        "luk": 5,
+        "exp": 12,
+        "gold": 8,
+    },
+    "normal": {
+        "mhp": 500,
+        "mmp": 50,
+        "atk": 28,
+        "def": 18,
+        "mat": 20,
+        "mdf": 14,
+        "agi": 14,
+        "luk": 8,
+        "exp": 35,
+        "gold": 25,
+    },
+    "elite": {
+        "mhp": 1500,
+        "mmp": 150,
+        "atk": 45,
+        "def": 30,
+        "mat": 31,
+        "mdf": 24,
+        "agi": 22,
+        "luk": 14,
+        "exp": 100,
+        "gold": 70,
+    },
+    "boss": {
+        "mhp": 4000,
+        "mmp": 400,
+        "atk": 60,
+        "def": 42,
+        "mat": 42,
+        "mdf": 34,
+        "agi": 30,
+        "luk": 18,
+        "exp": 400,
+        "gold": 250,
+    },
+}
 
 # RPG Maker MZ 유효 trait 코드 (code:1 등 임의 코드는 무효)
 _VALID_TRAIT_CODES: frozenset[int] = frozenset(
@@ -1063,17 +1129,35 @@ async def generate_enemies(spec: GameSpec, id_table: IdTable) -> list:
     for enemy in sorted(result.items, key=lambda e: e.id):
         d = enemy.model_dump()
 
-        # params 길이/최솟값 보정
-        if len(d["params"]) != 8:
-            d["params"] = [60, 0, 10, 5, 5, 5, 8, 8]
-        for i, min_val in enumerate(_ENEMY_PARAM_MINS):
-            if d["params"][i] < min_val:
-                d["params"][i] = min_val
-
-        # note + tier별 actions 배정
+        # note + tier별 params/actions 강제 배정
         enemy_spec = spec_by_name.get(d.get("name", ""))
         if enemy_spec:
             d["note"] = f"tier:{enemy_spec.tier} location:{enemy_spec.location}"
+
+            # tier 기반 params 강제 주입 (LLM params 무시)
+            tier_stats = _ENEMY_STAT_BY_TIER.get(enemy_spec.tier)
+            if tier_stats:
+                d["params"] = [
+                    tier_stats["mhp"],
+                    tier_stats["mmp"],
+                    tier_stats["atk"],
+                    tier_stats["def"],
+                    tier_stats["mat"],
+                    tier_stats["mdf"],
+                    tier_stats["agi"],
+                    tier_stats["luk"],
+                ]
+                d["exp"] = tier_stats["exp"]
+                d["gold"] = tier_stats["gold"]
+        else:
+            # spec 매칭 실패 시 기본 보정
+            if len(d["params"]) != 8:
+                d["params"] = [200, 20, 16, 10, 11, 8, 8, 5]
+            for i, min_val in enumerate(_ENEMY_PARAM_MINS):
+                if d["params"][i] < min_val:
+                    d["params"][i] = min_val
+
+        if enemy_spec:
             # tier별 적 스킬 배정 (id=1 "공격" 기본 + 적 전용 스킬)
             from agent.generation.nodes.asset_planner import _ENEMY_SKILL_TEMPLATES
 
