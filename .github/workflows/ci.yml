@@ -57,9 +57,8 @@ jobs:
         run: uv run mypy app/backend agent
         continue-on-error: true  # 초기 단계에서는 경고로만
 
-      - name: Run tests (pytest)
-        run: uv run pytest app/backend/tests agent/tests -v --tb=short
-        continue-on-error: true  # 테스트 파일이 채워지기 전까지 경고로만
+      - name: Run tests (pytest — LLM 통합테스트 제외)
+        run: uv run pytest app/backend/tests agent/tests -v --tb=short -m "not integration"
 
   # =========================================================
   # Job 2: Frontend CI (React / Vite)

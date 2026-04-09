@@ -1957,7 +1957,10 @@ async def _execute_one_structured_step(
         if target_file == "Items.json" and action == "create":
             if target_info.get("item_id") is not None or target_info.get("itemId") is not None:
                 logger.debug("[Executor] 구조화: Items.json.create → JSON 직접 저장")
-                r = await asyncio.to_thread(_structured_create_item_sync, data_path, target_info)
+                async with game_locks[game_id]:
+                    r = await asyncio.to_thread(
+                        _structured_create_item_sync, data_path, target_info
+                    )
                 step_results[sid] = {**r, "step_id": sid}
                 mf = r.get("modified_files") or ["Items.json"]
                 return {
@@ -1974,7 +1977,10 @@ async def _execute_one_structured_step(
         if target_file == "Enemies.json" and action == "create":
             if target_info.get("enemy_id") is not None or target_info.get("enemyId") is not None:
                 logger.debug("[Executor] 구조화: Enemies.json.create → JSON 직접 저장")
-                r = await asyncio.to_thread(_structured_create_enemy_sync, data_path, target_info)
+                async with game_locks[game_id]:
+                    r = await asyncio.to_thread(
+                        _structured_create_enemy_sync, data_path, target_info
+                    )
                 step_results[sid] = {**r, "step_id": sid}
                 mf = r.get("modified_files") or ["Enemies.json"]
                 return {
