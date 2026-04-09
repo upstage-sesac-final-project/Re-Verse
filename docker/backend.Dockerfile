@@ -5,14 +5,40 @@
 # ------------------------------------------------------------
 # Stage 1: RPG Maker MZ MCP 서버 빌드 (Node)
 # - stdio MCP는 백엔드 컨테이너 내부에 실행파일이 있어야 함
-# - 여기서 git clone + build를 수행하고, 런타임 이미지로 산출물만 복사한다.
+# - 4개 MCP를 각각 clone + build 후 /mcp/<key> 로 모은다.
 # ------------------------------------------------------------
 FROM node:20-alpine AS mcp-builder
 WORKDIR /mcp
-RUN apk add --no-cache git
-RUN git clone https://github.com/k4zuki0539/-rpgmaker-mz-mcp.git .
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
-RUN npm run build
+RUN apk add --no-cache git bash
+
+# 기본값은 현재 운영 중인 리포 1개만 지정.
+# 나머지 3개는 docker-compose.prod.yml 또는 CI ENV_FILE에서 URL을 주입.
+ARG MCP_REPO_DEFAULT=https://github.com/k4zuki0539/-rpgmaker-mz-mcp.git
+ARG MCP_REPO_MAKER=
+ARG MCP_REPO_LOWER=
+ARG MCP_REPO_UNDERSCORE=
+
+RUN set -eux; \
+    mkdir -p /mcp/default /mcp/mcp_maker /mcp/rpgmaker_lower /mcp/rpgmaker_underscore; \
+    build_one() { \
+      key="$1"; \
+      url="$2"; \
+      if [ -z "$url" ]; then \
+        echo "skip $key (repo url empty)"; \
+        return 0; \
+      fi; \
+      work="/tmp/src-$key"; \
+      rm -rf "$work"; \
+      git clone "$url" "$work"; \
+      cd "$work"; \
+      if [ -f package-lock.json ]; then npm ci; else npm install; fi; \
+      npm run build; \
+      cp -R "$work"/. "/mcp/$key/"; \
+    }; \
+    build_one default "$MCP_REPO_DEFAULT"; \
+    build_one mcp_maker "$MCP_REPO_MAKER"; \
+    build_one rpgmaker_lower "$MCP_REPO_LOWER"; \
+    build_one rpgmaker_underscore "$MCP_REPO_UNDERSCORE"
 
 FROM python:3.12-slim
 
@@ -28,8 +54,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # MCP 빌드 산출물을 런타임 이미지에 포함 (컨테이너 내부 경로 기준)
-# - MCP_NODE_SERVER_PATH는 기본적으로 아래 경로를 가리키게 설정한다.
-COPY --from=mcp-builder /mcp /app/mcp-server
+# - 다중 MCP 루트: /app/mcp/<key>
+# - 기존 단일 경로 호환: /app/mcp-server -> /app/mcp/default
+COPY --from=mcp-builder /mcp /app/mcp
+RUN ln -s /app/mcp/default /app/mcp-server
 ENV MCP_NODE_SERVER_PATH=/app/mcp-server/dist/index.js
 
 # uv 설치
