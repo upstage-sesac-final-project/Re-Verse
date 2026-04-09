@@ -5,6 +5,7 @@
 
 import asyncio
 import importlib
+import json
 import logging
 import uuid
 from pathlib import Path
@@ -23,6 +24,116 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+_TEST_GAME_ID = f"game_{uuid.uuid4().hex[:8]}"
+
+
+@pytest.fixture(autouse=True)
+def _ensure_test_game_data():
+    """STORAGE_PATH/{_TEST_GAME_ID}/data/ 에 최소 JSON 생성."""
+    from app.backend.core.config import settings
+
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
+    if (data_path / "Actors.json").exists():
+        return
+
+    data_path.mkdir(parents=True, exist_ok=True)
+
+    _base_system = {
+        "gameTitle": "테스트 게임",
+        "versionId": 1,
+        "locale": "ko_KR",
+        "startMapId": 1,
+        "startX": 5,
+        "startY": 5,
+        "variables": [""] * 100,
+        "switches": [""] * 100,
+        "currencyUnit": "G",
+        "windowTone": [0, 0, 0, 0],
+        "battleBgm": {"name": "", "pan": 0, "pitch": 100, "volume": 90},
+        "battleback1Name": "",
+        "battleback2Name": "",
+        "partyMembers": [1],
+        "testBattlers": [],
+        "terms": {"basic": [], "commands": [], "params": [], "messages": {}},
+    }
+    _base_actors = [
+        None,
+        {
+            "id": 1,
+            "name": "용사",
+            "nickname": "",
+            "classId": 1,
+            "initialLevel": 1,
+            "maxLevel": 99,
+            "characterName": "Actor1",
+            "characterIndex": 0,
+            "faceName": "Actor1",
+            "faceIndex": 0,
+            "battlerName": "Actor1_1",
+            "equips": [0, 0, 0, 0, 0],
+            "traits": [],
+            "note": "",
+            "profile": "",
+        },
+        {
+            "id": 2,
+            "name": "리드",
+            "nickname": "",
+            "classId": 1,
+            "initialLevel": 1,
+            "maxLevel": 99,
+            "characterName": "Actor1",
+            "characterIndex": 1,
+            "faceName": "Actor1",
+            "faceIndex": 1,
+            "battlerName": "Actor1_2",
+            "equips": [0, 0, 0, 0, 0],
+            "traits": [],
+            "note": "",
+            "profile": "",
+        },
+    ]
+    _base_classes = [
+        None,
+        {
+            "id": 1,
+            "name": "전사",
+            "expParams": [30, 20, 30, 30],
+            "params": [[0] * 99] * 8,
+            "learnings": [],
+            "traits": [],
+            "note": "",
+        },
+    ]
+    _base_skills = [
+        None,
+        {
+            "id": 1,
+            "name": "공격",
+            "description": "",
+            "iconIndex": 76,
+            "mpCost": 0,
+            "scope": 1,
+            "occasion": 1,
+            "damage": {"type": 1, "elementId": -1, "formula": "a.atk * 4 - b.def * 2"},
+            "effects": [],
+            "note": "",
+        },
+    ]
+    _base_items = [None]
+
+    for fname, data in [
+        ("System.json", _base_system),
+        ("Actors.json", _base_actors),
+        ("Classes.json", _base_classes),
+        ("Skills.json", _base_skills),
+        ("Items.json", _base_items),
+        ("Enemies.json", [None]),
+    ]:
+        (data_path / fname).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+@pytest.mark.integration
 async def test_executor_mvp():
     """MVP 기본 동작 테스트"""
 
@@ -33,7 +144,7 @@ async def test_executor_mvp():
         "execution_plan": [
             {"task": "파이어볼 스킬 추가해줘", "description": "새로운 화염 공격 스킬"}
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -60,7 +171,7 @@ async def test_executor_mvp():
     # ── 테스트 2: 레벨 설정 ──────────────────────────────────
     test_state2 = {
         "execution_plan": [{"task": "주인공 레벨 50으로 설정해줘"}],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -81,7 +192,7 @@ async def test_executor_mvp():
     # ── 테스트 3: 재시도 로직 ────────────────────────────────
     test_state3 = {
         "execution_plan": [{"task": "유효하지 않은 명령"}],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 3,  # 최대치 초과
     }
 
@@ -104,7 +215,6 @@ async def test_executor_mvp():
 async def test_structured_execution_plan_actors(monkeypatch):
     """3단계 구조화 execution_plan: Actors.json query → 조건부 create."""
     executor_module = importlib.import_module("agent.graph.nodes.executor")
-    # MCP stdio는 테스트용 game_001과 파일 동기화가 어긋날 수 있어, 이 시나리오는 레거시 ActorManager로 고정 검증한다.
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: False)
 
     unique_name = f"ZZZ_EXECUTOR_STRUCT_TEST_{uuid.uuid4().hex[:8]}"
@@ -129,14 +239,13 @@ async def test_structured_execution_plan_actors(monkeypatch):
                 "condition": "step 1에서 캐릭터가 존재하지 않을 경우",
             },
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
     result = await executor(state)
     logs = result.get("changes_log", [])
     assert len(logs) >= 2
-    # MCP가 꺼져있을 때의 이름과 켜져있을 때의 이름을 모두 찾도록 변경합니다.
     q = next(
         (x for x in logs if x.get("tool_name") in ("structured_actors_query", "get_actor")), None
     )
@@ -148,7 +257,9 @@ async def test_structured_execution_plan_actors(monkeypatch):
     assert q.get("exists") is False
     assert c is not None and c.get("success") is True
 
-    data_path = Path(__file__).resolve().parents[2] / "storage" / "games" / "game_001" / "data"
+    from app.backend.core.config import settings
+
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
     mgr = ActorManager(data_path, "test_verify")
     verify = await mgr.execute("query", actor_name=unique_name)
     assert verify.get("exists") is True
@@ -168,11 +279,6 @@ async def test_structured_execution_plan_full_update_flow(monkeypatch):
     class_name = f"ZZZ_CLASS_{unique_suffix}"
     actor_name = f"ZZZ_ACTOR_{unique_suffix}"
 
-    # 4단계 엔진(Structured execution_plan)에서 아래 step들이 순서대로 실행돼야 한다.
-    # 1~2: Classes.json query -> create
-    # 3~4: Actors.json query -> create
-    # 5: Actors.json update(=classId 갱신)
-    # 6: System.json update(=partyMembers에 actorId 추가)
     state: AgentState = {
         "execution_plan": [
             {
@@ -230,7 +336,7 @@ async def test_structured_execution_plan_full_update_flow(monkeypatch):
                 "condition": "",
             },
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -247,7 +353,9 @@ async def test_structured_execution_plan_full_update_flow(monkeypatch):
         x.get("tool_name") == "structured_system_update" and x.get("success") is True for x in logs
     )
 
-    data_path = Path(__file__).resolve().parents[2] / "storage" / "games" / "game_001" / "data"
+    from app.backend.core.config import settings
+
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
     class_mgr = ClassManager(data_path, "verify_class")
     actor_mgr = ActorManager(data_path, "verify_actor")
     system_mgr = SystemManager(data_path, "verify_system")
@@ -273,7 +381,9 @@ async def test_skill_manager_directly():
 
     print("\n🛠️ SkillManager 직접 테스트")
 
-    data_path = Path(__file__).resolve().parents[2] / "storage" / "games" / "game_001" / "data"
+    from app.backend.core.config import settings
+
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
 
     if not data_path.exists():
         print(f"❌ 데이터 경로 없음: {data_path}")
@@ -300,7 +410,9 @@ def check_game_files():
 
     print("\n📂 게임 파일 체크")
 
-    data_path = Path(__file__).resolve().parents[2] / "storage" / "games" / "game_001" / "data"
+    from app.backend.core.config import settings
+
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
     required_files = ["Skills.json", "Enemies.json", "Items.json"]
 
     for file_name in required_files:
@@ -346,7 +458,7 @@ async def test_structured_mcp_alias_actor_update_routes_update_actor(monkeypatch
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -387,7 +499,7 @@ async def test_structured_mcp_actor_update_merges_top_level_max_level(monkeypatc
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -426,7 +538,7 @@ async def test_structured_mcp_actor_update_snake_case_maps_to_schema(monkeypatch
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -467,7 +579,7 @@ async def test_structured_mcp_alias_system_update_game_title(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -508,7 +620,7 @@ async def test_structured_mcp_alias_system_update_starting_position(monkeypatch)
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -538,7 +650,7 @@ async def test_actors_query_by_id_legacy_when_mcp_off(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -568,7 +680,7 @@ async def test_actors_list_search_legacy_when_mcp_off(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
     result_list = await executor(state_list)
@@ -589,7 +701,7 @@ async def test_actors_list_search_legacy_when_mcp_off(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
     result_search = await executor(state_search)
@@ -627,7 +739,7 @@ async def test_actors_update_class_inherits_actor_id_from_create(monkeypatch):
                 "condition": "",
             },
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
     result = await executor(state)
@@ -638,7 +750,9 @@ async def test_actors_update_class_inherits_actor_id_from_create(monkeypatch):
     assert logs[1].get("tool_name") == "structured_actors_update"
     assert logs[1].get("success") is True
 
-    data_path = Path(__file__).resolve().parents[2] / "storage" / "games" / "game_001" / "data"
+    from app.backend.core.config import settings
+
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
     mgr = ActorManager(data_path, "verify_upd_cls")
     verify = await mgr.execute("query", actor_name=unique_name)
     assert verify.get("exists") is True
@@ -677,7 +791,7 @@ async def test_actors_update_rename_by_new_name_after_create(monkeypatch):
                 "condition": "",
             },
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
     result = await executor(state)
@@ -685,7 +799,9 @@ async def test_actors_update_rename_by_new_name_after_create(monkeypatch):
     assert logs[1].get("tool_name") == "structured_actors_update_general"
     assert logs[1].get("success") is True
 
-    data_path = Path(__file__).resolve().parents[2] / "storage" / "games" / "game_001" / "data"
+    from app.backend.core.config import settings
+
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
     mgr = ActorManager(data_path, "verify_ren")
     assert (await mgr.execute("query", actor_name=old_name)).get("exists") is False
     assert (await mgr.execute("query", actor_name=new_name)).get("exists") is True
@@ -724,7 +840,7 @@ async def test_actors_rename_reconciles_wrong_planner_actor_id(monkeypatch):
                 "condition": "",
             },
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
     result = await executor(state)
@@ -732,7 +848,9 @@ async def test_actors_rename_reconciles_wrong_planner_actor_id(monkeypatch):
     assert logs[1].get("tool_name") == "structured_actors_update_general"
     assert logs[1].get("success") is True
 
-    data_path = Path(__file__).resolve().parents[2] / "storage" / "games" / "game_001" / "data"
+    from app.backend.core.config import settings
+
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
     mgr = ActorManager(data_path, "verify_rid")
     assert (await mgr.execute("query", actor_name=unique)).get("exists") is False
     assert (await mgr.execute("query", actor_name=new_name)).get("exists") is True
@@ -767,7 +885,7 @@ async def test_structured_mcp_alias_actor_query_by_id(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -807,7 +925,7 @@ async def test_structured_mcp_alias_system_update_set_variable_name(monkeypatch)
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -847,7 +965,7 @@ async def test_structured_mcp_alias_system_update_set_switch_name(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -867,7 +985,6 @@ async def test_mcp_failure_fallback_policy_actors_create(monkeypatch):
     async def fake_call_mcp_tool(
         tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
     ):
-        # MCP가 실패하도록 강제: executor가 정책에 따라 레거시로 폴백하는지 확인한다.
         return {"success": False, "error": "simulated mcp failure"}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
@@ -886,7 +1003,7 @@ async def test_mcp_failure_fallback_policy_actors_create(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -898,13 +1015,12 @@ async def test_mcp_failure_fallback_policy_actors_create(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_mcp_failure_abort_policy_system_update_game_title(monkeypatch):
-    """MCP 실패 시 레거시 분기가 없는 액션은 중단(Abort)되어야 한다."""
+    """MCP 실패 시 레거시 분기가 있는 System update_game_title은 폴백 성공해야 한다."""
     executor_module = importlib.import_module("agent.graph.nodes.executor")
 
     async def fake_call_mcp_tool(
         tool_name, arguments, data_path, path_arg_name="targetDir", mcp_server=None
     ):
-        # MCP 실패 강제: System의 update_game_title은 레거시 핸들러가 없으므로 abort로 떨어져야 한다.
         return {"success": False, "error": "simulated mcp failure"}
 
     monkeypatch.setattr(executor_module, "is_mcp_enabled", lambda: True)
@@ -923,15 +1039,14 @@ async def test_mcp_failure_abort_policy_system_update_game_title(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
     result = await executor(state)
     log = result["changes_log"][0]
     assert log["tool_name"] == "structured_system_update_game_title"
-    assert log["success"] is True  # 이제 레거시 폴백으로 성공
-    # MCP 실패 후 레거시로 성공했으므로 MCP_ABORT_NO_FALLBACK 에러는 없음
+    assert log["success"] is True
 
 
 @pytest.mark.asyncio
@@ -962,7 +1077,7 @@ async def test_items_query_normalizes_to_search_for_planner(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -990,7 +1105,7 @@ async def test_unsupported_structured_step_error_is_standardized():
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -1026,13 +1141,13 @@ async def test_executor_returns_modified_file_paths_for_reported_changes(monkeyp
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
     result = await executor(state)
 
-    expected_path = str(executor_module._get_data_path("game_001") / "Actors.json")
+    expected_path = str(executor_module._get_data_path(_TEST_GAME_ID) / "Actors.json")
     assert result["modified_file_paths"] == [expected_path]
 
 
@@ -1061,7 +1176,7 @@ async def test_executor_returns_empty_modified_file_paths_for_read_only_query(mo
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -1145,10 +1260,345 @@ def test_structured_create_item_sync_writes_items_json(tmp_path):
     assert arr[1]["effects"][0]["value2"] == 100
 
 
+# ──────────────────────────────────────────────────────────────
+# _structured_create_item_sync — 실패/엣지 케이스
+# ──────────────────────────────────────────────────────────────
+
+_VALID_ITEM_BASE: dict = {
+    "name": "포션",
+    "description": "테스트",
+    "iconIndex": 0,
+    "price": 100,
+    "itypeId": 1,
+    "consumable": True,
+    "scope": 7,
+    "occasion": 0,
+    "speed": 0,
+    "successRate": 100,
+    "repeats": 1,
+    "tpGain": 0,
+    "hitType": 0,
+    "animationId": -1,
+    "damage": {"type": 0, "elementId": 0, "formula": "0", "variance": 20, "critical": False},
+    "effects": [],
+    "note": "",
+}
+
+
+def _make_items_json(data_path: Path, arr: list | None = None):
+    """tmp_path 하위에 Items.json을 준비한다."""
+    import json as _json
+
+    data_path.mkdir(parents=True, exist_ok=True)
+    content = arr if arr is not None else [None, None]
+    (data_path / "Items.json").write_text(
+        _json.dumps(content, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def test_create_item_sync_missing_id(tmp_path):
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_items_json(dp)
+    r = executor_module._structured_create_item_sync(dp, {"name": "포션"})
+    assert r["success"] is False
+    assert "item_id" in r["stderr"]
+
+
+def test_create_item_sync_invalid_id(tmp_path):
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_items_json(dp)
+    r = executor_module._structured_create_item_sync(dp, {"item_id": "xyz", "name": "포션"})
+    assert r["success"] is False
+    assert "xyz" in r["stderr"]
+
+
+def test_create_item_sync_no_file(tmp_path):
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    dp.mkdir(parents=True)
+    # Items.json 없음
+    r = executor_module._structured_create_item_sync(dp, {"item_id": 1, "name": "포션"})
+    assert r["success"] is False
+
+
+def test_create_item_sync_slot_conflict(tmp_path):
+    """슬롯에 이미 다른 이름의 아이템이 있으면 충돌 에러."""
+
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    existing_item = {**_VALID_ITEM_BASE, "id": 1, "name": "기존 포션"}
+    _make_items_json(dp, [None, existing_item])
+    r = executor_module._structured_create_item_sync(
+        dp, {**_VALID_ITEM_BASE, "item_id": 1, "name": "새 포션"}
+    )
+    assert r["success"] is False
+    assert "기존 포션" in r["stderr"]
+
+
+def test_create_item_sync_schema_bad_scope(tmp_path):
+    """scope=99 (max 14) → Pydantic 검증 실패."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_items_json(dp)
+    info = {**_VALID_ITEM_BASE, "item_id": 1, "scope": 99}
+    r = executor_module._structured_create_item_sync(dp, info)
+    assert r["success"] is False
+    assert "스키마" in r["stderr"] or "scope" in r["stderr"].lower()
+
+
+def test_create_item_sync_default_damage(tmp_path):
+    """damage 키를 안 주면 기본 damage 블록이 적용된다."""
+    import json as _json
+
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_items_json(dp)
+    info = {k: v for k, v in _VALID_ITEM_BASE.items() if k != "damage"}
+    info["item_id"] = 1
+    r = executor_module._structured_create_item_sync(dp, info)
+    assert r["success"] is True
+    arr = _json.loads((dp / "Items.json").read_text(encoding="utf-8"))
+    assert "damage" in arr[1]
+    assert arr[1]["damage"]["formula"] == "0"
+
+
+def test_create_item_sync_effects_sanitized(tmp_path):
+    """code=11, value1=500, value2=0 → swap 적용 확인."""
+    import json as _json
+
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_items_json(dp)
+    info = {
+        **_VALID_ITEM_BASE,
+        "item_id": 1,
+        "effects": [{"code": 11, "dataId": 0, "value1": 500, "value2": 0}],
+    }
+    r = executor_module._structured_create_item_sync(dp, info)
+    assert r["success"] is True
+    arr = _json.loads((dp / "Items.json").read_text(encoding="utf-8"))
+    eff = arr[1]["effects"][0]
+    assert eff["value1"] == 0
+    assert eff["value2"] == 500
+
+
+def test_create_item_sync_skip_keys_filtered(tmp_path):
+    """query, searchTerm 등 skip 키는 저장 JSON에 포함되지 않는다."""
+    import json as _json
+
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_items_json(dp)
+    info = {
+        **_VALID_ITEM_BASE,
+        "item_id": 1,
+        "query": "포션 검색",
+        "searchTerm": "magic",
+        "item_name": "무시됨",
+    }
+    r = executor_module._structured_create_item_sync(dp, info)
+    assert r["success"] is True
+    arr = _json.loads((dp / "Items.json").read_text(encoding="utf-8"))
+    saved = arr[1]
+    assert "query" not in saved
+    assert "searchTerm" not in saved
+    assert "item_name" not in saved
+
+
+def test_create_item_sync_extends_array(tmp_path):
+    """item_id=5인데 배열 길이가 2면 null 패딩 후 기록."""
+    import json as _json
+
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_items_json(dp, [None, None])
+    info = {**_VALID_ITEM_BASE, "item_id": 5}
+    r = executor_module._structured_create_item_sync(dp, info)
+    assert r["success"] is True
+    arr = _json.loads((dp / "Items.json").read_text(encoding="utf-8"))
+    assert len(arr) >= 6
+    assert arr[5]["id"] == 5
+    # 중간 슬롯은 None
+    assert arr[2] is None
+    assert arr[3] is None
+    assert arr[4] is None
+
+
+def test_create_item_sync_corrupt_json(tmp_path):
+    """깨진 JSON 파일 → 읽기 실패."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    dp.mkdir(parents=True)
+    (dp / "Items.json").write_text("{{not json}}", encoding="utf-8")
+    r = executor_module._structured_create_item_sync(dp, {"item_id": 1, "name": "포션"})
+    assert r["success"] is False
+    assert "읽기 실패" in r["stderr"] or "Items.json" in r["stderr"]
+
+
+# ──────────────────────────────────────────────────────────────
+# _structured_create_enemy_sync — 성공/실패/엣지
+# ──────────────────────────────────────────────────────────────
+
+_VALID_ENEMY_BASE: dict = {
+    "name": "고블린",
+    "battlerName": "Goblin",
+    "battlerHue": 0,
+    "params": [100, 0, 10, 10, 10, 10, 10, 10],
+    "dropItems": [
+        {"kind": 0, "dataId": 1, "denominator": 1},
+        {"kind": 0, "dataId": 1, "denominator": 1},
+        {"kind": 0, "dataId": 1, "denominator": 1},
+    ],
+    "actions": [
+        {"skillId": 1, "rating": 5, "conditionType": 0, "conditionParam1": 0, "conditionParam2": 0}
+    ],
+    "traits": [],
+    "exp": 10,
+    "gold": 5,
+    "note": "",
+}
+
+
+def _make_enemies_json(data_path: Path, arr: list | None = None):
+    import json as _json
+
+    data_path.mkdir(parents=True, exist_ok=True)
+    content = arr if arr is not None else [None, None]
+    (data_path / "Enemies.json").write_text(
+        _json.dumps(content, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+# ── 성공 ──
+
+
+def test_create_enemy_sync_basic(tmp_path):
+    """유효한 enemy로 슬롯 기록 성공."""
+    import json as _json
+
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_enemies_json(dp)
+    info = {**_VALID_ENEMY_BASE, "enemy_id": 1}
+    r = executor_module._structured_create_enemy_sync(dp, info)
+    assert r["success"] is True
+    arr = _json.loads((dp / "Enemies.json").read_text(encoding="utf-8"))
+    assert arr[1]["name"] == "고블린"
+    assert arr[1]["id"] == 1
+    assert len(arr[1]["params"]) == 8
+
+
+def test_create_enemy_sync_extends_array(tmp_path):
+    """enemy_id=5, 배열 길이 2 → null 패딩 후 기록."""
+    import json as _json
+
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_enemies_json(dp, [None, None])
+    info = {**_VALID_ENEMY_BASE, "enemy_id": 5}
+    r = executor_module._structured_create_enemy_sync(dp, info)
+    assert r["success"] is True
+    arr = _json.loads((dp / "Enemies.json").read_text(encoding="utf-8"))
+    assert len(arr) >= 6
+    assert arr[5]["id"] == 5
+    assert arr[2] is None
+
+
+def test_create_enemy_sync_overwrites_same_name(tmp_path):
+    """같은 이름이면 슬롯 덮어쓰기 허용."""
+    import json as _json
+
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    existing = {**_VALID_ENEMY_BASE, "id": 1, "name": "고블린", "exp": 5}
+    _make_enemies_json(dp, [None, existing])
+    info = {**_VALID_ENEMY_BASE, "enemy_id": 1, "name": "고블린", "exp": 99}
+    r = executor_module._structured_create_enemy_sync(dp, info)
+    assert r["success"] is True
+    arr = _json.loads((dp / "Enemies.json").read_text(encoding="utf-8"))
+    assert arr[1]["exp"] == 99
+
+
+# ── 실패 ──
+
+
+def test_create_enemy_sync_missing_id(tmp_path):
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_enemies_json(dp)
+    r = executor_module._structured_create_enemy_sync(dp, {"name": "고블린"})
+    assert r["success"] is False
+    assert "enemy_id" in r["stderr"]
+
+
+def test_create_enemy_sync_invalid_id(tmp_path):
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_enemies_json(dp)
+    r = executor_module._structured_create_enemy_sync(dp, {"enemy_id": "abc"})
+    assert r["success"] is False
+    assert "abc" in r["stderr"]
+
+
+def test_create_enemy_sync_no_file(tmp_path):
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    dp.mkdir(parents=True)
+    r = executor_module._structured_create_enemy_sync(dp, {"enemy_id": 1})
+    assert r["success"] is False
+
+
+def test_create_enemy_sync_corrupt_json(tmp_path):
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    dp.mkdir(parents=True)
+    (dp / "Enemies.json").write_text("{{bad}}", encoding="utf-8")
+    r = executor_module._structured_create_enemy_sync(dp, {"enemy_id": 1})
+    assert r["success"] is False
+
+
+def test_create_enemy_sync_slot_conflict(tmp_path):
+    """슬롯에 다른 이름 적이 있으면 충돌 에러."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    existing = {**_VALID_ENEMY_BASE, "id": 1, "name": "고블린"}
+    _make_enemies_json(dp, [None, existing])
+    info = {**_VALID_ENEMY_BASE, "enemy_id": 1, "name": "드래곤"}
+    r = executor_module._structured_create_enemy_sync(dp, info)
+    assert r["success"] is False
+    assert "고블린" in r["stderr"]
+
+
+# ── 엣지 ──
+
+
+def test_create_enemy_sync_empty_array(tmp_path):
+    """빈 배열 → 에러."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_enemies_json(dp, [])
+    r = executor_module._structured_create_enemy_sync(dp, {"enemy_id": 1})
+    assert r["success"] is False
+    assert "비어 있지 않은 배열" in r["stderr"]
+
+
+def test_create_enemy_sync_params_validation_fail(tmp_path):
+    """params가 7개이면 스키마 검증 실패."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_enemies_json(dp)
+    info = {**_VALID_ENEMY_BASE, "enemy_id": 1, "params": [100, 0, 10, 10, 10, 10, 10]}
+    r = executor_module._structured_create_enemy_sync(dp, info)
+    assert r["success"] is False
+    assert "스키마" in r["stderr"] or "검증" in r["stderr"]
+
+
 if __name__ == "__main__":
     # 단독 실행시 테스트
     print("=" * 60)
-    print("🚀 Executor MVP 단독 테스트 실행")
+    print("Executor MVP 단독 테스트 실행")
     print("=" * 60)
 
     check_game_files()

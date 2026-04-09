@@ -68,6 +68,39 @@ SUPPORTED_BULK_TARGETS = {
 UNSUPPORTED_BULK_TARGETS = {"skill"}
 
 
+def filter_category_labels(classifications: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """지칭어(is_category_label)와 구체 이름이 섞여 있을 때 지칭어를 제거한다.
+
+    규칙:
+    1. 구체 이름(non-label)이 하나라도 있으면, 모든 카테고리 지칭어를 제거한다.
+       예: "루시퍼 액터 추가" → '루시퍼'는 유지, '액터'(지칭어)는 제거.
+    2. 동일 카테고리에 구체 이름과 지칭어가 공존하면, 지칭어를 제거한다.
+    3. 지칭어만 있으면(예: "액터 전부 삭제") 그대로 유지한다.
+    """
+    categories_with_real_names = {
+        cls["category"] for cls in classifications if not cls.get("is_category_label")
+    }
+    has_non_label_entity = any(not c.get("is_category_label") for c in classifications)
+
+    result: list[dict[str, Any]] = []
+    for cls in classifications:
+        if cls.get("is_category_label") and has_non_label_entity:
+            logger.info(
+                "[Definition] 구체 대상이 있어 카테고리 지칭어 분류 제외: %s",
+                cls.get("name"),
+            )
+            continue
+        if cls.get("is_category_label") and cls["category"] in categories_with_real_names:
+            logger.info(
+                "[Definition] 중복 지칭어 제거: %s (카테고리 %s에 구체적 대상 존재)",
+                cls["name"],
+                cls["category"],
+            )
+            continue
+        result.append(cls)
+    return result
+
+
 def _normalize_category_to_plural(cat: str) -> str:
     """단수형 카테고리를 RPG Maker MZ 파일용 복수형으로 변환 (예: Enemy -> Enemies)"""
     return CATEGORY_TO_PLURAL.get(cat.lower(), cat.capitalize())
@@ -597,30 +630,7 @@ async def definition(state: AgentState) -> dict:
         logger.debug("[Definition] 분류 사유: %s", cls["reason"])
 
     # --- [4.5단계: 중복 및 지칭어 필터링] ---
-    # 동일 카테고리에 구체적인 이름이 있는 엔티티와 '지칭어'가 섞여있으면 지칭어 제거
-    final_classifications = []
-    categories_with_real_names = {
-        cls["category"] for cls in classifications if not cls.get("is_category_label")
-    }
-    has_non_label_entity = any(not c.get("is_category_label") for c in classifications)
-
-    for cls in classifications:
-        # "루시퍼 액터 추가"처럼 구체 이름이 있는데 '액터'만 category=None 지칭어로 남는 경우 제거
-        if cls.get("is_category_label") and has_non_label_entity:
-            logger.info(
-                "[Definition] 구체 대상이 있어 카테고리 지칭어 분류 제외: %s",
-                cls.get("name"),
-            )
-            continue
-        # 지칭어인데 해당 카테고리에 이미 구체적인 이름의 엔티티가 있다면 제외
-        if cls.get("is_category_label") and cls["category"] in categories_with_real_names:
-            logger.info(
-                "[Definition] 중복 지칭어 제거: %s (카테고리 %s에 구체적 대상 존재)",
-                cls["name"],
-                cls["category"],
-            )
-            continue
-        final_classifications.append(cls)
+    final_classifications = filter_category_labels(classifications)
 
     # --- [5단계: 최종 조립 (Specification)] ---
     logger.info("[Definition] Step 5: 최종 수정 명세 생성 중...")

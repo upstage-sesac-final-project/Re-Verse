@@ -1,0 +1,35 @@
+# 빌드 컨텍스트 축소·캐시 무효화 완화 (백엔드/프론트 compose 빌드 공통)
+
+# VCS
+.git
+.gitignore
+
+# 로컬·에디터
+.cursor
+.idea
+.vscode
+
+# 시크릿 (컨텍스트에 실리지 않게; 예시 파일은 유지)
+.env
+.env.local
+.env.production
+
+# Python
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+
+# Node (프론트·로컬)
+**/node_modules
+**/dist
+**/.next
+
+# 로컬 분석 산출물
+build-analysis
+
+# 로그·임시
+**/*.log
+tmp
+temp
