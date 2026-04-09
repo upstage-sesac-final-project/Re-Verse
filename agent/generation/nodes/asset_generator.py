@@ -183,7 +183,6 @@ class RpgSkill(BaseModel):
     id: int
     name: str
     description: str = ""
-    animationId: int = -1
     iconTag: str = "physical_melee"
     power: int = 5  # 0~10. 시스템이 damage.formula/mpCost 계산
     stypeId: int = 1
@@ -871,6 +870,107 @@ def _calc_skill_formula(power: int, icon_tag: str, scope: int) -> tuple[str, int
     return formula, mp_cost, damage
 
 
+# ── 스킬 애니메이션 매핑 (base_game Animations.json 기준) ────────────────────
+
+# (iconTag, scope_type) → (weak_animId, strong_animId)
+# scope_type: "single"(1,3~6), "aoe"(2), "ally"(7), "ally_all"(8), "self"(11)
+_ANIM_MAP: dict[tuple[str, str], tuple[int, int]] = {
+    # 마법 원소 — 단일
+    ("fire_magic", "single"): (66, 67),
+    ("ice_magic", "single"): (71, 72),
+    ("thunder_magic", "single"): (76, 77),
+    ("water_magic", "single"): (81, 82),
+    ("earth_magic", "single"): (86, 87),
+    ("wind_magic", "single"): (91, 92),
+    ("holy_magic", "single"): (96, 97),
+    ("dark_magic", "single"): (101, 102),
+    # 마법 원소 — 전체
+    ("fire_magic", "aoe"): (68, 70),
+    ("ice_magic", "aoe"): (73, 75),
+    ("thunder_magic", "aoe"): (78, 80),
+    ("water_magic", "aoe"): (83, 85),
+    ("earth_magic", "aoe"): (88, 90),
+    ("wind_magic", "aoe"): (93, 95),
+    ("holy_magic", "aoe"): (98, 100),
+    ("dark_magic", "aoe"): (103, 105),
+    # 물리
+    ("physical_melee", "single"): (1, 6),
+    ("physical_melee", "aoe"): (1, 6),
+    ("physical_strong", "single"): (21, 25),
+    ("physical_strong", "aoe"): (21, 25),
+    ("physical_ranged", "single"): (29, 112),
+    ("physical_ranged", "aoe"): (29, 114),
+    ("explosive", "single"): (106, 107),
+    ("explosive", "aoe"): (108, 110),
+    # 회복
+    ("heal", "ally"): (41, 42),
+    ("heal", "ally_all"): (43, 44),
+    ("heal", "self"): (41, 42),
+    # 흡수
+    ("drain", "single"): (58, 58),
+    ("mp_drain", "single"): (58, 58),
+    # 버프/디버프
+    ("buff", "ally"): (51, 52),
+    ("buff", "ally_all"): (51, 53),
+    ("buff", "self"): (51, 52),
+    ("buff_atk", "ally"): (51, 52),
+    ("buff_def", "ally"): (51, 52),
+    ("buff_mat", "ally"): (51, 52),
+    ("buff_mdf", "ally"): (51, 52),
+    ("buff_agi", "ally"): (51, 52),
+    ("debuff", "single"): (54, 55),
+    ("debuff", "aoe"): (54, 56),
+    ("debuff_atk", "single"): (54, 55),
+    ("debuff_def", "single"): (54, 55),
+    ("debuff_mat", "single"): (54, 55),
+    ("debuff_mdf", "single"): (54, 55),
+    ("debuff_agi", "single"): (54, 55),
+    # 상태이상
+    ("poison", "single"): (59, 59),
+    ("blind", "single"): (60, 60),
+    ("blind", "aoe"): (40, 40),
+    ("silence", "single"): (61, 61),
+    ("confusion", "single"): (34, 63),
+    ("confusion", "aoe"): (34, 34),
+    ("sleep", "single"): (62, 62),
+    ("sleep", "aoe"): (36, 36),
+    ("paralyze", "single"): (64, 64),
+    # 특수
+    ("defense", "self"): (0, 0),
+    ("escape", "self"): (0, 0),
+    ("song", "aoe"): (36, 36),
+}
+
+
+def _scope_type(scope: int) -> str:
+    """scope 값 → 카테고리."""
+    if scope == 2:
+        return "aoe"
+    if scope == 7:
+        return "ally"
+    if scope == 8:
+        return "ally_all"
+    if scope in (11, 12):
+        return "self"
+    return "single"
+
+
+def _resolve_animation(icon_tag: str, scope: int, power: int) -> int:
+    """(iconTag, scope, power) → animationId."""
+    st = _scope_type(scope)
+    key = (icon_tag, st)
+    if key in _ANIM_MAP:
+        weak_id, strong_id = _ANIM_MAP[key]
+        return strong_id if power > 5 else weak_id
+
+    # fallback: scope 타입별 기본 애니메이션
+    if st in ("ally", "ally_all", "self"):
+        return 51  # 강화
+    if st == "aoe":
+        return 108  # 전체 폭발
+    return 1  # 물리 타격
+
+
 def _resolve_icon(tag: str, tag_map: dict[str, int], fallback: int) -> int:
     """iconTag → iconIndex 변환. 알 수 없는 태그면 fallback."""
     return tag_map.get(tag, fallback)
@@ -1129,6 +1229,14 @@ _ENEMY_SKILL_DATA: dict[str, dict[str, Any]] = {
 }
 
 
+_ENEMY_SKILL_ANIM: dict[str, int] = {
+    "적_강타": 25,  # 강한 베기
+    "적_전체공격": 108,  # 전체 폭발
+    "적_자가회복": 41,  # 1인 회복
+    "적_버프": 51,  # 강화
+}
+
+
 def _build_enemy_skill(template_name: str, skill_id: int) -> dict[str, Any]:
     """적 스킬 템플릿 → 완전한 RPG Maker MZ 스킬 dict."""
     tmpl = _ENEMY_SKILL_DATA[template_name]
@@ -1136,7 +1244,7 @@ def _build_enemy_skill(template_name: str, skill_id: int) -> dict[str, Any]:
         "id": skill_id,
         "name": tmpl["name"],
         "description": "",
-        "animationId": -1,
+        "animationId": _ENEMY_SKILL_ANIM.get(template_name, -1),
         "iconIndex": tmpl["iconIndex"],
         "stypeId": tmpl["stypeId"],
         "scope": tmpl["scope"],
@@ -1186,10 +1294,12 @@ async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
             power = d.pop("power", 5)
             tag = _refine_buff_tag(tag, d.get("effects", []))
             d["iconIndex"] = _resolve_icon(tag, SKILL_ICON_TAG, 0)
-            # power → formula/mpCost 자동 계산
-            _, mp_cost, damage = _calc_skill_formula(power, tag, d.get("scope", 1))
+            # power → formula/mpCost/animationId 자동 계산
+            scope = d.get("scope", 1)
+            _, mp_cost, damage = _calc_skill_formula(power, tag, scope)
             d["damage"] = damage
             d["mpCost"] = mp_cost
+            d["animationId"] = _resolve_animation(tag, scope, power)
             if d.get("message1") and d.get("messageType") == 0:
                 d["messageType"] = 1
             if d["damage"]["type"] == 0 and not d.get("effects"):
