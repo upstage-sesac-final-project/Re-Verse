@@ -30,7 +30,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - VITE_API_URL=http://backend:8000/api
+      - VITE_API_URL=http://localhost:8000/api
+      # Vite 프록시(/api, /game 폴백) — 컨테이너 네트워크에서 backend 서비스명 사용
+      - VITE_DEV_PROXY_TARGET=http://backend:8000
     volumes:
       # 개발 중 코드 변경 시 반영을 위한 볼륨
       - ./app/frontend/src:/app/src

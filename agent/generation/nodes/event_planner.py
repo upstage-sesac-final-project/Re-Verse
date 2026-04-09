@@ -43,19 +43,10 @@ async def event_planner(state: GenerationState) -> dict:
     switch_table: SwitchTable = state["switch_table"]  # type: ignore[assignment]
     connection_info: dict[int, MapConnectionInfo] = state.get("connection_info") or {}
 
-    # generated_assets["Enemies.json"]에서 enemy_name → battlerName 매핑 구성
+    # troop_name → (character_name, character_index) 매핑 테이블 사전 구성
+    # id_table.troops의 exact key를 사용하므로 런타임 문자열 파싱 불필요
     generated_assets: dict = state.get("generated_assets") or {}
-    enemies_json: list = generated_assets.get("Enemies.json") or []
-    enemy_id_to_battler: dict[int, str] = {
-        e["id"]: e["battlerName"]
-        for e in enemies_json
-        if e and isinstance(e, dict) and e.get("id") and e.get("battlerName")
-    }
-    battler_map: dict[str, str] = {
-        name: enemy_id_to_battler[eid]
-        for name, eid in id_table.enemies.items()
-        if eid in enemy_id_to_battler
-    }
+    troop_to_sprite = _build_troop_sprite_map(game_spec, id_table, generated_assets)
 
     await publish_progress(
         gen_id,
@@ -74,7 +65,7 @@ async def event_planner(state: GenerationState) -> dict:
             id_table=id_table,
             switch_table=switch_table,
             connection_info=connection_info.get(spec.map_id, _empty_connection(spec.map_id)),
-            battler_map=battler_map,
+            troop_to_sprite=troop_to_sprite,
         )
         for spec in map_specs
     ]
@@ -109,7 +100,7 @@ async def _plan_single_map(
     id_table: IdTable,
     switch_table: SwitchTable,
     connection_info: MapConnectionInfo,
-    battler_map: dict[str, str],
+    troop_to_sprite: dict[str, tuple[str, int]],
 ) -> list:
     rag_context = get_event_planner_context(map_spec.map_type)
     for attempt in range(3):
@@ -125,7 +116,7 @@ async def _plan_single_map(
             valid = _validate_coords(events, map_spec)
             valid = _validate_name_refs(valid, id_table, switch_table)
             if valid is not None:
-                return _fix_battle_sprites(valid, game_spec, id_table, battler_map)
+                return _fix_battle_sprites(valid, troop_to_sprite)
         except Exception as e:
             logger.warning("Map%d 이벤트 기획 시도 %d 실패: %s", map_spec.map_id, attempt + 1, e)
 
@@ -178,6 +169,37 @@ def _validate_coords(events: list, spec: MapSpec) -> list:
     return valid
 
 
+def _correct_troop_name(raw: str, all_troop_names: set[str]) -> str | None:
+    """LLM이 suffix를 생략하거나 잘못 붙인 troop 이름을 자동 보정한다.
+
+    보정 순서:
+      1. × 앞 공백/언더스코어 제거 ("이름 ×2" → "이름×2")
+      2. _단독 suffix 추가 ("이름" → "이름_단독")
+      3. ×1 suffix 추가 ("이름" → "이름×1")
+      4. 접두 부분 매칭 (all_troop_names 중 raw로 시작하는 첫 번째)
+    """
+    # 1. × 앞 공백/underscore 정규화
+    normalized = re.sub(r"[\s_]+×", "×", raw)
+    if normalized in all_troop_names:
+        return normalized
+
+    base = normalized  # 이후 suffix 시도는 정규화된 이름 기준
+
+    # 2. _단독 suffix
+    candidate = f"{base}_단독"
+    if candidate in all_troop_names:
+        return candidate
+
+    # 3. ×1 suffix
+    candidate = f"{base}×1"
+    if candidate in all_troop_names:
+        return candidate
+
+    # 4. 접두 부분 매칭 (정렬해서 가장 짧은 것 우선)
+    matches = sorted(t for t in all_troop_names if t.startswith(base))
+    return matches[0] if matches else None
+
+
 def _validate_name_refs(events: list, id_table: IdTable, switch_table: SwitchTable) -> list:
     """id_table에 없는 이름을 참조하는 이벤트 필터링."""
     valid = []
@@ -193,10 +215,20 @@ def _validate_name_refs(events: list, id_table: IdTable, switch_table: SwitchTab
                 )
                 continue
             if hasattr(e, "troop") and e.troop not in all_troop_names:
-                logger.warning(
-                    "battle 이벤트 '%s': troop '%s' 존재하지 않음 → 제거", e.name, e.troop
-                )
-                continue
+                corrected = _correct_troop_name(e.troop, all_troop_names)
+                if corrected:
+                    logger.info(
+                        "battle 이벤트 '%s': troop '%s' → '%s' 자동 보정",
+                        e.name,
+                        e.troop,
+                        corrected,
+                    )
+                    e.troop = corrected
+                else:
+                    logger.warning(
+                        "battle 이벤트 '%s': troop '%s' 존재하지 않음 → 제거", e.name, e.troop
+                    )
+                    continue
             if hasattr(e, "item") and e.item not in all_item_names:
                 logger.warning("chest 이벤트 '%s': item '%s' 존재하지 않음 → 제거", e.name, e.item)
                 continue
@@ -209,14 +241,93 @@ def _validate_name_refs(events: list, id_table: IdTable, switch_table: SwitchTab
 
 _SF_KEYWORDS = ("sf", "sci-fi", "science", "사이버", "로봇", "우주", "미래")
 
+
+def _build_troop_sprite_map(
+    game_spec: GameSpec,
+    id_table: IdTable,
+    generated_assets: dict,
+) -> dict[str, tuple[str, int]]:
+    """id_table.troops의 모든 troop_name에 대해 (character_name, character_index)를 사전 결정.
+
+    id_table.troops는 spec 기준 exact key이므로 런타임 문자열 파싱 없이 바로 사용 가능.
+    우선순위:
+      0순위: battlerName fallback 적 → Nature/1
+      1순위: battlerName → _BATTLER_TO_MAP_SPRITE 직접 조회
+      2순위: tier 기반 폴백
+    """
+    # Enemies.json에서 enemy_id → battlerName 구성
+    enemies_json: list = generated_assets.get("Enemies.json") or []
+    enemy_id_to_battler: dict[int, str] = {
+        e["id"]: e["battlerName"]
+        for e in enemies_json
+        if e and isinstance(e, dict) and e.get("id") and e.get("battlerName")
+    }
+    # fallback 처리된 적 ID (note에 "(fallback)" 포함)
+    fallback_enemy_ids: set[int] = {
+        e["id"]
+        for e in enemies_json
+        if e and isinstance(e, dict) and e.get("id") and "(fallback)" in (e.get("note") or "")
+    }
+
+    # spec_enemy_name → battlerName / tier
+    enemy_tier: dict[str, str] = {e.name: e.tier for e in game_spec.enemies}
+    battler_map: dict[str, str] = {
+        name: enemy_id_to_battler[eid]
+        for name, eid in id_table.enemies.items()
+        if eid in enemy_id_to_battler
+    }
+    fallback_enemy_names: set[str] = {
+        name for name, eid in id_table.enemies.items() if eid in fallback_enemy_ids
+    }
+    is_sf = any(k in game_spec.theme.lower() for k in _SF_KEYWORDS)
+
+    result: dict[str, tuple[str, int]] = {}
+    for troop_name, troop_id in id_table.troops.items():
+        # troop_name에서 spec enemy name 추출 (id_table 기준이므로 항상 정확)
+        if "×" in troop_name:
+            spec_name = troop_name.rsplit("×", 1)[0]
+        elif troop_name.endswith("_단독"):
+            spec_name = troop_name[: -len("_단독")]
+        else:
+            spec_name = troop_name
+
+        # 0순위: fallback → Nature/1
+        if spec_name in fallback_enemy_names:
+            result[troop_name] = ("Nature", 1)
+            continue
+
+        # 1순위: battlerName 테이블 조회
+        battler_name = battler_map.get(spec_name)
+        if battler_name and battler_name in _BATTLER_TO_MAP_SPRITE:
+            result[troop_name] = _BATTLER_TO_MAP_SPRITE[battler_name]
+            continue
+
+        # 2순위: tier 기반 폴백
+        tier = enemy_tier.get(spec_name, "normal")
+        if is_sf:
+            char_name = "SF_Monster"
+            char_idx = (6 + troop_id % 2) if tier in ("boss", "elite") else troop_id % 6
+        elif tier == "boss":
+            char_name = f"$BigMonster{1 + troop_id % 2}"
+            char_idx = 0
+        else:
+            char_name = "Evil"
+            char_idx = 7
+        result[troop_name] = (char_name, char_idx)
+
+    return result
+
+
 # battlerName → (character_name, character_index)
 # 직접 이미지 확인 기반 시각적 매핑 테이블
 # characters/Monster.png 레이아웃:  0=파란피부언데드여, 1=초록몬스터, 2=은회색늑대인간, 3=검은번개갑옷,
 #                                   4=흰여우구미호, 5=검은뿔소악마, 6=금관좀비보스, 7=보라악마날개보스
 # characters/Evil.png 레이아웃:     0=초록두건고글불량배, 1=갈색안경학자악당, 2=흰은발여성마법사,
 #                                   3=황금가면마왕, 6=황금갑옷기사, 7=갈색로브흑막
-# characters/$BigMonster1.png:      0=보라마왕마법사, 1=초록나무괴물, 2=보라곤충두족류, 3=다머리초록용
-# characters/$BigMonster2.png:      0=붉은드래곤, 1=황금천마기사, 2=보라촉수여신, 3=붉은변이악마
+# characters/$BigMonster1.png:      4캐릭터×3프레임, 3개씩 묶음
+#   0~2=보라마왕마법사, 3~5=초록나무괴물, 6~8=보라곤충두족류(크라켄), 9~11=다머리초록용(히드라)
+# characters/$BigMonster2.png:      4캐릭터×3프레임, 3개씩 묶음
+#   0~2=붉은드래곤, 3~5=황금천마기사, 6~8=보라촉수여신(이블갓), 9~11=붉은변이악마
 # characters/SF_Monster.png 레이아웃: 0=흰정장마피아, 1=검은군복요원, 2=검은그림자빨간눈,
 #                                     3=빨간광대, 4=파란메카로봇, 5=검은육중전투로봇,
 #                                     6=보라리치, 7=붉은도깨비장군
@@ -266,20 +377,28 @@ _BATTLER_TO_MAP_SPRITE: dict[str, tuple[str, int]] = {
     "Captain": ("Evil", 6),
     "Blackknight": ("Evil", 6),
     "Stoneknight": ("Evil", 6),
-    # ── 판타지: $BigMonster1 (대형, index 0-3) ──────────────────────────
+    # ── 판타지: $BigMonster1 (대형, 4캐릭터×3프레임 — 3개씩 묶음) ──────────
+    # index 0~2:  보라 마왕형 마법사
     "Lich": ("$BigMonster1", 0),
     "Goddess_of_death": ("$BigMonster1", 0),
-    "Treant": ("$BigMonster1", 1),
-    "Kraken": ("$BigMonster1", 2),
-    "Ketos": ("$BigMonster1", 2),
-    "Hydra": ("$BigMonster1", 3),
-    # ── 판타지: $BigMonster2 (대형, index 0-3) ──────────────────────────
+    # index 3~5:  초록 나무 괴물
+    "Treant": ("$BigMonster1", 3),
+    # index 6~8:  보라 곤충/두족류 (크라켄형)
+    "Kraken": ("$BigMonster1", 6),
+    "Ketos": ("$BigMonster1", 6),
+    # index 9~11: 다머리 초록 용 (히드라형)
+    "Hydra": ("$BigMonster1", 9),
+    # ── 판타지: $BigMonster2 (대형, 4캐릭터×3프레임 — 3개씩 묶음) ──────────
+    # index 0~2:  붉은 드래곤
     "Dragon": ("$BigMonster2", 0),
     "Demon": ("$BigMonster2", 0),
-    "God_of_light": ("$BigMonster2", 1),
-    "Goddess": ("$BigMonster2", 1),
-    "Evilgod": ("$BigMonster2", 2),
-    "Demon_metamorphosis": ("$BigMonster2", 3),
+    # index 3~5:  황금+날개 천마 기사
+    "God_of_light": ("$BigMonster2", 3),
+    "Goddess": ("$BigMonster2", 3),
+    # index 6~8:  보라+촉수 여신형
+    "Evilgod": ("$BigMonster2", 6),
+    # index 9~11: 붉은 변이 악마 (최종 보스)
+    "Demon_metamorphosis": ("$BigMonster2", 9),
     # ── SF: SF_Monster 시트 ─────────────────────────────────────────────
     "SF_Boss": ("SF_Monster", 0),
     "SF_Madscientist": ("SF_Monster", 0),
@@ -321,54 +440,17 @@ _BATTLER_TO_MAP_SPRITE: dict[str, tuple[str, int]] = {
 
 def _fix_battle_sprites(
     events: list,
-    game_spec: GameSpec,
-    id_table: IdTable,
-    battler_map: dict[str, str],
+    troop_to_sprite: dict[str, tuple[str, int]],
 ) -> list:
-    """BattleEvent의 map sprite를 battlerName 시각적 매핑 테이블로 결정.
-
-    1순위: battler_map[enemy_name] → _BATTLER_TO_MAP_SPRITE 직접 조회 (이미지 기반)
-    2순위: tier 기반 폴백 (테이블에 없는 battler)
-    """
-    enemy_tier_map: dict[str, str] = {e.name: e.tier for e in game_spec.enemies}
-    is_sf = any(k in game_spec.theme.lower() for k in _SF_KEYWORDS)
-
+    """BattleEvent의 map sprite를 사전 구성된 troop_to_sprite 테이블로 결정."""
     for event in events:
         if not isinstance(event, BattleEvent):
             continue
-
-        troop_name = event.troop
-        if "×" in troop_name:
-            enemy_name = troop_name.rsplit("×", 1)[0]
-        elif troop_name.endswith("_단독"):
-            enemy_name = troop_name[: -len("_단독")]
+        sprite = troop_to_sprite.get(event.troop)
+        if sprite:
+            event.character_name, event.character_index = sprite
         else:
-            enemy_name = troop_name
-
-        # 1순위: battlerName 직접 매핑
-        battler_name = battler_map.get(enemy_name)
-        if battler_name and battler_name in _BATTLER_TO_MAP_SPRITE:
-            char_name, char_idx = _BATTLER_TO_MAP_SPRITE[battler_name]
-            event.character_name = char_name
-            event.character_index = char_idx
-            continue
-
-        # 2순위: tier 기반 폴백
-        tier = enemy_tier_map.get(enemy_name, "normal")
-        troop_id = id_table.troops.get(troop_name, 1)
-        if is_sf:
-            event.character_name = "SF_Monster"
-            event.character_index = (
-                (6 + troop_id % 2) if tier in ("boss", "elite") else troop_id % 6
-            )
-        elif tier == "boss":
-            event.character_name = f"$BigMonster{1 + troop_id % 2}"
-            event.character_index = 0
-        else:
-            # 테이블 미등록 → Evil/7 (갈색 로브 흑막, 인간형 몬스터 범용 폴백)
-            event.character_name = "Evil"
-            event.character_index = 7
-
+            logger.warning("troop '%s' sprite 매핑 없음 → 기본값 유지", event.troop)
     return events
 
 

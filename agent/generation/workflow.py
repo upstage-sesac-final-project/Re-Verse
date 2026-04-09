@@ -23,6 +23,7 @@ from agent.generation.nodes.generation_responder import generation_responder
 from agent.generation.nodes.generation_validator import generation_validator, route_after_validation
 from agent.generation.nodes.integrator import integrator
 from agent.generation.nodes.map_designer import map_designer
+from agent.generation.nodes.sample_map_selector import sample_map_selector
 from agent.generation.nodes.tile_generator import tile_generator
 from agent.generation.state import GenerationState
 
@@ -30,10 +31,12 @@ logger = logging.getLogger(__name__)
 
 
 def _route_after_asset_generator(state: GenerationState) -> str:
-    """C 노드 이후 라우팅: phase_limit에 따라 분기."""
+    """C 노드 이후 라우팅: map_source / phase_limit에 따라 분기."""
     phase_limit = state.get("phase_limit")
     if phase_limit == "assets":
         return "skip_to_integrate"
+    if state.get("map_source") == "samples":
+        return "sample_maps"
     return "map_phase"
 
 
@@ -60,6 +63,7 @@ def build_generation_graph() -> Any:
     builder.add_node("asset_generator", asset_generator)
     builder.add_node("map_designer", map_designer)
     builder.add_node("tile_generator", tile_generator)
+    builder.add_node("sample_map_selector", sample_map_selector)
     builder.add_node("event_planner", event_planner)
     builder.add_node("event_compiler", event_compiler_node)
     builder.add_node("integrator", integrator)
@@ -78,10 +82,13 @@ def build_generation_graph() -> Any:
         {
             "skip_to_integrate": "integrator",
             "map_phase": "map_designer",
+            "sample_maps": "sample_map_selector",
         },
     )
 
     builder.add_edge("map_designer", "tile_generator")
+    # 샘플맵 경로는 D+E를 건너뛰고 바로 integrator로
+    builder.add_edge("sample_map_selector", "integrator")
 
     # E → (maps → H) or (events → F)
     builder.add_conditional_edges(
@@ -130,6 +137,7 @@ async def run_generation_workflow(
     game_id: str,
     generation_id: str | None = None,
     phase_limit: str = "assets",
+    map_source: str | None = None,
 ) -> GenerationState:
     """Full Generation 워크플로우 실행.
 
@@ -150,6 +158,7 @@ async def run_generation_workflow(
         "game_id": game_id,
         "generation_id": gen_id,
         "phase_limit": phase_limit,
+        "map_source": map_source,
         "retry_count": 0,
         "completed_phases": [],
     }

@@ -60,6 +60,16 @@ SF_Actor2 (SF 동료): 0=금발스웨터남, 1=금발핑크스웨터여, 2=갈�
   4=초록스파이크남, 5=갈색운동여, 6=금발자켓남, 7=갈색실험복여(과학자)
 SF_Actor3 (SF 요원): 0=검은근육남, 1=황금롱헤어여, 2=보라정장남(빌런), 3=빨간마스크여,
   4=회색마스크닌자남, 5=갈색캡소녀, 6=검은이어피스요원남, 7=검은교복여
+Nature (동물·요정): 0=검은개, 1=검은고양이, 2=분홍돼지, 3=황금소동물(여우),
+  4=검은머리수인소녀(고양이귀), 5=금발날개요정(초록날개), 6=핑크머리날개요정, 7=황금날개빛요정
+  → 숲·자연·동물 테마 맵 NPC에 사용 (마을 애완동물, 숲속 요정 등)
+SF_People2 (SF 시민): 0=금발단발청소년남(흰셔츠), 1=핑크머리청소년여(흰셔츠),
+  2=검은머리청소년(짙은복장), 3=초록머리여(흰복장),
+  4=갈색머리안경성인(흰셔츠), 5=금발롱헤어여(흰셔츠), 6=갈색곱슬헤드밴드, 7=긴검은머리여
+  → SF 도시·학교·시설의 일반 시민/학생 NPC에 사용
+SF_People3 (SF 전투로봇): 0=파란전투로봇, 1=붉은전투로봇, 2=주황/금전투로봇, 3=초록전투로봇,
+  4=노란전투로봇, 5=은색전투로봇, 6=검은크로스로봇, 7=갈색/회색로봇
+  → SF 시설의 경비로봇·전투드론 NPC 이벤트에 사용 (대화 없는 장식 이벤트 권장)
 SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은그림자생물, 3=빨간광대,
   4=파란황금로봇, 5=짙은전투로봇, 6=보라로브리치, 7=붉은도깨비장군
 
@@ -86,8 +96,17 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
   → 보스 방 입구, 특별한 장소
 - `!$Gate2` index 0=파란 석재문, index 1=어두운 장식문, index 2=갈색 목재문
   → 던전 내부 구역 이동
-- `!SF_Door1` index 0=SF 슬라이딩 도어
-  → SF 배경 맵
+- `!SF_Door1` index 0=SF 슬라이딩 도어 (밝은 금속)
+  → SF 시설 내부 문
+- `!SF_Door2` index 0=빨간SF슬라이딩문, 1=원형센서SF문(회색), 2=노란격자게이트,
+  3=갈색목재문, 4=개방형문프레임, 5=파란에너지빔, 6=크리스탈젬이펙트, 7=초록포탈링
+  → index 0~4: SF 실내 문; index 5~7: 포탈/이펙트 오브젝트
+- `!$SF_Gate1` index 0=갈색격자목재문(아시아풍), 1=갈색조각목재문, 2=덩굴장식철제문
+  → 전통/아시아풍 목재 게이트 (이름과 달리 SF 아님 — 판타지 시설 출입구)
+- `!$SF_Gate2` index 0=노란SF전자문(육각패턴), 1=검은삼각SF문, 2=산업용회색문(T6마킹)
+  → 실제 SF 전자/산업 문 (SF 맵 보스방·격납고 입구)
+- `!$SF_Gate3` index 0=황금유럽아치철제문, 1=파란꽃장식철제문, 2=덩굴장식철제문(개방)
+  → 유럽풍 철제 정원 게이트 (귀족 저택, 성 외곽 — 이름과 달리 SF 아님)
 - `""` (빈 문자열): 완전 투명 — 자동 트리거나 눈에 안 보이는 워프가 필요할 때만
 
 ### chest (보물 상자)
@@ -103,6 +122,7 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
   dialogue_before: "상자 발견 대사"
   dialogue_after: "아이템 획득 대사"
   character_name: "!Chest"  # 보물상자 스프라이트 (!Chest 고정)
+  character_index: 0        # 0=빨강(기본), 1=금색(귀중품), 2=초록(자연·던전), 3=파랑(마법·특별)
 
 ### battle (전투)
 - x: {정수}
@@ -110,7 +130,9 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
   name: {이벤트 이름}
   type: battle
   trigger: player_touch
-  troop: {적 그룹 이름}
+  troop: {적 그룹 이름}  # ⚠️ 반드시 아래 "적 그룹" 목록의 정확한 이름 그대로 사용
+                         # 형식: "적이름×숫자" 또는 "적이름_단독"
+                         # 예시 ❌ 틀림: "고블린"  ✅ 맞음: "고블린×2" 또는 "고블린_단독"
   escape_allowed: true
   lose_condition: game_over  # game_over | continue
   on_win:
@@ -154,6 +176,10 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
 - 동일한 (x, y)에 이벤트 2개 배치 금지
 - to_map에 존재하지 않는 맵 이름 사용 금지
 - 제공된 아이템/무기/방어구/적 그룹 목록에 없는 이름 사용 금지
+- battle의 troop에 적 이름만 쓰는 것 금지 → 반드시 "이름×숫자" 또는 "이름_단독" 형식 사용
+- 같은 맵 내 NPC에 동일한 (character_name + character_index) 조합 반복 금지
+  → 예) People1/0 NPC가 이미 있으면 다음 NPC는 People1/1, People2/0 등 다른 조합 사용
+  → 맵당 NPC 스프라이트 다양성 확보 필수 (같은 얼굴 NPC 2명 이상 배치 금지)
 
 ## 출력 형식
 
@@ -231,6 +257,7 @@ def build_event_planner_prompt(
     )
 
     existing_switches = "\n".join(f"  - {s}" for s in switch_table.switches)
+    filtered_troops = _filter_troops_for_map(map_spec.map_type, id_table, game_spec)
 
     human = f"""\
 ## 맵 정보
@@ -257,7 +284,8 @@ def build_event_planner_prompt(
 아이템: {", ".join(list(id_table.items.keys())[:10])}
 무기:   {", ".join(list(id_table.weapons.keys())[:8])}
 방어구: {", ".join(list(id_table.armors.keys())[:8])}
-적 그룹: {", ".join(list(id_table.troops.keys()))}
+적 그룹 (이 맵 타입에 적합한 그룹만 표시):
+{filtered_troops}
 이동 가능한 맵: {", ".join(id_table.maps.keys())}
 
 ## 이벤트 생성 가이드
@@ -267,6 +295,56 @@ def build_event_planner_prompt(
 YAML 출력:
 """
     return [SystemMessage(content=_SYSTEM), HumanMessage(content=human)]
+
+
+def _filter_troops_for_map(
+    map_type: str,
+    id_table: IdTable,
+    game_spec: GameSpec,
+) -> str:
+    """맵 타입에 맞는 troop 목록만 반환.
+
+    - boss 맵: boss + elite 티어 troop만 (클라이막스 전투)
+    - dungeon 맵: weak + normal + elite 티어 troop (보스 제외)
+    - town 등 기타: 전체 troop (참고용)
+    """
+    # 적 이름 → 티어 매핑
+    enemy_tier: dict[str, str] = {e.name: e.tier for e in game_spec.enemies}
+
+    def _troop_enemy_name(troop_name: str) -> str:
+        """troop 이름에서 적 이름 추출."""
+        if "×" in troop_name:
+            return troop_name.rsplit("×", 1)[0].rstrip("_").strip()
+        if troop_name.endswith("_단독"):
+            return troop_name[: -len("_단독")]
+        return troop_name
+
+    all_troops = list(id_table.troops.keys())
+
+    if map_type == "boss":
+        filtered = [
+            t
+            for t in all_troops
+            if enemy_tier.get(_troop_enemy_name(t), "normal") in ("boss", "elite")
+        ]
+        label = "보스/엘리트급 (boss/elite 티어)"
+    elif map_type == "dungeon":
+        filtered = [
+            t
+            for t in all_troops
+            if enemy_tier.get(_troop_enemy_name(t), "normal") in ("weak", "normal", "elite")
+        ]
+        label = "던전용 (weak/normal/elite 티어, boss 제외)"
+    else:
+        filtered = all_troops
+        label = "전체"
+
+    # 필터 결과가 없으면 전체 반환
+    if not filtered:
+        filtered = all_troops
+        label = "전체 (필터 결과 없어 전체 표시)"
+
+    return f"  [{label}]: {', '.join(filtered)}"
 
 
 def _describe_required_events(

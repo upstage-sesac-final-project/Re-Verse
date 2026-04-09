@@ -21,6 +21,7 @@ class GenerationState(TypedDict, total=False):
     switch_table: SwitchTable | None
     generation_order: list[str]
     phase_limit: str | None  # "assets" | "maps" | None
+    map_source: str | None  # "algorithmic" (기본, D+E) | "samples" (샘플맵 선택기)
 
     # ── A+C 노드 출력 ──────────────────────────────────────
     game_spec: GameSpec | None

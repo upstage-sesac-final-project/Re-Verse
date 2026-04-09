@@ -87,12 +87,15 @@ Full Generation에서 LLM이 `faceName`, `characterName`, `battlerName`,
 | `!SF_Door2` | SF 두 번째 문 시리즈 |
 | `!SF_Switch1` | SF 스위치 |
 
-#### 빅 캐릭터 ($ 접두사, 2배 크기, index 0~3)
+#### 빅 캐릭터 ($ 접두사, 2배 크기)
+
+> ⚠️ `$` 접두 시트는 캐릭터 1개당 **3열(프레임)**을 차지하므로
+> character_index는 0, 3, 6, 9만 유효 (1/2/4/5/7/8은 중간 프레임 → 잘림)
 
 | 파일명 | index별 내용 |
 |--------|------------|
-| `$BigMonster1` | 0=뿔달린 마왕, 1=트리언트, 2=딱정벌레, 3=히드라 |
-| `$BigMonster2` | index 0~3 대형 몬스터 4종 |
+| `$BigMonster1` | index 0=뿔달린 마왕, index 3=트리언트, index 6=딱정벌레, index 9=히드라 |
+| `$BigMonster2` | index 0/3/6/9 대형 몬스터 4종 |
 
 #### 빅 오브젝트 게이트 (!$ 접두사, index 0~2)
 
@@ -303,7 +306,7 @@ _VALID_CHARACTER_NAMES: frozenset[str] = frozenset({
 | NPC (악당) | `Evil` | 0~7 |
 | NPC (몬스터형) | `Monster` | 0~7 |
 | BattleEvent (일반) | `Monster` | 0~7 |
-| BattleEvent (대형 보스) | `$BigMonster1` | 0~3 |
+| BattleEvent (대형 보스) | `$BigMonster1` | 0/3/6/9 (3프레임/캐릭터) |
 | ChestEvent | `!Chest` | 0=빨강, 1=금색, 2=초록, 3=파랑 |
 | TransferEvent (기본) | `!Crystal` | 0~5=색상별 |
 | TransferEvent (건물/던전 입구) | `!Door1` | 0=철제문, 1=아치형 |

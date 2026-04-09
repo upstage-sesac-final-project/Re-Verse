@@ -26,11 +26,16 @@ from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from agent.core.llm_client import invoke_llm
 from agent.graph.state import AgentState
-from agent.mcp_toolbox import build_stdio_server_parameters, call_mcp_tool, is_mcp_enabled
+from agent.mcp_toolbox import (
+    build_stdio_server_parameters,
+    call_mcp_tool,
+    is_mcp_enabled,
+    resolve_mcp_server_key,
+)
 from app.backend.core.game_paths import get_game_data_path
 from app.backend.services.json_modify_tools.dispatcher import (
     run_enemies,
@@ -57,6 +62,8 @@ game_locks: defaultdict[str, asyncio.Lock] = defaultdict(lambda: asyncio.Lock())
 # Actors.json `update`는 레거시(ActorManager 클래스 변경)용이므로 MCP `update_actor`는 action `update_actor`로 구분.
 # ────────────────────────────────────────────────────────────
 MCP_TOOL_MAP: dict[tuple[str, str], dict[str, Any]] = {
+    # (선택) "mcp_server": "MCP_SERVERS_JSON" 키 — 없으면 .env 의 MCP_SERVER_BY_TOOL_JSON /
+    # MCP_SERVER_BY_TARGET_FILE_JSON → MCP_DEFAULT_SERVER 순으로 결정.
     # Actors.json
     ("Actors.json", "list"): {"tool": "get_actors", "backup_files": []},
     ("Actors.json", "search"): {"tool": "search_actors", "backup_files": []},
@@ -1535,7 +1542,27 @@ async def _execute_one_structured_step(
         # 성공 시 즉시 반환. 실패·미설정 시 아래 Class/Actor/System 매니저로 폴백한다.
         if is_mcp_enabled():
             mcp_entry = MCP_TOOL_MAP.get((target_file, action))
-            if mcp_entry and build_stdio_server_parameters() is not None:
+            mcp_server_id: str | None = None
+            if isinstance(mcp_entry, dict):
+                _explicit = (
+                    str(mcp_entry["mcp_server"]).strip() if mcp_entry.get("mcp_server") else None
+                )
+                _tool_nm = str(mcp_entry["tool"]).strip() if mcp_entry.get("tool") else None
+                mcp_server_id = resolve_mcp_server_key(target_file, _tool_nm, _explicit)
+                _eff_srv = (
+                    mcp_server_id
+                    or os.environ.get("MCP_DEFAULT_SERVER", "default").strip()
+                    or "default"
+                )
+                logger.debug(
+                    "[Executor] MCP 서버 키=%s (effective=%s) target_file=%s tool=%s step=%d",
+                    mcp_server_id,
+                    _eff_srv,
+                    target_file,
+                    _tool_nm,
+                    sid,
+                )
+            if mcp_entry and build_stdio_server_parameters(mcp_server=mcp_server_id) is not None:
                 logger.debug("[Executor] MCP 시도: tool=%s, step=%d", mcp_entry["tool"], sid)
                 # MCP 툴은 구조화 step의 target_info를 툴 inputSchema에 맞게 정규화한 뒤 호출한다.
                 # 결과 성공 여부는 call_mcp_tool이 {success,data,error,modified_files}로 정리한 값을 사용한다.
@@ -1547,6 +1574,7 @@ async def _execute_one_structured_step(
                         norm,
                         data_path,
                         path_arg_name=path_key,
+                        mcp_server=mcp_server_id,
                     )
                 if r.get("success"):
                     modified_files = r.get("modified_files") or mcp_entry.get(
@@ -1924,7 +1952,49 @@ async def _execute_one_structured_step(
                 "timestamp": ts,
             }
 
-        # Items/Enemies는 dispatcher 함수를 통해 처리 (매니저가 없음)
+        # Items/Enemies 신규 생성: Definition이 item_id/enemy_id를 주면 JSON에 직접 쓴다.
+        # (MCP에 create_item이 없고, dispatcher.run_*는 고정 키워드만 지원하는 한계를 우회)
+        if target_file == "Items.json" and action == "create":
+            if target_info.get("item_id") is not None or target_info.get("itemId") is not None:
+                logger.debug("[Executor] 구조화: Items.json.create → JSON 직접 저장")
+                async with game_locks[game_id]:
+                    r = await asyncio.to_thread(
+                        _structured_create_item_sync, data_path, target_info
+                    )
+                step_results[sid] = {**r, "step_id": sid}
+                mf = r.get("modified_files") or ["Items.json"]
+                return {
+                    "step_id": sid,
+                    "tool_name": "structured_items_create_json",
+                    "success": bool(r.get("success")),
+                    "stdout": r.get("stdout", ""),
+                    "stderr": r.get("stderr", ""),
+                    "modified_files": mf,
+                    "structured": True,
+                    "timestamp": ts,
+                }
+
+        if target_file == "Enemies.json" and action == "create":
+            if target_info.get("enemy_id") is not None or target_info.get("enemyId") is not None:
+                logger.debug("[Executor] 구조화: Enemies.json.create → JSON 직접 저장")
+                async with game_locks[game_id]:
+                    r = await asyncio.to_thread(
+                        _structured_create_enemy_sync, data_path, target_info
+                    )
+                step_results[sid] = {**r, "step_id": sid}
+                mf = r.get("modified_files") or ["Enemies.json"]
+                return {
+                    "step_id": sid,
+                    "tool_name": "structured_enemies_create_json",
+                    "success": bool(r.get("success")),
+                    "stdout": r.get("stdout", ""),
+                    "stderr": r.get("stderr", ""),
+                    "modified_files": mf,
+                    "structured": True,
+                    "timestamp": ts,
+                }
+
+        # Items/Enemies는 그 외에 dispatcher 함수를 통해 처리 (매니저가 없음)
         if target_file in ("Items.json", "Enemies.json") and action in (
             "create",
             "update",
@@ -2023,6 +2093,358 @@ async def _execute_one_structured_step(
             "timestamp": ts,
         }
         return result
+
+
+_ITEM_CREATE_SKIP_KEYS = frozenset(
+    {
+        "item_id",
+        "itemId",
+        "updates",
+        "new_description",
+        "new_name",
+        "newName",
+        "query",
+        "searchTerm",
+        "search_term",
+        "item_name",
+    }
+)
+
+
+def _sanitize_mz_item_effects_for_schema(effects: Any) -> list[dict[str, Any]]:
+    """MZ 관례(code 11/12는 회복량을 value2에 두는 경우가 많음)에 맞게 보정한다."""
+    if not isinstance(effects, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for raw in effects:
+        if not isinstance(raw, dict):
+            continue
+        e = dict(raw)
+        code = e.get("code")
+        if code in (11, 12):
+            v1, v2 = e.get("value1", 0), e.get("value2", 0)
+            try:
+                v1n = float(v1)
+                v2n = float(v2)
+            except (TypeError, ValueError):
+                v1n, v2n = 0.0, 0.0
+            if v1n > 10 and v2n == 0:
+                e["value2"] = v1
+                e["value1"] = 0
+        out.append(e)
+    return out
+
+
+def _structured_create_item_sync(data_path: Path, target_info: dict[str, Any]) -> dict[str, Any]:
+    """구조화 플랜의 target_info로 Items.json 슬롯에 아이템을 기록한다 (MCP create_item 미노출 대응)."""
+    from agent.schemas.items import Item
+
+    ts = datetime.now().isoformat()
+    raw_id = target_info.get("item_id") or target_info.get("itemId")
+    if raw_id is None:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Items create: item_id가 필요합니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+    try:
+        item_id = int(raw_id)
+    except (TypeError, ValueError):
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"Items create: 잘못된 item_id: {raw_id!r}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    fp = data_path / "Items.json"
+    if not fp.is_file():
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Items.json 파일이 없습니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    try:
+        arr = json.loads(fp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"Items.json 읽기 실패: {e}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    if not isinstance(arr, list) or not arr:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Items.json 루트는 비어 있지 않은 배열이어야 합니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    while len(arr) <= item_id:
+        arr.append(None)
+
+    existing = arr[item_id]
+    new_name = str(target_info.get("name") or "").strip()
+    if existing is not None and isinstance(existing, dict):
+        ex_name = str(existing.get("name") or "").strip()
+        if ex_name and new_name and ex_name != new_name:
+            return {
+                "success": False,
+                "exit_code": 2,
+                "stdout": "",
+                "stderr": (f"item_id={item_id} 슬롯에 이미 다른 아이템이 있습니다 ({ex_name!r})."),
+                "modified_files": [],
+                "timestamp": ts,
+            }
+
+    payload: dict[str, Any] = {}
+    for k, v in target_info.items():
+        if k in _ITEM_CREATE_SKIP_KEYS:
+            continue
+        if k == "damage" and isinstance(v, dict):
+            payload["damage"] = dict(v)
+        elif k == "effects" and isinstance(v, list):
+            payload["effects"] = _sanitize_mz_item_effects_for_schema(v)
+        elif isinstance(v, dict | list | str | int | float | bool) or v is None:
+            payload[k] = v
+
+    payload["id"] = item_id
+    if not str(payload.get("name") or "").strip():
+        payload["name"] = new_name or f"Item {item_id}"
+
+    if "damage" not in payload:
+        payload["damage"] = {
+            "type": 0,
+            "elementId": 0,
+            "formula": "0",
+            "variance": 20,
+            "critical": False,
+        }
+    else:
+        d = payload["damage"]
+        if isinstance(d, dict):
+            d.setdefault("critical", False)
+            d.setdefault("variance", 20)
+
+    payload.setdefault("effects", [])
+
+    try:
+        model = Item.model_validate(payload)
+        final_obj = model.model_dump(mode="json")
+    except ValidationError as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"아이템 스키마 검증 실패: {e}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    arr[item_id] = final_obj
+    try:
+        fp.write_text(json.dumps(arr, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except OSError as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": str(e),
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    return {
+        "success": True,
+        "exit_code": 0,
+        "stdout": f"Items.json에 아이템 id={item_id} ({final_obj.get('name')}) 저장",
+        "stderr": "",
+        "modified_files": ["Items.json"],
+        "timestamp": ts,
+    }
+
+
+_ENEMY_CREATE_SKIP_KEYS = frozenset(
+    {
+        "enemy_id",
+        "enemyId",
+        "updates",
+        "query",
+        "searchTerm",
+        "search_term",
+        "enemy_name",
+    }
+)
+
+
+def _default_enemy_template_dict() -> dict[str, Any]:
+    return {
+        "battlerHue": 0,
+        "battlerName": "",
+        "params": [100, 0, 10, 10, 10, 10, 10, 10],
+        "dropItems": [
+            {"kind": 0, "dataId": 1, "denominator": 1},
+            {"kind": 0, "dataId": 1, "denominator": 1},
+            {"kind": 0, "dataId": 1, "denominator": 1},
+        ],
+        "actions": [
+            {
+                "skillId": 1,
+                "rating": 5,
+                "conditionType": 0,
+                "conditionParam1": 0,
+                "conditionParam2": 0,
+            }
+        ],
+        "traits": [],
+        "exp": 10,
+        "gold": 5,
+        "note": "",
+        "name": "",
+    }
+
+
+def _structured_create_enemy_sync(data_path: Path, target_info: dict[str, Any]) -> dict[str, Any]:
+    """구조화 플랜으로 Enemies.json 슬롯에 적을 기록한다."""
+    from agent.schemas.enemies import Enemy
+
+    ts = datetime.now().isoformat()
+    raw_id = target_info.get("enemy_id") or target_info.get("enemyId")
+    if raw_id is None:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Enemies create: enemy_id가 필요합니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+    try:
+        enemy_id = int(raw_id)
+    except (TypeError, ValueError):
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"Enemies create: 잘못된 enemy_id: {raw_id!r}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    fp = data_path / "Enemies.json"
+    if not fp.is_file():
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Enemies.json 파일이 없습니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    try:
+        arr = json.loads(fp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"Enemies.json 읽기 실패: {e}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    if not isinstance(arr, list) or not arr:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Enemies.json 루트는 비어 있지 않은 배열이어야 합니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    while len(arr) <= enemy_id:
+        arr.append(None)
+
+    existing = arr[enemy_id]
+    new_name = str(target_info.get("name") or "").strip()
+    if existing is not None and isinstance(existing, dict):
+        ex_name = str(existing.get("name") or "").strip()
+        if ex_name and new_name and ex_name != new_name:
+            return {
+                "success": False,
+                "exit_code": 2,
+                "stdout": "",
+                "stderr": (f"enemy_id={enemy_id} 슬롯에 이미 다른 적이 있습니다 ({ex_name!r})."),
+                "modified_files": [],
+                "timestamp": ts,
+            }
+
+    base = _default_enemy_template_dict()
+    for k, v in target_info.items():
+        if k in _ENEMY_CREATE_SKIP_KEYS:
+            continue
+        if k in base or k in ("name", "note", "battlerName", "battlerHue", "params", "traits"):
+            base[k] = v
+        elif k == "actions" and isinstance(v, list):
+            base["actions"] = v
+        elif k == "dropItems" and isinstance(v, list):
+            base["dropItems"] = v
+
+    base["id"] = enemy_id
+    if not str(base.get("name") or "").strip():
+        base["name"] = new_name or f"Enemy {enemy_id}"
+
+    try:
+        model = Enemy.model_validate(base)
+        final_obj = model.model_dump(mode="json")
+    except ValidationError as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"적 스키마 검증 실패: {e}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    arr[enemy_id] = final_obj
+    try:
+        fp.write_text(json.dumps(arr, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except OSError as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": str(e),
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    return {
+        "success": True,
+        "exit_code": 0,
+        "stdout": f"Enemies.json에 적 id={enemy_id} ({final_obj.get('name')}) 저장",
+        "stderr": "",
+        "modified_files": ["Enemies.json"],
+        "timestamp": ts,
+    }
 
 
 _ITEM_UPDATE_ID_KEYS = frozenset({"item_id", "itemId", "id"})
