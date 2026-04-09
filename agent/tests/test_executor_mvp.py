@@ -23,6 +23,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+@pytest.mark.integration
 async def test_executor_mvp():
     """MVP 기본 동작 테스트"""
 
