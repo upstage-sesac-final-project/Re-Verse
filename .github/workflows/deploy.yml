@@ -31,5 +31,9 @@ jobs:
 
             echo "${{ secrets.ENV_FILE }}" > .env
 
+            # BuildKit: Dockerfile의 RUN --mount=type=cache 등 캐시 마운트 사용
+            export DOCKER_BUILDKIT=1
+            export COMPOSE_DOCKER_CLI_BUILD=1
             docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+            # 사용 안 하는(dangling) 이미지 정리 — builder 캐시와는 별개
             docker image prune -f
