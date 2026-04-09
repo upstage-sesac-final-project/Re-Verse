@@ -1,11 +1,11 @@
 """Manager 단위 테스트 — SystemManager, ClassManager, ActorManager, SkillManager.
 
-로컬 game_001/data/ 의 실제 JSON을 사용한다.
-테스트에서 생성한 데이터는 고유 이름(ZZZ_ prefix)으로 충돌을 방지한다.
+tmp_path에 최소 fixture 데이터를 생성하여 외부 파일 의존 없이 테스트한다.
 """
 
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 
@@ -16,11 +16,92 @@ from app.backend.services.json_modify_tools.managers.class_manager import ClassM
 from app.backend.services.json_modify_tools.managers.skill_manager import SkillManager
 from app.backend.services.json_modify_tools.managers.system_manager import SystemManager
 
+# ── fixture 데이터 ──────────────────────────────────────────────
 
-def _get_data_path() -> Path:
-    from app.backend.core.config import settings
 
-    return Path(settings.STORAGE_PATH) / "game_001" / "data"
+def _write_json(path: Path, data) -> None:
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+@pytest.fixture()
+def data_path(tmp_path: Path) -> Path:
+    """최소 RPG Maker MZ JSON 파일들을 tmp_path에 생성."""
+    # System.json
+    _write_json(
+        tmp_path / "System.json",
+        {
+            "gameTitle": "테스트 게임",
+            "startMapId": 1,
+            "startX": 5,
+            "startY": 5,
+            "variables": [""] * 20,
+            "switches": [""] * 20,
+        },
+    )
+
+    # Classes.json
+    _write_json(
+        tmp_path / "Classes.json",
+        [
+            None,
+            {
+                "id": 1,
+                "name": "전사",
+                "expParams": [30, 20, 30, 30],
+                "params": [[0] * 99] * 8,
+                "learnings": [],
+                "traits": [],
+                "note": "",
+            },
+        ],
+    )
+
+    # Actors.json
+    _write_json(
+        tmp_path / "Actors.json",
+        [
+            None,
+            {
+                "id": 1,
+                "name": "용사",
+                "nickname": "",
+                "classId": 1,
+                "initialLevel": 1,
+                "maxLevel": 99,
+                "characterName": "Actor1",
+                "characterIndex": 0,
+                "faceName": "Actor1",
+                "faceIndex": 0,
+                "battlerName": "Actor1_1",
+                "equips": [0, 0, 0, 0, 0],
+                "traits": [],
+                "note": "",
+                "profile": "",
+            },
+        ],
+    )
+
+    # Skills.json
+    _write_json(
+        tmp_path / "Skills.json",
+        [
+            None,
+            {
+                "id": 1,
+                "name": "공격",
+                "description": "",
+                "iconIndex": 76,
+                "mpCost": 0,
+                "scope": 1,
+                "occasion": 1,
+                "damage": {"type": 1, "elementId": -1, "formula": "a.atk * 4 - b.def * 2"},
+                "effects": [],
+                "note": "",
+            },
+        ],
+    )
+
+    return tmp_path
 
 
 # ── SystemManager ────────────────────────────────────────────
@@ -28,23 +109,17 @@ def _get_data_path() -> Path:
 
 class TestSystemManager:
     @pytest.fixture(autouse=True)
-    def _setup(self):
-        self.mgr = SystemManager(_get_data_path(), "test_sys")
+    def _setup(self, data_path: Path):
+        self.mgr = SystemManager(data_path, "test_sys")
 
     @pytest.mark.asyncio
     async def test_update_game_title(self) -> None:
-        old_data = self.mgr.load_json_data()
-        old_title = old_data.get("gameTitle", "")
-
-        r = await self.mgr.execute(
-            "update_game_title", target_info={"game_title": "TEST_TITLE_TMP"}
-        )
+        r = await self.mgr.execute("update_game_title", target_info={"game_title": "NEW_TITLE"})
         assert r["success"] is True
-        assert r["old_title"] == old_title
-        assert r["new_title"] == "TEST_TITLE_TMP"
+        assert r["new_title"] == "NEW_TITLE"
 
-        # 복원
-        await self.mgr.execute("update_game_title", target_info={"game_title": old_title})
+        data = self.mgr.load_json_data()
+        assert data["gameTitle"] == "NEW_TITLE"
 
     @pytest.mark.asyncio
     async def test_update_game_title_empty(self) -> None:
@@ -59,9 +134,6 @@ class TestSystemManager:
         assert r["success"] is True
         system = self.mgr.load_json_data()
         assert system["variables"][5] == "test_var"
-
-        # 복원
-        await self.mgr.execute("set_variable_name", target_info={"variable_id": 5, "name": ""})
 
     @pytest.mark.asyncio
     async def test_set_variable_name_invalid_id(self) -> None:
@@ -79,32 +151,17 @@ class TestSystemManager:
         system = self.mgr.load_json_data()
         assert system["switches"][3] == "test_switch"
 
-        # 복원
-        await self.mgr.execute("set_switch_name", target_info={"switch_id": 3, "name": ""})
-
     @pytest.mark.asyncio
     async def test_update_starting_position(self) -> None:
-        old = self.mgr.load_json_data()
-        old_map = old.get("startMapId")
-        old_x = old.get("startX")
-        old_y = old.get("startY")
-
         r = await self.mgr.execute(
             "update_starting_position",
             target_info={"map_id": 2, "x": 10, "y": 20},
         )
         assert r["success"] is True
-
         system = self.mgr.load_json_data()
         assert system["startMapId"] == 2
         assert system["startX"] == 10
         assert system["startY"] == 20
-
-        # 복원
-        await self.mgr.execute(
-            "update_starting_position",
-            target_info={"map_id": old_map, "x": old_x, "y": old_y},
-        )
 
     @pytest.mark.asyncio
     async def test_unsupported_action(self) -> None:
@@ -117,27 +174,17 @@ class TestSystemManager:
 
 class TestClassManager:
     @pytest.fixture(autouse=True)
-    def _setup(self):
-        self.mgr = ClassManager(_get_data_path(), "test_cls")
+    def _setup(self, data_path: Path):
+        self.mgr = ClassManager(data_path, "test_cls")
 
     @pytest.mark.asyncio
     async def test_query_existing(self) -> None:
-        """기본 데이터에 있는 클래스를 조회."""
-        data = self.mgr.load_json_data()
-        # 첫 번째 실제 클래스 이름 찾기
-        first_name = None
-        for item in data:
-            if isinstance(item, dict) and item.get("name"):
-                first_name = item["name"]
-                break
-        assert first_name is not None
-
-        r = await self.mgr.execute("query", class_name=first_name)
+        r = await self.mgr.execute("query", class_name="전사")
         assert r.get("exists") is True
 
     @pytest.mark.asyncio
     async def test_query_not_found(self) -> None:
-        r = await self.mgr.execute("query", class_name="ZZZ_NONEXISTENT_CLASS")
+        r = await self.mgr.execute("query", class_name="ZZZ_NONEXISTENT")
         assert r.get("exists") is False
 
     @pytest.mark.asyncio
@@ -155,26 +202,17 @@ class TestClassManager:
 
 class TestActorManager:
     @pytest.fixture(autouse=True)
-    def _setup(self):
-        self.mgr = ActorManager(_get_data_path(), "test_actor")
+    def _setup(self, data_path: Path):
+        self.mgr = ActorManager(data_path, "test_actor")
 
     @pytest.mark.asyncio
     async def test_query_existing_by_name(self) -> None:
-        """기본 데이터에 있는 액터를 이름으로 조회."""
-        data = self.mgr.load_json_data()
-        first_name = None
-        for item in data:
-            if isinstance(item, dict) and item.get("name"):
-                first_name = item["name"]
-                break
-        assert first_name is not None
-
-        r = await self.mgr.execute("query", actor_name=first_name)
+        r = await self.mgr.execute("query", actor_name="용사")
         assert r.get("exists") is True
 
     @pytest.mark.asyncio
     async def test_query_not_found(self) -> None:
-        r = await self.mgr.execute("query", actor_name="ZZZ_NONEXISTENT_ACTOR")
+        r = await self.mgr.execute("query", actor_name="ZZZ_NONEXISTENT")
         assert r.get("exists") is False
 
     @pytest.mark.asyncio
@@ -185,22 +223,12 @@ class TestActorManager:
 
     @pytest.mark.asyncio
     async def test_search_actor(self) -> None:
-        """기본 데이터의 첫 액터 이름으로 검색."""
-        data = self.mgr.load_json_data()
-        first_name = None
-        for item in data:
-            if isinstance(item, dict) and item.get("name"):
-                first_name = item["name"]
-                break
-        assert first_name is not None
-
-        r = await self.mgr.execute("search", target_info={"searchTerm": first_name})
+        r = await self.mgr.execute("search", target_info={"searchTerm": "용사"})
         assert r.get("success") is True
         assert r.get("exists") is True
 
     @pytest.mark.asyncio
     async def test_update_general(self) -> None:
-        """create → update_general → 복원."""
         unique = f"ZZZ_UPD_{uuid.uuid4().hex[:8]}"
         cr = await self.mgr.execute("create", actor_name=unique)
         assert cr.get("success") is True
@@ -217,14 +245,12 @@ class TestActorManager:
         assert "nickname" in r.get("updated_fields", [])
         assert "initialLevel" in r.get("updated_fields", [])
 
-        # 값 확인
         data = self.mgr.load_json_data()
         assert data[actor_id]["nickname"] == "테스트닉"
         assert data[actor_id]["initialLevel"] == 10
 
     @pytest.mark.asyncio
     async def test_update_general_type_coercion(self) -> None:
-        """문자열 '10' → int 10 변환."""
         unique = f"ZZZ_COERCE_{uuid.uuid4().hex[:8]}"
         cr = await self.mgr.execute("create", actor_name=unique)
         actor_id = cr.get("actor_id")
@@ -234,7 +260,6 @@ class TestActorManager:
             target_info={"actor_id": actor_id, "updates": {"initialLevel": "15"}},
         )
         assert r.get("success") is True
-
         data = self.mgr.load_json_data()
         assert data[actor_id]["initialLevel"] == 15
         assert isinstance(data[actor_id]["initialLevel"], int)
@@ -249,7 +274,6 @@ class TestActorManager:
 
     @pytest.mark.asyncio
     async def test_update_general_no_valid_fields(self) -> None:
-        """지원하지 않는 필드만 주면 실패."""
         unique = f"ZZZ_NOFLD_{uuid.uuid4().hex[:8]}"
         cr = await self.mgr.execute("create", actor_name=unique)
         actor_id = cr.get("actor_id")
@@ -262,25 +286,16 @@ class TestActorManager:
 
     @pytest.mark.asyncio
     async def test_query_empty_name_fails(self) -> None:
-        """빈 actor_name은 에러."""
         r = await self.mgr.execute("query", actor_name="")
         assert r.get("success") is False
 
     @pytest.mark.asyncio
     async def test_query_by_id_out_of_range(self) -> None:
-        """범위 밖 actor_id — actor_name으로 검색하면 exists=False."""
         r = await self.mgr.execute("query", actor_name="ZZZ_NEVER_EXISTS_99999")
         assert r.get("exists") is False
 
     @pytest.mark.asyncio
     async def test_update_general_bulk(self) -> None:
-        """전체 액터에 일괄 필드 업데이트."""
-        data = self.mgr.load_json_data()
-        originals = {}
-        for i, a in enumerate(data):
-            if isinstance(a, dict):
-                originals[i] = a.get("initialLevel")
-
         r = await self.mgr.execute(
             "update_general_bulk",
             target_info={
@@ -291,12 +306,10 @@ class TestActorManager:
         assert r.get("success") is True
         assert r.get("updated_count", 0) > 0
 
-        # 복원
         data = self.mgr.load_json_data()
-        for i, orig in originals.items():
-            if orig is not None and isinstance(data[i], dict):
-                data[i]["initialLevel"] = orig
-        self.mgr.save_json_data(data)
+        for a in data:
+            if isinstance(a, dict):
+                assert a["initialLevel"] == 5
 
     @pytest.mark.asyncio
     async def test_update_general_bulk_no_valid_fields(self) -> None:
@@ -312,12 +325,11 @@ class TestActorManager:
 
 class TestClassManagerExtended:
     @pytest.fixture(autouse=True)
-    def _setup(self):
-        self.mgr = ClassManager(_get_data_path(), "test_cls_ext")
+    def _setup(self, data_path: Path):
+        self.mgr = ClassManager(data_path, "test_cls_ext")
 
     @pytest.mark.asyncio
     async def test_update(self) -> None:
-        """클래스 생성 → update → 필드 확인."""
         unique = f"ZZZ_CLS_UPD_{uuid.uuid4().hex[:8]}"
         cr = await self.mgr.execute("create", class_name=unique)
         assert cr.get("success") is True
@@ -352,16 +364,7 @@ class TestClassManagerExtended:
 
     @pytest.mark.asyncio
     async def test_create_duplicate(self) -> None:
-        """이미 존재하는 클래스명으로 create → exists 에러."""
-        data = self.mgr.load_json_data()
-        first_name = None
-        for item in data:
-            if isinstance(item, dict) and item.get("name"):
-                first_name = item["name"]
-                break
-        assert first_name is not None
-
-        r = await self.mgr.execute("create", class_name=first_name)
+        r = await self.mgr.execute("create", class_name="전사")
         assert r.get("success") is False
         assert r.get("exists") is True
 
@@ -371,8 +374,8 @@ class TestClassManagerExtended:
 
 class TestSkillManager:
     @pytest.fixture(autouse=True)
-    def _setup(self):
-        self.mgr = SkillManager(_get_data_path(), "test_skill")
+    def _setup(self, data_path: Path):
+        self.mgr = SkillManager(data_path, "test_skill")
 
     @pytest.mark.asyncio
     async def test_add_skill(self) -> None:
@@ -383,16 +386,7 @@ class TestSkillManager:
 
     @pytest.mark.asyncio
     async def test_add_duplicate_skill(self) -> None:
-        """기본 데이터에 있는 스킬명으로 add → 실패."""
-        data = self.mgr.load_json_data()
-        first_name = None
-        for item in data:
-            if isinstance(item, dict) and item.get("name"):
-                first_name = item["name"]
-                break
-        assert first_name is not None
-
-        r = await self.mgr.execute("add", target_name=first_name)
+        r = await self.mgr.execute("add", target_name="공격")
         assert r.get("success") is False
 
     @pytest.mark.asyncio

@@ -5,6 +5,7 @@
 
 import asyncio
 import importlib
+import json
 import logging
 import uuid
 from pathlib import Path
@@ -23,6 +24,115 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+_TEST_GAME_ID = f"game_{uuid.uuid4().hex[:8]}"
+
+
+@pytest.fixture(autouse=True)
+def _ensure_test_game_data():
+    """STORAGE_PATH/{_TEST_GAME_ID}/data/ 에 최소 JSON 생성."""
+    from app.backend.core.config import settings
+
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
+    if (data_path / "Actors.json").exists():
+        return
+
+    data_path.mkdir(parents=True, exist_ok=True)
+
+    _base_system = {
+        "gameTitle": "테스트 게임",
+        "versionId": 1,
+        "locale": "ko_KR",
+        "startMapId": 1,
+        "startX": 5,
+        "startY": 5,
+        "variables": [""] * 100,
+        "switches": [""] * 100,
+        "currencyUnit": "G",
+        "windowTone": [0, 0, 0, 0],
+        "battleBgm": {"name": "", "pan": 0, "pitch": 100, "volume": 90},
+        "battleback1Name": "",
+        "battleback2Name": "",
+        "partyMembers": [1],
+        "testBattlers": [],
+        "terms": {"basic": [], "commands": [], "params": [], "messages": {}},
+    }
+    _base_actors = [
+        None,
+        {
+            "id": 1,
+            "name": "용사",
+            "nickname": "",
+            "classId": 1,
+            "initialLevel": 1,
+            "maxLevel": 99,
+            "characterName": "Actor1",
+            "characterIndex": 0,
+            "faceName": "Actor1",
+            "faceIndex": 0,
+            "battlerName": "Actor1_1",
+            "equips": [0, 0, 0, 0, 0],
+            "traits": [],
+            "note": "",
+            "profile": "",
+        },
+        {
+            "id": 2,
+            "name": "리드",
+            "nickname": "",
+            "classId": 1,
+            "initialLevel": 1,
+            "maxLevel": 99,
+            "characterName": "Actor1",
+            "characterIndex": 1,
+            "faceName": "Actor1",
+            "faceIndex": 1,
+            "battlerName": "Actor1_2",
+            "equips": [0, 0, 0, 0, 0],
+            "traits": [],
+            "note": "",
+            "profile": "",
+        },
+    ]
+    _base_classes = [
+        None,
+        {
+            "id": 1,
+            "name": "전사",
+            "expParams": [30, 20, 30, 30],
+            "params": [[0] * 99] * 8,
+            "learnings": [],
+            "traits": [],
+            "note": "",
+        },
+    ]
+    _base_skills = [
+        None,
+        {
+            "id": 1,
+            "name": "공격",
+            "description": "",
+            "iconIndex": 76,
+            "mpCost": 0,
+            "scope": 1,
+            "occasion": 1,
+            "damage": {"type": 1, "elementId": -1, "formula": "a.atk * 4 - b.def * 2"},
+            "effects": [],
+            "note": "",
+        },
+    ]
+    _base_items = [None]
+
+    for fname, data in [
+        ("System.json", _base_system),
+        ("Actors.json", _base_actors),
+        ("Classes.json", _base_classes),
+        ("Skills.json", _base_skills),
+        ("Items.json", _base_items),
+        ("Enemies.json", [None]),
+    ]:
+        (data_path / fname).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
 @pytest.mark.integration
 async def test_executor_mvp():
     """MVP 기본 동작 테스트"""
@@ -34,7 +144,7 @@ async def test_executor_mvp():
         "execution_plan": [
             {"task": "파이어볼 스킬 추가해줘", "description": "새로운 화염 공격 스킬"}
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -61,7 +171,7 @@ async def test_executor_mvp():
     # ── 테스트 2: 레벨 설정 ──────────────────────────────────
     test_state2 = {
         "execution_plan": [{"task": "주인공 레벨 50으로 설정해줘"}],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -82,7 +192,7 @@ async def test_executor_mvp():
     # ── 테스트 3: 재시도 로직 ────────────────────────────────
     test_state3 = {
         "execution_plan": [{"task": "유효하지 않은 명령"}],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 3,  # 최대치 초과
     }
 
@@ -129,7 +239,7 @@ async def test_structured_execution_plan_actors(monkeypatch):
                 "condition": "step 1에서 캐릭터가 존재하지 않을 경우",
             },
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -149,7 +259,7 @@ async def test_structured_execution_plan_actors(monkeypatch):
 
     from app.backend.core.config import settings
 
-    data_path = Path(settings.STORAGE_PATH) / "game_001" / "data"
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
     mgr = ActorManager(data_path, "test_verify")
     verify = await mgr.execute("query", actor_name=unique_name)
     assert verify.get("exists") is True
@@ -226,7 +336,7 @@ async def test_structured_execution_plan_full_update_flow(monkeypatch):
                 "condition": "",
             },
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -245,7 +355,7 @@ async def test_structured_execution_plan_full_update_flow(monkeypatch):
 
     from app.backend.core.config import settings
 
-    data_path = Path(settings.STORAGE_PATH) / "game_001" / "data"
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
     class_mgr = ClassManager(data_path, "verify_class")
     actor_mgr = ActorManager(data_path, "verify_actor")
     system_mgr = SystemManager(data_path, "verify_system")
@@ -273,7 +383,7 @@ async def test_skill_manager_directly():
 
     from app.backend.core.config import settings
 
-    data_path = Path(settings.STORAGE_PATH) / "game_001" / "data"
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
 
     if not data_path.exists():
         print(f"❌ 데이터 경로 없음: {data_path}")
@@ -302,7 +412,7 @@ def check_game_files():
 
     from app.backend.core.config import settings
 
-    data_path = Path(settings.STORAGE_PATH) / "game_001" / "data"
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
     required_files = ["Skills.json", "Enemies.json", "Items.json"]
 
     for file_name in required_files:
@@ -348,7 +458,7 @@ async def test_structured_mcp_alias_actor_update_routes_update_actor(monkeypatch
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -389,7 +499,7 @@ async def test_structured_mcp_actor_update_merges_top_level_max_level(monkeypatc
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -428,7 +538,7 @@ async def test_structured_mcp_actor_update_snake_case_maps_to_schema(monkeypatch
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -469,7 +579,7 @@ async def test_structured_mcp_alias_system_update_game_title(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -510,7 +620,7 @@ async def test_structured_mcp_alias_system_update_starting_position(monkeypatch)
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -540,7 +650,7 @@ async def test_actors_query_by_id_legacy_when_mcp_off(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -570,7 +680,7 @@ async def test_actors_list_search_legacy_when_mcp_off(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
     result_list = await executor(state_list)
@@ -591,7 +701,7 @@ async def test_actors_list_search_legacy_when_mcp_off(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
     result_search = await executor(state_search)
@@ -629,7 +739,7 @@ async def test_actors_update_class_inherits_actor_id_from_create(monkeypatch):
                 "condition": "",
             },
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
     result = await executor(state)
@@ -642,7 +752,7 @@ async def test_actors_update_class_inherits_actor_id_from_create(monkeypatch):
 
     from app.backend.core.config import settings
 
-    data_path = Path(settings.STORAGE_PATH) / "game_001" / "data"
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
     mgr = ActorManager(data_path, "verify_upd_cls")
     verify = await mgr.execute("query", actor_name=unique_name)
     assert verify.get("exists") is True
@@ -681,7 +791,7 @@ async def test_actors_update_rename_by_new_name_after_create(monkeypatch):
                 "condition": "",
             },
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
     result = await executor(state)
@@ -691,7 +801,7 @@ async def test_actors_update_rename_by_new_name_after_create(monkeypatch):
 
     from app.backend.core.config import settings
 
-    data_path = Path(settings.STORAGE_PATH) / "game_001" / "data"
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
     mgr = ActorManager(data_path, "verify_ren")
     assert (await mgr.execute("query", actor_name=old_name)).get("exists") is False
     assert (await mgr.execute("query", actor_name=new_name)).get("exists") is True
@@ -730,7 +840,7 @@ async def test_actors_rename_reconciles_wrong_planner_actor_id(monkeypatch):
                 "condition": "",
             },
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
     result = await executor(state)
@@ -740,7 +850,7 @@ async def test_actors_rename_reconciles_wrong_planner_actor_id(monkeypatch):
 
     from app.backend.core.config import settings
 
-    data_path = Path(settings.STORAGE_PATH) / "game_001" / "data"
+    data_path = Path(settings.STORAGE_PATH) / _TEST_GAME_ID / "data"
     mgr = ActorManager(data_path, "verify_rid")
     assert (await mgr.execute("query", actor_name=unique)).get("exists") is False
     assert (await mgr.execute("query", actor_name=new_name)).get("exists") is True
@@ -775,7 +885,7 @@ async def test_structured_mcp_alias_actor_query_by_id(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -815,7 +925,7 @@ async def test_structured_mcp_alias_system_update_set_variable_name(monkeypatch)
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -855,7 +965,7 @@ async def test_structured_mcp_alias_system_update_set_switch_name(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -893,7 +1003,7 @@ async def test_mcp_failure_fallback_policy_actors_create(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -929,7 +1039,7 @@ async def test_mcp_failure_abort_policy_system_update_game_title(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -967,7 +1077,7 @@ async def test_items_query_normalizes_to_search_for_planner(monkeypatch):
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -995,7 +1105,7 @@ async def test_unsupported_structured_step_error_is_standardized():
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
@@ -1031,13 +1141,13 @@ async def test_executor_returns_modified_file_paths_for_reported_changes(monkeyp
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
     result = await executor(state)
 
-    expected_path = str(executor_module._get_data_path("game_001") / "Actors.json")
+    expected_path = str(executor_module._get_data_path(_TEST_GAME_ID) / "Actors.json")
     assert result["modified_file_paths"] == [expected_path]
 
 
@@ -1066,7 +1176,7 @@ async def test_executor_returns_empty_modified_file_paths_for_read_only_query(mo
                 "condition": "",
             }
         ],
-        "game_id": "game_001",
+        "game_id": _TEST_GAME_ID,
         "retry_count": 0,
     }
 
