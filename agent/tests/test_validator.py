@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import json
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from agent.graph.nodes.validator import ValidatorOutput, validator
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -144,7 +142,8 @@ async def test_schema_failure_increments_retry_count():
     assert "스키마 실패" in contract.validation_summary
 
     actor_schema_fail = next(
-        r for r in contract.validation_results
+        r
+        for r in contract.validation_results
         if r.target == "Actors.json" and r.category == "schema"
     )
     assert not actor_schema_fail.success
@@ -169,7 +168,9 @@ async def test_failed_executor_step_causes_consistency_failure():
 
     assert contract.success is False
     assert contract.retry_count == 1
-    consistency_fails = [r for r in contract.validation_results if r.category == "query_consistency"]
+    consistency_fails = [
+        r for r in contract.validation_results if r.category == "query_consistency"
+    ]
     assert len(consistency_fails) >= 1
     assert consistency_fails[0].target == "Actors.json"
 
@@ -186,7 +187,9 @@ async def test_create_consistency_failure_when_entity_absent_in_modified_state()
 
     assert contract.success is False
     assert contract.retry_count == 1
-    consistency_fails = [r for r in contract.validation_results if r.category == "query_consistency"]
+    consistency_fails = [
+        r for r in contract.validation_results if r.category == "query_consistency"
+    ]
     assert any("Sofia" in (e.msg or "") for r in consistency_fails for e in r.errors)
 
 
