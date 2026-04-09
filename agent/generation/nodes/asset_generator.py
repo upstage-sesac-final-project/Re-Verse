@@ -756,8 +756,9 @@ _ARMOR_PROFILE: dict[int, dict[str, float]] = {
     5: {"mdf": 0.6, "luk": 0.4},  # 장신구
 }
 
-_POWER_TO_PRICE_WEAPON = [100, 300, 500, 800, 1200, 1800, 2500, 3500, 5000, 7000, 9500]
-_POWER_TO_PRICE_ARMOR = [50, 150, 300, 500, 800, 1200, 1800, 2500, 3500, 5000, 7000]
+# 16전 골드 수입(2060G) 기반 장비 가격 — 구간별 수입의 80%로 1세트 구매 가능
+_POWER_TO_PRICE_WEAPON = [10, 24, 48, 92, 137, 274, 412, 481, 550, 675, 800]
+_POWER_TO_PRICE_ARMOR = [10, 10, 14, 21, 55, 90, 180, 270, 315, 360, 500]
 
 
 def _calc_weapon_params(power: int, icon_tag: str) -> tuple[list[int], int]:
