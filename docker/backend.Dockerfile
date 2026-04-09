@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Re:Verse Backend - FastAPI, Python 3.12, uv
 # EC2에서 단독 실행용
 # 빌드 컨텍스트: 프로젝트 루트 (Re-Verse/)
@@ -18,7 +19,8 @@ ARG MCP_REPO_MAKER=
 ARG MCP_REPO_LOWER=
 ARG MCP_REPO_UNDERSCORE=
 
-RUN set -eux; \
+RUN --mount=type=cache,target=/root/.npm \
+    set -eux; \
     mkdir -p /mcp/default /mcp/mcp_maker /mcp/rpgmaker_lower /mcp/rpgmaker_underscore; \
     build_one() { \
       key="$1"; \
@@ -29,7 +31,7 @@ RUN set -eux; \
       fi; \
       work="/tmp/src-$key"; \
       rm -rf "$work"; \
-      git clone "$url" "$work"; \
+      git clone --depth 1 "$url" "$work"; \
       cd "$work"; \
       if [ -f package-lock.json ]; then npm ci; else npm install; fi; \
       npm run build; \
@@ -45,7 +47,9 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # 시스템 의존성 설치 (DB 빌드 도구 및 MCP용 Node.js 포함)
-RUN apt-get update && apt-get install -y \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
     curl \
     gcc \
     libpq-dev \
@@ -60,8 +64,9 @@ COPY --from=mcp-builder /mcp /app/mcp
 RUN ln -s /app/mcp/default /app/mcp-server
 ENV MCP_NODE_SERVER_PATH=/app/mcp-server/dist/index.js
 
-# uv 설치
-RUN pip install --no-cache-dir uv
+# uv 설치 (pip 캐시 마운트로 반복 빌드 가속)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install uv
 
 # 의존성 파일 복사 (캐시 활용)
 COPY pyproject.toml uv.lock ./
@@ -72,7 +77,8 @@ COPY agent ./agent
 COPY shared ./shared
 
 # 의존성 설치 (프로덕션 환경)
-RUN uv sync --frozen --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 # 헬스체크 엔드포인트
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
