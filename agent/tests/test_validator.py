@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import argparse
+import asyncio
+import importlib
 import json
+import sys
+import types
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -332,7 +337,7 @@ def _system(party_members: list[int]) -> dict[str, Any]:
     }
 
 
-def _base_state() -> dict[str, Any]:
+def _base_validator_state() -> dict[str, Any]:
     current_game_state = {
         "Actors.json": [None, _actor(1, "Hero")],
         "Classes.json": [None, _class(1, "Warrior")],
@@ -418,7 +423,7 @@ def mock_step_validation_llm():
 
 @pytest.mark.asyncio
 async def test_validator_returns_fixed_top_level_contract_and_retry_count_on_success():
-    state = _base_state()
+    state = _base_validator_state()()
     state["retry_count"] = 2
 
     result = await validator(state)
@@ -434,7 +439,7 @@ async def test_validator_returns_fixed_top_level_contract_and_retry_count_on_suc
 
 @pytest.mark.asyncio
 async def test_validator_supports_snapshot_path_inputs_without_fallback(tmp_path: Path):
-    state = _base_state()
+    state = _base_validator_state()()
     expected = await validator(state)
 
     result = await validator(
@@ -459,7 +464,7 @@ async def test_validator_supports_snapshot_path_inputs_without_fallback(tmp_path
 
 @pytest.mark.asyncio
 async def test_validator_schema_failure_increments_retry_count_and_uses_schema_category():
-    state = _base_state()
+    state = _base_validator_state()()
     state["modified_game_state"]["Actors.json"][1]["classId"] = "invalid"
 
     result = await validator(state)
@@ -479,7 +484,7 @@ async def test_validator_schema_failure_increments_retry_count_and_uses_schema_c
 
 @pytest.mark.asyncio
 async def test_validator_validates_only_files_present_in_modified_game_state():
-    state = _base_state()
+    state = _base_validator_state()()
     state["current_game_state"]["Unknown.json"] = {"foo": "bar"}
     state["modified_game_state"] = {
         "Actors.json": deepcopy(state["modified_game_state"]["Actors.json"])
@@ -497,7 +502,7 @@ async def test_validator_validates_only_files_present_in_modified_game_state():
 
 @pytest.mark.asyncio
 async def test_validator_unsupported_schema_returns_standard_shape():
-    state = _base_state()
+    state = _base_validator_state()()
     state["modified_game_state"]["Unknown.json"] = {"foo": "bar"}
 
     result = await validator(state)
@@ -514,7 +519,7 @@ async def test_validator_unsupported_schema_returns_standard_shape():
 
 @pytest.mark.asyncio
 async def test_validator_empty_modified_game_state_returns_state_error():
-    state = _base_state()
+    state = _base_validator_state()()
     state["modified_game_state"] = {}
     state["retry_count"] = 2
 
@@ -619,7 +624,7 @@ async def test_validator_query_step_allows_empty_modified_files():
 
 @pytest.mark.asyncio
 async def test_validator_limited_fallback_matches_same_actor_instead_of_latest_query():
-    state = _base_state()
+    state = _base_validator_state()()
     state.pop("execution_plan")
     state["changes_log"] = [
         {
