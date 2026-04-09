@@ -187,10 +187,10 @@ class RpgSkill(BaseModel):
     description: str = ""
     animationId: int = -1
     iconTag: str = "physical_melee"
+    power: int = 5  # 0~10. 시스템이 damage.formula/mpCost 계산
     stypeId: int = 1
     scope: int = 1
     occasion: int = 1
-    mpCost: int = 0
     tpCost: int = 0
     tpGain: int = 0
     speed: int = 0
@@ -788,6 +788,90 @@ def _calc_armor_params(power: int, etype_id: int) -> tuple[list[int], int]:
     return params, price
 
 
+# ── 스킬 power(0~10) → formula/mpCost 변환 (밸런스 Phase 4) ─────────────────
+
+# iconTag 카테고리 분류
+_PHYSICAL_TAGS = {"physical_melee", "physical_strong", "physical_ranged", "explosive"}
+_MAGIC_TAGS = {
+    "fire_magic",
+    "ice_magic",
+    "thunder_magic",
+    "water_magic",
+    "earth_magic",
+    "wind_magic",
+    "holy_magic",
+    "dark_magic",
+}
+_HEAL_TAGS = {"heal"}
+_DRAIN_TAGS = {"drain", "mp_drain"}
+
+
+def _calc_skill_formula(power: int, icon_tag: str, scope: int) -> tuple[str, int, dict]:
+    """스킬 power(0~10) + iconTag + scope → (formula, mpCost, damage_dict)."""
+    power = max(0, min(10, power))
+    t = power / 10.0
+    # scope 보정: 전체 공격은 약하게
+    scope_mult = 0.6 if scope == 2 else (0.7 if scope == 8 else 1.0)
+
+    if icon_tag in _PHYSICAL_TAGS:
+        atk_mult = round((1.5 + 3.5 * t) * scope_mult, 2)
+        def_mult = round((1.0 + 1.0 * t) * scope_mult, 2)
+        formula = f"a.atk * {atk_mult} - b.def * {def_mult}"
+        damage = {
+            "type": 1,
+            "elementId": -1,
+            "formula": formula,
+            "variance": 20,
+            "critical": power >= 7,
+        }
+    elif icon_tag in _MAGIC_TAGS:
+        mat_mult = round((1.5 + 3.5 * t) * scope_mult, 2)
+        mdf_mult = round((1.0 + 1.0 * t) * scope_mult, 2)
+        formula = f"a.mat * {mat_mult} - b.mdf * {mdf_mult}"
+        # elementId: iconTag → element
+        elem_map = {
+            "fire_magic": 2,
+            "ice_magic": 3,
+            "thunder_magic": 4,
+            "water_magic": 5,
+            "earth_magic": 6,
+            "wind_magic": 7,
+            "holy_magic": 8,
+            "dark_magic": 9,
+        }
+        damage = {
+            "type": 1,
+            "elementId": elem_map.get(icon_tag, 0),
+            "formula": formula,
+            "variance": 20,
+            "critical": False,
+        }
+    elif icon_tag in _HEAL_TAGS:
+        mat_mult = round((0.5 + 2.5 * t) * scope_mult, 2)
+        flat = round((20 + 180 * t) * scope_mult)
+        formula = f"a.mat * {mat_mult} + {flat}"
+        damage = {"type": 3, "elementId": 0, "formula": formula, "variance": 10, "critical": False}
+    elif icon_tag in _DRAIN_TAGS:
+        atk_mult = round(1.5 + 2.0 * t, 2)
+        def_mult = round(1.0 + 0.5 * t, 2)
+        formula = f"a.atk * {atk_mult} - b.def * {def_mult}"
+        dtype = 5 if icon_tag == "drain" else 6
+        damage = {
+            "type": dtype,
+            "elementId": 0,
+            "formula": formula,
+            "variance": 20,
+            "critical": False,
+        }
+    else:
+        # 버프/디버프/상태이상/특수 → 데미지 없음
+        formula = "0"
+        damage = {"type": 0, "elementId": 0, "formula": "0", "variance": 0, "critical": False}
+
+    mp_cost = power * 2
+    return formula, mp_cost, damage
+
+
 def _resolve_icon(tag: str, tag_map: dict[str, int], fallback: int) -> int:
     """iconTag → iconIndex 변환. 알 수 없는 태그면 fallback."""
     return tag_map.get(tag, fallback)
@@ -849,7 +933,15 @@ async def generate_classes(spec: GameSpec, id_table: IdTable) -> list:
         await invoke_llm(messages, structured_output=LlmClassList, temperature=_TEMPERATURE),
     )
 
-    class_roles: dict[str, str] = {c.class_name: _normalize_role(c.role) for c in spec.characters}
+    # role_type 직접 사용 (Phase 3), fallback: _normalize_role
+    class_roles: dict[str, str] = {
+        c.class_name: (
+            c.role_type
+            if hasattr(c, "role_type") and c.role_type in _CLASS_STAT_TEMPLATE
+            else _normalize_role(c.role)
+        )
+        for c in spec.characters
+    }
     llm_by_name = {cls.name: cls for cls in result.classes}
     # 시스템(id=1,2) + 적 전용 스킬 제외 → 플레이어 스킬만
     player_skill_ids = {
@@ -1092,8 +1184,13 @@ async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
             if d["id"] < 3 or d["id"] in enemy_skill_ids:
                 continue
             tag = d.pop("iconTag", "physical_melee")
+            power = d.pop("power", 5)
             tag = _refine_buff_tag(tag, d.get("effects", []))
             d["iconIndex"] = _resolve_icon(tag, SKILL_ICON_TAG, 0)
+            # power → formula/mpCost 자동 계산
+            _, mp_cost, damage = _calc_skill_formula(power, tag, d.get("scope", 1))
+            d["damage"] = damage
+            d["mpCost"] = mp_cost
             if d.get("message1") and d.get("messageType") == 0:
                 d["messageType"] = 1
             if d["damage"]["type"] == 0 and not d.get("effects"):

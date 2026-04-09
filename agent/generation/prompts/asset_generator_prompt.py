@@ -68,23 +68,17 @@ _SKILLS_SYSTEM = """\
 
 ## 규칙
 1. id는 제공된 값을 사용하세요.
-2. mpCost: 0~30 (지속 사용 가능해야 함)
+2. power: 0~10 정수 (스킬 강도. 시스템이 damage.formula/mpCost를 자동 계산)
+   - 0=최약, 3=초반기, 5=중반기, 7=후반기, 10=궁극기
 3. scope: 1=적1체, 2=적전체, 7=아군1체, 8=아군전체, 11=자신
-4. damage.type: 0=없음, 1=HP대미지, 3=HP회복, 5=HP흡수, 6=MP흡수
-5. damage.formula 예시:
-   - 물리 공격: "a.atk * 2 - b.def"
-   - 마법 공격: "a.mat * 2.5 - b.mdf"
-   - 회복: "a.mat * 1.5 + 50"
-   - damage.type=0이면 formula="0" (효과는 effects로 구현)
-6. stypeId: 1=마법, 2=특수기
-7. damage.type=0 스킬은 반드시 effects를 포함해야 합니다 (빈 배열 금지):
+4. stypeId: 1=마법, 2=특수기
+5. 상태이상/버프/디버프 스킬은 effects를 포함해야 합니다 (빈 배열 금지):
    - 적 상태이상: [{"code": 21, "dataId": 상태ID, "value1": 확률(0~1), "value2": 0}]
      상태 dataId: 4=독, 5=실명, 6=침묵, 8=혼란, 10=수면, 12=마비, 13=스턴
    - 아군 버프: [{"code": 31, "dataId": 스탯ID, "value1": 턴수, "value2": 0}]
    - 아군 디버프: [{"code": 32, "dataId": 스탯ID, "value1": 턴수, "value2": 0}]
      스탯 dataId: 2=ATK, 3=DEF, 4=MAT, 5=MDF, 6=AGI, 7=LUK
-   - HP/MP 회복 효과: [{"code": 11, "dataId": 0, "value1": 비율, "value2": 고정값}]
-8. iconTag (숫자 대신 태그 문자열 사용, 시스템이 자동 변환):
+6. iconTag (시스템이 자동 변환):
    - 물리: "physical_melee"(검), "physical_strong"(강타), "physical_ranged"(사격/활)
    - 마법: "fire_magic", "ice_magic", "thunder_magic", "water_magic",
            "earth_magic", "wind_magic", "holy_magic", "dark_magic"
