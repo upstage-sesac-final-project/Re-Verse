@@ -67,13 +67,31 @@ _SKILLS_SYSTEM = """\
 ## 규칙
 1. id는 제공된 값을 사용하세요.
 2. mpCost: 0~30 (지속 사용 가능해야 함)
-3. scope: 1=적1체, 2=적전체, 7=아군1체, 8=아군전체
-4. damage.type: 0=없음, 1=HP대미지, 3=HP회복
+3. scope: 1=적1체, 2=적전체, 7=아군1체, 8=아군전체, 11=자신
+4. damage.type: 0=없음, 1=HP대미지, 3=HP회복, 5=HP흡수, 6=MP흡수
 5. damage.formula 예시:
    - 물리 공격: "a.atk * 2 - b.def"
    - 마법 공격: "a.mat * 2.5 - b.mdf"
    - 회복: "a.mat * 1.5 + 50"
+   - damage.type=0이면 formula="0" (효과는 effects로 구현)
 6. stypeId: 1=마법, 2=특수기
+7. damage.type=0 스킬은 반드시 effects를 포함해야 합니다 (빈 배열 금지):
+   - 적 상태이상: [{"code": 21, "dataId": 상태ID, "value1": 확률(0~1), "value2": 0}]
+     상태 dataId: 4=독, 5=실명, 6=침묵, 8=혼란, 10=수면, 12=마비, 13=스턴
+   - 아군 버프: [{"code": 31, "dataId": 스탯ID, "value1": 턴수, "value2": 0}]
+   - 아군 디버프: [{"code": 32, "dataId": 스탯ID, "value1": 턴수, "value2": 0}]
+     스탯 dataId: 2=ATK, 3=DEF, 4=MAT, 5=MDF, 6=AGI, 7=LUK
+   - HP/MP 회복 효과: [{"code": 11, "dataId": 0, "value1": 비율, "value2": 고정값}]
+8. iconTag (숫자 대신 태그 문자열 사용, 시스템이 자동 변환):
+   - 물리: "physical_melee"(검), "physical_strong"(강타), "physical_ranged"(사격/활)
+   - 마법: "fire_magic", "ice_magic", "thunder_magic", "water_magic",
+           "earth_magic", "wind_magic", "holy_magic", "dark_magic"
+   - 회복: "heal"
+   - 흡수: "drain"(HP), "mp_drain"(MP)
+   - 상태이상: "poison", "blind", "silence", "confusion", "sleep", "paralyze"
+   - 버프: "buff_atk", "buff_def", "buff_mat", "buff_mdf", "buff_agi", "buff", "debuff"
+   - 특수: "defense"(방어), "escape"(도망), "song"(노래), "explosive"(폭발)
+9. messageType: message1이 있으면 반드시 1 (0=메시지 미표시)
 """
 
 
@@ -81,8 +99,9 @@ def build_skills_prompt(
     spec: GameSpec,
     id_table: IdTable,
 ) -> list[BaseMessage]:
+    skill_class_map = {s.name: s.class_name for s in spec.skills}
     skill_lines = [
-        f"  - id={sid}, name={sname}"
+        f"  - id={sid}, name={sname}, class={skill_class_map.get(sname, '공용')}"
         for sname, sid in sorted(id_table.skills.items(), key=lambda x: x[1])
     ]
 
@@ -93,6 +112,7 @@ def build_skills_prompt(
 {spec.theme}
 {", ".join(f"{c.name}({c.class_name})" for c in spec.characters)}
 
+각 스킬의 class에 맞는 특성을 반영하세요 (전사=물리, 마법사=마법, 힐러=회복 등).
 모든 스킬의 Skills 데이터를 JSON으로 생성하세요.
 """
     return [SystemMessage(content=_SKILLS_SYSTEM), HumanMessage(content=human)]
@@ -113,6 +133,9 @@ _ITEMS_SYSTEM = """\
 4. itype_id: 1=일반, 2=핵심아이템
 5. scope: 7=아군 1체 (회복), 0=없음 (핵심아이템)
 6. price: 100~2000 사이
+7. iconTag (태그 문자열, 시스템이 아이콘 번호로 변환):
+   "potion"(회복약), "ether"(마나약), "antidote"(해독제), "revive"(부활),
+   "key_item"(핵심아이템), "scroll"(두루마리), "food"(음식), "gem"(보석)
 """
 
 
@@ -149,11 +172,14 @@ _WEAPONS_SYSTEM = """\
 
 ## 규칙
 1. id는 제공된 값을 사용하세요.
-2. wtypeId: 1=단검, 2=검, 3=도끼, 4=창, 5=도리깨, 6=지팡이
+2. wtypeId: 1=단검, 2=검, 3=철퇴, 4=도끼, 6=지팡이, 7=활, 8=석궁, 10=클로, 11=격투장갑, 12=창
 3. params: [MHP, MMP, ATK, DEF, MAT, MDF, AGI, LUK] 8개 보정값
    - 검: ATK+15~25
    - 지팡이: MAT+15~25
 4. price: 초반 300~800, 중반 1000~2500, 후반 3000~8000
+5. iconTag (태그 문자열, 시스템이 아이콘 번호로 변환):
+   "dagger"(단검), "sword"(검), "mace"(철퇴), "axe"(도끼), "staff"(지팡이),
+   "bow"(활), "crossbow"(석궁), "claw"(클로), "gauntlet"(격투장갑), "spear"(창), "gun"(총)
 """
 
 
@@ -186,10 +212,16 @@ _ARMORS_SYSTEM = """\
 
 ## 규칙
 1. id는 제공된 값을 사용하세요.
-2. atypeId: 1=일반방어구, 2=방패, 3=투구, 4=갑옷, 5=장신구
+2. atypeId: 1=일반방어구, 2=마법장비, 3=경량장비, 4=무거운장비, 5=소형방패, 6=대형방패
 3. etypeId: 2=방패, 3=머리, 4=몸통, 5=장신구 (슬롯 ID)
 4. params: DEF, MDF 위주 보정
 5. price: 초반 200~600, 중반 800~2000, 후반 2500~6000
+6. iconTag (태그 문자열, 시스템이 아이콘 번호로 변환):
+   몸통: "light_armor"(일반옷), "medium_armor"(경량갑옷), "heavy_armor"(중장갑), "robe"(로브)
+   방패: "buckler"(소형방패), "shield"(대형방패), "bracelet"(팔찌)
+   머리: "hat"(모자), "cap"(캡), "helmet"(투구), "circlet"(서클릿), "bandana"(반다나)
+   장신구: "ring"(반지), "stone"(스톤), "necklace"(목걸이), "belt"(벨트),
+           "glasses"(안경), "boots"(부츠), "cloak"(망토)
 """
 
 
@@ -231,7 +263,24 @@ _ENEMIES_SYSTEM = """\
 
 ## 규칙
 1. id는 제공된 값을 사용하세요.
-2. battlerName: 아래 목록에서만 선택 (img/enemies/ 실제 파일명 기준, 외형 참고)
+2. battlerName: 반드시 아래 목록의 정확한 이름(대소문자 포함)만 사용 (img/enemies/ 실제 파일명 기준)
+   ⚠️ 절대 금지: 목록에 없는 이름을 창작하거나 테마 기반으로 만드는 것
+      예) PirateQueen, GhostShip, SeaKing, IceDragon → 이런 이름은 파일이 존재하지 않아 전투 그래픽이 깨짐
+      테마와 맞지 않더라도 외형이 비슷한 목록 내 이름을 선택하세요
+   외형 선택 팁 (테마별 추천, 정확한 이름만 사용):
+     해적·선원   → Captain, Sailor, Mercenary
+     마법사·주술사 → Sorcerer, Witch, Lich, Evilbook
+     기계·로봇   → Mechascorpion, Machinerybee, SF_Workrobot, SF_Securityrobot, SF_Mechasphere
+     해양생물    → Ketos(바다괴물), Kraken(대형문어), Crab(게), Siren(인어), Sandworm
+     해골·언데드  → Zombie, Wraith, Lich, SF_Jiangshi(강시)
+     새·조류     → Crow, Birdman, Harpy
+     식물·균류   → Treant, Matango, Gnome
+     곤충·벌레   → Mechascorpion, Machinerybee
+     정령·원소   → Undine(물), Salamander(불), Sylph(바람), Gnome(땅), Plasma
+     인어·바다요정 → Siren, Ketos, Kraken
+     늑대·개과   → Wolfman, SF_Wolf, SF_Whitewolf
+     도깨비·오우거 → SF_Blueogre, SF_Redogre, Petitdevil, Demoncount
+     ⚠️ "상어", "물고기", "오징어", "해파리" 같은 이름은 파일 없음 → Ketos/Crab/Kraken 사용
 
    판타지 잡몹: Goblin(초록도깨비), Zombie(좀비), Petitdevil(소악마), Matango(버섯생물),
      Oddegg(알생물), Caitsith(고양이귀소녀), Gnome(버섯모자요정), Crow(까마귀), Crab(게)
@@ -357,10 +406,10 @@ battlerName (img/sv_actors/ 파일명, 확장자 제외):
   6=검은단발남(이어피스·요원)  7=검은롱헤어여(교복·리본)
 
 ## 역할별 추천 조합
-- 남자 주인공(전사): Actor1/0, Actor2/0, Actor3/0
+- 남자 주인공(전사): Actor1/0, Actor2/0, Actor2/2
 - 여자 주인공:       Actor1/1, Actor2/1, Actor3/7
-- 마법사(남):        Actor1/6, Actor2/6, Actor3/2
-- 마법사(여):        Actor1/5, Actor2/3, Actor3/3
+- 마법사(남):        Actor1/6, Actor2/6
+- 마법사(여):        Actor1/5, Actor2/3
 - 도적·닌자:         Actor1/4, Actor3/4, Actor3/5
 - 기사:              Actor1/4, Actor2/2, Actor3/6
 - 성직자:            Actor1/7, Actor3/7
@@ -379,8 +428,10 @@ battlerName (img/sv_actors/ 파일명, 확장자 제외):
   faceName="Actor1", faceIndex=1 → characterName="Actor1", characterIndex=1, battlerName="Actor1_2"
   faceName="SF_Actor2", faceIndex=3 → characterName="SF_Actor2", characterIndex=3, battlerName="SF_Actor2_4"
 
-주의: Actor3/SF_Actor3는 sv_actors에 5~8번만 존재 (1~4 없음).
+⚠️ Actor3/SF_Actor3 주의: sv_actors에 5~8번(faceIndex 4~7)만 존재, 1~4번(faceIndex 0~3) 없음.
   faceIndex 0~3인 Actor3/SF_Actor3 캐릭터는 battlerName="" (SV 전투 미사용)으로 설정.
+  SV 전투 스프라이트가 필요한 주인공/동료 캐릭터는 Actor3/SF_Actor3 인덱스 0~3을 피하고
+  Actor1, Actor2, SF_Actor1, SF_Actor2를 우선 사용하세요.
 """
 
 

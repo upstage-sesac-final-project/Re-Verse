@@ -5,7 +5,7 @@ canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §3
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 # ── A 노드 (game_designer) 출력 ─────────────────────────────────────────────
 
@@ -35,6 +35,11 @@ class GameMapInfo(BaseModel):
     connects_to: list[str]
 
 
+class SkillSpec(BaseModel):
+    name: str
+    class_name: str = "공용"
+
+
 class GameSpec(BaseModel):
     title: str
     theme: str
@@ -44,7 +49,15 @@ class GameSpec(BaseModel):
     enemies: list[EnemySpec]
     maps: list[GameMapInfo]
     key_items: list[str] = []
-    skills: list[str] = []
+    skills: list[SkillSpec] = []
+    weapons: list[str] = []
+    armors: list[str] = []
+
+    @field_validator("skills", mode="before")
+    @classmethod
+    def _coerce_skills(cls, v: list) -> list:
+        """하위 호환: list[str] → list[SkillSpec] 자동 변환."""
+        return [SkillSpec(name=s) if isinstance(s, str) else s for s in v]
 
 
 # ── D 노드 (map_designer) 출력 ──────────────────────────────────────────────

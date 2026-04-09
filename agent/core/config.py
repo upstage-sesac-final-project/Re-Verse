@@ -40,7 +40,7 @@ class AgentConfig(BaseSettings):
 
     # ── 에이전트 동작 ────────────────────────────────────────
     AGENT_TIMEOUT: int = 30
-    LLM_TIMEOUT: int = 120  # 단일 LLM ainvoke 최대 대기 시간(초)
+    LLM_TIMEOUT: int = 300  # 단일 LLM ainvoke 최대 대기 시간(초)
     MAX_RETRIES: int = 3
 
     # ── 대화 이력 ────────────────────────────────────────────

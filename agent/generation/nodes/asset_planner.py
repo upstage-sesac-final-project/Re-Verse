@@ -61,24 +61,52 @@ async def asset_planner(state: GenerationState) -> dict:
     }
 
 
+# ── 적 전용 스킬 템플릿 (알고리즘 생성) ──────────────────────────────────────
+
+_ENEMY_SKILL_TEMPLATES: dict[str, list[str]] = {
+    "weak": [],
+    "normal": ["적_강타"],
+    "elite": ["적_강타", "적_전체공격"],
+    "boss": ["적_강타", "적_전체공격", "적_자가회복", "적_버프"],
+}
+
+
 def _build_id_table(spec: GameSpec) -> IdTable:
     """GameSpec 모든 에셋에 1부터 순차 ID 할당."""
     actors = {c.name: i + 1 for i, c in enumerate(spec.characters)}
     unique_class_names = list(dict.fromkeys(c.class_name for c in spec.characters))
     classes = {name: i + 1 for i, name in enumerate(unique_class_names)}
-    skills = {s: i + 1 for i, s in enumerate(spec.skills)}
+
+    # skills: id=1="공격", id=2="방어" 예약 → 플레이어 스킬 id=3~ → 적 스킬 그 뒤
+    skills: dict[str, int] = {"공격": 1, "방어": 2}
+    next_id = 3
+    for s in spec.skills:
+        if s.name not in skills:
+            skills[s.name] = next_id
+            next_id += 1
+
+    # 적 전용 스킬 (tier별 템플릿, 중복 제거)
+    enemy_skill_names: set[str] = set()
+    for enemy in spec.enemies:
+        for sname in _ENEMY_SKILL_TEMPLATES.get(enemy.tier, []):
+            enemy_skill_names.add(sname)
+    for sname in sorted(enemy_skill_names):
+        if sname not in skills:
+            skills[sname] = next_id
+            next_id += 1
     items = {k: i + 1 for i, k in enumerate(spec.key_items)}
     enemies = {e.name: i + 1 for i, e in enumerate(spec.enemies)}
     maps = {m.name: i + 1 for i, m in enumerate(spec.maps)}
 
-    # weapons / armors: 기본 1개씩 (캐릭터당 starter 장비)
-    weapons: dict[str, int] = {}
-    armors: dict[str, int] = {}
-    for i, char in enumerate(spec.characters):
-        weapon_name = f"{char.name}의 무기"
-        armor_name = f"{char.name}의 방어구"
-        weapons[weapon_name] = i + 1
-        armors[armor_name] = i + 1
+    # weapons / armors: GameSpec에서 가져오거나 fallback (하위 호환)
+    if spec.weapons:
+        weapons = {w: i + 1 for i, w in enumerate(spec.weapons)}
+    else:
+        weapons = {f"{char.name}의 무기": i + 1 for i, char in enumerate(spec.characters)}
+    if spec.armors:
+        armors = {a: i + 1 for i, a in enumerate(spec.armors)}
+    else:
+        armors = {f"{char.name}의 방어구": i + 1 for i, char in enumerate(spec.characters)}
 
     # troops: 적 그룹 (weak/normal/elite 3변형 + boss 단독)
     troops: dict[str, int] = {}

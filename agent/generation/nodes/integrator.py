@@ -5,7 +5,9 @@ canonical: docs/The_world/integrator_assembly.md
 canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §4.H
 """
 
+import json
 import logging
+from pathlib import Path
 from typing import Any
 
 from agent.generation.mapgen import calculate_spawn_point
@@ -17,8 +19,21 @@ from agent.generation.state import GenerationState
 
 logger = logging.getLogger(__name__)
 
-# 고정 파일 — Phase 2에서는 빈 배열
-_FIXED_EMPTY = [None]
+# ── base_game 고정 파일 로드 ────────────────────────────────────────────────
+
+_BASE_GAME_DATA = Path(__file__).resolve().parents[3] / "storage" / "games" / "base_game" / "data"
+
+
+def _load_base_game_file(fname: str) -> list | dict:
+    """base_game/data/{fname}을 읽어 반환. 실패 시 [None] fallback."""
+    path = _BASE_GAME_DATA / fname
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logger.warning("base_game %s 로드 실패, [None] fallback: %s", fname, e)
+        return [None]
+
 
 # 기본 타일셋 3개 (마을/던전/필드)
 _DEFAULT_TILESETS: list[Any] = [
@@ -419,10 +434,10 @@ async def integrator(state: GenerationState) -> dict:
             }
         }
 
-    # 4. 고정 파일
-    final_project["States.json"] = _FIXED_EMPTY
-    final_project["Animations.json"] = _FIXED_EMPTY
-    final_project["CommonEvents.json"] = _FIXED_EMPTY
+    # 4. base_game에서 상속받는 고정 파일 (States/Animations/CommonEvents)
+    final_project["States.json"] = _load_base_game_file("States.json")
+    final_project["Animations.json"] = _load_base_game_file("Animations.json")
+    final_project["CommonEvents.json"] = _load_base_game_file("CommonEvents.json")
     final_project["Tilesets.json"] = _DEFAULT_TILESETS
 
     logger.info("integrator 완료: %d개 파일", len(final_project))
