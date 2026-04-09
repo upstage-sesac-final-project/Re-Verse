@@ -956,12 +956,10 @@ async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
     output: list[Any] = [None, _SYSTEM_SKILL_ATTACK, _SYSTEM_SKILL_GUARD]
 
     # 2. LLM 생성 플레이어 스킬 (id=3~)
-    # build_skills_prompt에는 id=1,2 ("공격","방어")를 제외하고 전달
     player_skill_ids = {
-        name: sid
-        for name, sid in id_table.skills.items()
-        if sid >= 3 and name not in _ENEMY_SKILL_DATA
+        sid for name, sid in id_table.skills.items() if sid >= 3 and name not in _ENEMY_SKILL_DATA
     }
+    enemy_skill_ids = {sid for name, sid in id_table.skills.items() if name in _ENEMY_SKILL_DATA}
     if player_skill_ids:
         messages = build_skills_prompt(spec, id_table)
         result = cast(
@@ -970,6 +968,9 @@ async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
         )
         for skill in sorted(result.items, key=lambda s: s.id):
             d = skill.model_dump()
+            # B: 시스템/적 스킬 ID 필터 (LLM이 생성해도 무시)
+            if d["id"] < 3 or d["id"] in enemy_skill_ids:
+                continue
             tag = d.pop("iconTag", "physical_melee")
             tag = _refine_buff_tag(tag, d.get("effects", []))
             d["iconIndex"] = _resolve_icon(tag, SKILL_ICON_TAG, 0)
@@ -984,7 +985,18 @@ async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
         if sname in _ENEMY_SKILL_DATA:
             output.append(_build_enemy_skill(sname, sid))
 
-    return _ensure_null_at_0(output)
+    # C: 최종 id 중복 제거 (선착순 유지)
+    seen_ids: set[int] = set()
+    deduped: list[Any] = [None]
+    for skill in output[1:]:
+        sid = skill["id"]
+        if sid in seen_ids:
+            logger.warning("Skills.json id=%d 중복 제거: '%s'", sid, skill.get("name"))
+            continue
+        seen_ids.add(sid)
+        deduped.append(skill)
+
+    return deduped
 
 
 async def generate_items(spec: GameSpec, id_table: IdTable) -> list:

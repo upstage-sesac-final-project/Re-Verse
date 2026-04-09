@@ -102,9 +102,11 @@ def build_skills_prompt(
     id_table: IdTable,
 ) -> list[BaseMessage]:
     skill_class_map = {s.name: s.class_name for s in spec.skills}
+    # 시스템 스킬(id=1,2)과 적 전용 스킬(적_*) 제외 — 플레이어 스킬만 전달
     skill_lines = [
         f"  - id={sid}, name={sname}, class={skill_class_map.get(sname, '공용')}"
         for sname, sid in sorted(id_table.skills.items(), key=lambda x: x[1])
+        if sid >= 3 and not sname.startswith("적_")
     ]
 
     human = f"""## 스킬 목록
