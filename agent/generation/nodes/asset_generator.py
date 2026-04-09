@@ -731,7 +731,11 @@ async def generate_classes(spec: GameSpec, id_table: IdTable) -> list:
 
     class_roles: dict[str, str] = {c.class_name: _normalize_role(c.role) for c in spec.characters}
     llm_by_name = {cls.name: cls for cls in result.classes}
-    valid_skill_ids = set(id_table.skills.values())
+    # 시스템(id=1,2) + 적 전용 스킬 제외 → 플레이어 스킬만
+    player_skill_ids = {
+        sid for name, sid in id_table.skills.items() if sid >= 3 and not name.startswith("적_")
+    }
+    valid_skill_ids = player_skill_ids
 
     # Bug 1-C: 클래스별 허용 스킬 ID 집합 구축
     class_skill_ids: dict[str, set[int]] = {}

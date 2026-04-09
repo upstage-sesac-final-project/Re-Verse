@@ -39,9 +39,11 @@ def build_classes_prompt(
         role = char.role if char else "전사"
         class_lines.append(f"  - id={cls_id}, name={cls_name}, role={role}")
 
+    # 시스템 스킬(id=1,2)과 적 전용 스킬(적_*)은 제외, 플레이어 스킬만 전달
     skill_lines = [
         f"  - id={sid}, name={sname}"
         for sname, sid in sorted(id_table.skills.items(), key=lambda x: x[1])
+        if sid >= 3 and not sname.startswith("적_")
     ]
 
     human = f"""## 직업 목록 (모두 생성하세요)
