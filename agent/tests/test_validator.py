@@ -440,8 +440,12 @@ async def test_validator_supports_snapshot_path_inputs_without_fallback(tmp_path
     result = await validator(
         {
             **state,
-            "current_game_state": _write_snapshot_files(state["current_game_state"], tmp_path, "before"),
-            "modified_game_state": _write_snapshot_files(state["modified_game_state"], tmp_path, "after"),
+            "current_game_state": _write_snapshot_files(
+                state["current_game_state"], tmp_path, "before"
+            ),
+            "modified_game_state": _write_snapshot_files(
+                state["modified_game_state"], tmp_path, "after"
+            ),
         }
     )
 
@@ -477,7 +481,9 @@ async def test_validator_schema_failure_increments_retry_count_and_uses_schema_c
 async def test_validator_validates_only_files_present_in_modified_game_state():
     state = _base_state()
     state["current_game_state"]["Unknown.json"] = {"foo": "bar"}
-    state["modified_game_state"] = {"Actors.json": deepcopy(state["modified_game_state"]["Actors.json"])}
+    state["modified_game_state"] = {
+        "Actors.json": deepcopy(state["modified_game_state"]["Actors.json"])
+    }
 
     result = await validator(state)
     contract = ValidatorOutput.model_validate(result)
@@ -671,7 +677,12 @@ async def test_validator_limited_fallback_matches_same_actor_instead_of_latest_q
 
     result = await validator(state)
 
-    failure = next(item for item in result["validation_results"] if item["category"] == "query_consistency")
+    failure = next(
+        item for item in result["validation_results"] if item["category"] == "query_consistency"
+    )
     assert failure["target"] == "Actors.json"
-    assert failure["errors"][0]["msg"] == "query 기반 판단이 필요한 create인데 참조 가능한 query_result 근거 로그가 없습니다."
+    assert (
+        failure["errors"][0]["msg"]
+        == "query 기반 판단이 필요한 create인데 참조 가능한 query_result 근거 로그가 없습니다."
+    )
     assert result["retry_count"] == 1
