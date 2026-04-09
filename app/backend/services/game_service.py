@@ -15,6 +15,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.backend.core.config import settings
+from app.backend.core.game_paths import ensure_rpgmaker_mz_project_shell
 from app.backend.models.game import Project
 from app.backend.repositories.project_repository import project_repository
 
@@ -159,6 +160,7 @@ class GameService:
             if not src.exists():
                 raise FileNotFoundError(f"base_game/data 경로 없음: {src}")
             shutil.copytree(src, dst)
+            ensure_rpgmaker_mz_project_shell(Path(settings.STORAGE_PATH).resolve() / game_id)
 
     def _delete_game_folder(self, game_id: str) -> None:
         if settings.STORAGE_BACKEND == "s3":

@@ -28,5 +28,24 @@ class RPGEmbeddings:
         return self.query_model.embed_query(text)
 
 
-# 싱글톤 인스턴스
-upstage_embeddings = RPGEmbeddings()
+# 싱글톤 — lazy 초기화 (import 시점에 API 키 없어도 에러 안 남)
+_instance: RPGEmbeddings | None = None
+
+
+def get_embeddings() -> RPGEmbeddings:
+    """최초 호출 시 RPGEmbeddings 인스턴스 생성. API 키 없으면 이 시점에 에러."""
+    global _instance
+    if _instance is None:
+        _instance = RPGEmbeddings()
+    return _instance
+
+
+# 하위호환: 기존 코드에서 upstage_embeddings 직접 참조하는 곳 대응
+class _LazyProxy:
+    """속성 접근 시점에 실제 인스턴스 생성."""
+
+    def __getattr__(self, name: str):
+        return getattr(get_embeddings(), name)
+
+
+upstage_embeddings = _LazyProxy()

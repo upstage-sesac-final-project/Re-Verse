@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve, join, extname, sep } from 'path'
 import { createReadStream, existsSync, statSync } from 'fs'
@@ -37,12 +37,27 @@ function serveGameFiles() {
     name: 'serve-game-files',
     configureServer(server) {
       server.middlewares.use('/game', (req, res, next) => {
-        const urlPath = decodeURIComponent(req.url.split('?')[0]).replace(/^\//, '')
-        const slashIdx = urlPath.indexOf('/')
+        const rawUrl = decodeURIComponent(req.url.split('?')[0])
+        const normalized = rawUrl.replace(/^\//, '')
+        const filePath = resolve(join(storagePath, normalized))
+        if (!filePath.startsWith(storagePath + sep) && filePath !== storagePath) {
+          return next()
+        }
+        if (existsSync(filePath) && statSync(filePath).isFile()) {
+          const ext = extname(filePath)
+          res.setHeader('Content-Type', MIME_TYPES[ext] || 'application/octet-stream')
+          if (ext === '.json' || ext === '.html') {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+          }
+          createReadStream(filePath).pipe(res)
+          return
+        }
+
+        const slashIdx = normalized.indexOf('/')
         if (slashIdx === -1) return next()
 
-        const gameId = urlPath.slice(0, slashIdx)
-        const filePart = urlPath.slice(slashIdx + 1) || 'index.html'
+        const gameId = normalized.slice(0, slashIdx)
+        const filePart = normalized.slice(slashIdx + 1) || 'index.html'
 
         // 1) 프로젝트별 파일 (data/ JSON 등)
         const projectFile = resolve(join(storagePath, gameId, filePart))
@@ -62,21 +77,28 @@ function serveGameFiles() {
   }
 }
 
-export default defineConfig({
-  plugins: [react(), serveGameFiles()],
-  envDir: resolve(__dirname, '../..'), // 루트 .env 참조
-  server: {
-    port: 3000,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        ws: true,
-      },
-      '/game': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
+// https://vitejs.dev/config/
+export default defineConfig(({ mode }) => {
+  const root = resolve(__dirname, '../..')
+  const env = loadEnv(mode, root, '')
+  const proxyTarget = env.VITE_DEV_PROXY_TARGET || 'http://127.0.0.1:8000'
+
+  return {
+    plugins: [react(), serveGameFiles()],
+    envDir: root,
+    server: {
+      port: 3000,
+      proxy: {
+        '/api': {
+          target: proxyTarget,
+          changeOrigin: true,
+          ws: true,
+        },
+        '/game': {
+          target: proxyTarget,
+          changeOrigin: true,
+        },
       },
     },
-  },
+  }
 })
