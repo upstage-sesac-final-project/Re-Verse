@@ -898,6 +898,9 @@ def validate_query_consistency(
     plan_steps = build_plan_step_map(execution_plan)
     schema_failed_targets = {item.target for item in schema_results if not item.success}
 
+    logger.debug("[Validator] consistency 검사 시작: steps=%d", len(latest_logs))
+
+    # Pass 1: executor step 자체 실패 감지
     for step_id in sorted(latest_logs):
         log = latest_logs[step_id]
         step = plan_steps.get(step_id)
@@ -905,14 +908,20 @@ def validate_query_consistency(
             log.get("target_file") or (step or {}).get("target_file") or "state"
         ).strip()
         if log.get("success") is True:
+            logger.debug("[Validator] step %s: executor 성공 (target=%s)", step_id, target_file)
             continue
 
         message = str(log.get("stderr") or log.get("error") or "executor step failed").strip()
+        logger.warning(
+            "[Validator] step %s: executor 실패 → consistency 실패 추가 (target=%s, msg=%s)",
+            step_id, target_file, message[:200],
+        )
         if "[UNSUPPORTED_STRUCTURED_STEP]" in message:
             failures.append(_build_executor_capability_failure(target_file, message))
             continue
         failures.append(_build_query_consistency_failure(target_file, message))
 
+    # Pass 2: query 기반 정합성 검사
     for step_id in sorted(latest_logs):
         log = latest_logs[step_id]
         step = plan_steps.get(step_id, {})
@@ -921,13 +930,33 @@ def validate_query_consistency(
         action = _normalize_action_name(step, log)
 
         if target_file in schema_failed_targets:
+            logger.debug(
+                "[Validator] step %s: skip (schema 이미 실패한 target=%s)", step_id, target_file
+            )
             continue
         if target_file not in _SUPPORTED_CONSISTENCY_ACTIONS:
+            logger.debug(
+                "[Validator] step %s: skip (consistency 미지원 target=%s, action=%s)",
+                step_id, target_file, action,
+            )
             continue
         if action not in _SUPPORTED_CONSISTENCY_ACTIONS[target_file]:
+            logger.debug(
+                "[Validator] step %s: skip (지원 안 되는 action=%s, target=%s)",
+                step_id, action, target_file,
+            )
             continue
         if log.get("success") is not True and not log.get("skipped"):
+            logger.debug(
+                "[Validator] step %s: skip (executor 미성공 + skipped 아님, success=%s)",
+                step_id, log.get("success"),
+            )
             continue
+
+        logger.debug(
+            "[Validator] step %s: query consistency 검사 중 (target=%s, action=%s)",
+            step_id, target_file, action,
+        )
 
         _query_log, query_result = resolve_query_reference(
             step,
@@ -936,13 +965,12 @@ def validate_query_consistency(
             plan_steps,
         )
         if query_result is None:
-            failures.append(
-                _build_query_consistency_failure(
-                    target_file,
-                    f"query 기반 판단이 필요한 {action}인데 참조 가능한 query_result 근거 로그가 없습니다.",
-                )
-            )
+            msg = f"query 기반 판단이 필요한 {action}인데 참조 가능한 query_result 근거 로그가 없습니다."
+            logger.warning("[Validator] step %s: query_result 없음 → 실패 (target=%s)", step_id, target_file)
+            failures.append(_build_query_consistency_failure(target_file, msg))
             continue
+
+        logger.debug("[Validator] step %s: query_result 확보됨, 세부 검증 진행", step_id)
 
         failure: FileValidationResult | None = None
         if target_file == "Actors.json" and action == "create":
@@ -953,7 +981,17 @@ def validate_query_consistency(
             failure = validate_classes_create_consistency(step, log, query_result, modified_entries)
 
         if failure is not None:
+            logger.warning(
+                "[Validator] step %s: consistency 실패 (target=%s, action=%s) → %s",
+                step_id, target_file, action,
+                _format_first_error(failure.errors) if failure.errors else "unknown",
+            )
             failures.append(failure)
+        else:
+            logger.debug(
+                "[Validator] step %s: consistency 통과 (target=%s, action=%s)",
+                step_id, target_file, action,
+            )
 
     return failures
 
@@ -995,10 +1033,18 @@ def validate_single_file(
     except ValidationError as error:
         validation_errors = to_jsonable(error.errors())
         logger.warning(
-            "[Validator] 검증 실패: target=%s, error=%s",
+            "[Validator] 스키마 실패: target=%s, errors=%d건",
             file_name,
-            _format_first_error(validation_errors),
+            len(validation_errors),
         )
+        for i, err in enumerate(validation_errors):
+            logger.warning(
+                "[Validator]   [%d/%d] loc=%s | msg=%s",
+                i + 1,
+                len(validation_errors),
+                err.get("loc"),
+                err.get("msg"),
+            )
         return build_file_result(
             target=file_name,
             category="schema",
@@ -1006,6 +1052,7 @@ def validate_single_file(
             errors=validation_errors,
         )
 
+    logger.debug("[Validator] 스키마 통과: target=%s", file_name)
     return build_file_result(
         target=file_name,
         category="schema",
@@ -1038,14 +1085,36 @@ async def validator(state: AgentState) -> dict[str, Any]:
             validate_single_file(file_name, payload, payload_errors)
             for file_name, payload, payload_errors in validation_targets
         ]
+        schema_failed = [r for r in schema_results if not r.success]
+        logger.info(
+            "[Validator] 스키마 검증 완료: total=%d, failed=%d",
+            len(schema_results), len(schema_failed),
+        )
+        for r in schema_failed:
+            first_err = _format_first_error(r.errors) if r.errors else "no error detail"
+            logger.warning("[Validator]   스키마 실패 파일: %s | %s", r.target, first_err)
+
         consistency_results = validate_query_consistency(
             execution_plan,
             changes_log,
             schema_results,
             modified_entries,
         )
+        consistency_failed = [r for r in consistency_results if not r.success]
+        logger.info(
+            "[Validator] consistency 검증 완료: total=%d, failed=%d",
+            len(consistency_results), len(consistency_failed),
+        )
+        for r in consistency_failed:
+            first_err = _format_first_error(r.errors) if r.errors else "no error detail"
+            logger.warning("[Validator]   consistency 실패: %s | %s", r.target, first_err)
+
         final_results = schema_results + consistency_results
         success = all(item.success for item in final_results)
+        logger.info(
+            "[Validator] 최종 판정: success=%s (schema_fail=%d, consistency_fail=%d)",
+            success, len(schema_failed), len(consistency_failed),
+        )
         result = build_output(
             validation_results=final_results,
             validation_summary=build_validation_summary(final_results),
