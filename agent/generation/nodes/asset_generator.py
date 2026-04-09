@@ -251,8 +251,7 @@ class RpgWeapon(BaseModel):
     iconTag: str = "sword"
     wtypeId: int = 1
     etypeId: int = 1
-    price: int = 500
-    params: list[int] = [0] * 8
+    power: int = 5  # 0~10. 시스템이 params/price 계산
     traits: list[dict] = []
     animationId: int = 0
     note: str = ""
@@ -269,8 +268,7 @@ class RpgArmor(BaseModel):
     iconTag: str = "light_armor"
     atypeId: int = 1
     etypeId: int = 4
-    price: int = 300
-    params: list[int] = [0] * 8
+    power: int = 5  # 0~10. 시스템이 params/price 계산
     traits: list[dict] = []
     note: str = ""
 
@@ -733,6 +731,62 @@ _WEAPON_WTYPE_FALLBACK: dict[int, int] = {
 
 _ARMOR_ETYPE_FALLBACK: dict[int, int] = {2: 129, 3: 130, 4: 135, 5: 145}
 
+# ── power(0~10) → params 변환 (밸런스 Phase 2) ──────────────────────────────
+# params 순서: [MHP, MMP, ATK, DEF, MAT, MDF, AGI, LUK]
+
+_WEAPON_MAX_STATS = {"atk": 50, "mat": 45, "mdf": 35, "agi": 30}
+_WEAPON_PROFILE: dict[str, dict[str, float]] = {
+    "sword": {"atk": 1.0},
+    "dagger": {"atk": 1.0},
+    "axe": {"atk": 1.0},
+    "mace": {"atk": 1.0},
+    "spear": {"atk": 1.0},
+    "bow": {"atk": 0.8, "agi": 0.2},
+    "crossbow": {"atk": 0.8, "agi": 0.2},
+    "gun": {"atk": 0.8, "agi": 0.2},
+    "staff": {"mat": 0.7, "mdf": 0.3},
+    "claw": {"atk": 0.6, "agi": 0.4},
+    "gauntlet": {"atk": 0.6, "agi": 0.4},
+}
+_STAT_INDEX = {"mhp": 0, "mmp": 1, "atk": 2, "def": 3, "mat": 4, "mdf": 5, "agi": 6, "luk": 7}
+
+_ARMOR_MAX_STATS = {"def": 40, "mdf": 35, "luk": 25}
+_ARMOR_PROFILE: dict[int, dict[str, float]] = {
+    4: {"def": 1.0},  # 몸통
+    2: {"def": 0.8, "mdf": 0.2},  # 방패
+    3: {"def": 0.5, "mdf": 0.5},  # 머리
+    5: {"mdf": 0.6, "luk": 0.4},  # 장신구
+}
+
+_POWER_TO_PRICE_WEAPON = [100, 300, 500, 800, 1200, 1800, 2500, 3500, 5000, 7000, 9500]
+_POWER_TO_PRICE_ARMOR = [50, 150, 300, 500, 800, 1200, 1800, 2500, 3500, 5000, 7000]
+
+
+def _calc_weapon_params(power: int, icon_tag: str) -> tuple[list[int], int]:
+    """weapon power(0~10) + iconTag → params[8], price."""
+    power = max(0, min(10, power))
+    profile = _WEAPON_PROFILE.get(icon_tag, _WEAPON_PROFILE["sword"])
+    params = [0] * 8
+    for stat, ratio in profile.items():
+        max_val = _WEAPON_MAX_STATS.get(stat, 50)
+        idx = _STAT_INDEX[stat]
+        params[idx] = round(power * max_val * ratio / 10)
+    price = _POWER_TO_PRICE_WEAPON[power]
+    return params, price
+
+
+def _calc_armor_params(power: int, etype_id: int) -> tuple[list[int], int]:
+    """armor power(0~10) + etypeId → params[8], price."""
+    power = max(0, min(10, power))
+    profile = _ARMOR_PROFILE.get(etype_id, _ARMOR_PROFILE[4])
+    params = [0] * 8
+    for stat, ratio in profile.items():
+        max_val = _ARMOR_MAX_STATS.get(stat, 40)
+        idx = _STAT_INDEX[stat]
+        params[idx] = round(power * max_val * ratio / 10)
+    price = _POWER_TO_PRICE_ARMOR[power]
+    return params, price
+
 
 def _resolve_icon(tag: str, tag_map: dict[str, int], fallback: int) -> int:
     """iconTag → iconIndex 변환. 알 수 없는 태그면 fallback."""
@@ -1089,11 +1143,12 @@ async def generate_weapons(spec: GameSpec, id_table: IdTable) -> list:
     output: list[Any] = [None]
     for weapon in sorted(result.items, key=lambda w: w.id):
         d = weapon.model_dump()
-        if len(d["params"]) != 8:
-            d["params"] = [0] * 8
-        # iconTag → iconIndex 변환 (디버깅: fallback=0으로 할루시네이션 식별)
+        # iconTag → iconIndex 변환
         tag = d.pop("iconTag", "sword")
         d["iconIndex"] = _resolve_icon(tag, WEAPON_ICON_TAG, 0)
+        # power → params/price 알고리즘 (LLM params 무시)
+        power = d.pop("power", 5)
+        d["params"], d["price"] = _calc_weapon_params(power, tag)
         output.append(d)
     return _ensure_null_at_0(output)
 
@@ -1107,11 +1162,12 @@ async def generate_armors(spec: GameSpec, id_table: IdTable) -> list:
     output: list[Any] = [None]
     for armor in sorted(result.items, key=lambda a: a.id):
         d = armor.model_dump()
-        if len(d["params"]) != 8:
-            d["params"] = [0] * 8
-        # iconTag → iconIndex 변환 (디버깅: fallback=0으로 할루시네이션 식별)
+        # iconTag → iconIndex 변환
         tag = d.pop("iconTag", "light_armor")
         d["iconIndex"] = _resolve_icon(tag, ARMOR_ICON_TAG, 0)
+        # power → params/price 알고리즘 (LLM params 무시)
+        power = d.pop("power", 5)
+        d["params"], d["price"] = _calc_armor_params(power, d.get("etypeId", 4))
         output.append(d)
     return _ensure_null_at_0(output)
 
