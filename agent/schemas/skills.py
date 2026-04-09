@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import re
 from typing import Annotated
 
-from pydantic import BaseModel, Field, RootModel, field_validator, model_validator
+from pydantic import BaseModel, Field, RootModel, model_validator
 
 from .effects import Effect
 
