@@ -453,7 +453,8 @@ def validate_query_consistency(
         if log.get("skipped"):
             logger.debug(
                 "[Validator] [정합성] step %s: skip (skipped=true, reason=%s)",
-                step_id, log.get("skip_reason", ""),
+                step_id,
+                log.get("skip_reason", ""),
             )
             continue
 
@@ -462,7 +463,9 @@ def validate_query_consistency(
             message = str(log.get("stderr") or log.get("error") or "executor step failed").strip()
             logger.warning(
                 "[Validator] [실행확인] step %s: 실패 (target=%s, msg=%s)",
-                step_id, target_file, message[:200],
+                step_id,
+                target_file,
+                message[:200],
             )
             if "[UNSUPPORTED_STRUCTURED_STEP]" in message:
                 failures.append(_build_executor_capability_failure(target_file, message))
@@ -470,7 +473,12 @@ def validate_query_consistency(
                 failures.append(_build_query_consistency_failure(target_file, message))
             continue
 
-        logger.debug("[Validator] [실행확인] step %s: 성공 (target=%s, action=%s)", step_id, target_file, action)
+        logger.debug(
+            "[Validator] [실행확인] step %s: 성공 (target=%s, action=%s)",
+            step_id,
+            target_file,
+            action,
+        )
 
         # 성공한 query → read-only, 통과
         if _is_query_action_name(action):
@@ -479,16 +487,34 @@ def validate_query_consistency(
 
         # 성공한 write step → final state 반영 확인
         if target_file in schema_failed_targets:
-            logger.debug("[Validator] [정합성] step %s: skip (스키마 이미 실패한 target=%s)", step_id, target_file)
+            logger.debug(
+                "[Validator] [정합성] step %s: skip (스키마 이미 실패한 target=%s)",
+                step_id,
+                target_file,
+            )
             continue
         if target_file not in _FILE_ID_FIELD_MAP:
-            logger.debug("[Validator] [정합성] step %s: skip (배열 구조 아닌 target=%s)", step_id, target_file)
+            logger.debug(
+                "[Validator] [정합성] step %s: skip (배열 구조 아닌 target=%s)",
+                step_id,
+                target_file,
+            )
             continue
         if action not in {"create", "update"}:
-            logger.debug("[Validator] [정합성] step %s: skip (미지원 action=%s, target=%s)", step_id, action, target_file)
+            logger.debug(
+                "[Validator] [정합성] step %s: skip (미지원 action=%s, target=%s)",
+                step_id,
+                action,
+                target_file,
+            )
             continue
 
-        logger.debug("[Validator] [정합성] step %s: 검증 중 (target=%s, action=%s)", step_id, target_file, action)
+        logger.debug(
+            "[Validator] [정합성] step %s: 검증 중 (target=%s, action=%s)",
+            step_id,
+            target_file,
+            action,
+        )
 
         failure: FileValidationResult | None = None
         if action == "create":
@@ -499,12 +525,19 @@ def validate_query_consistency(
         if failure is not None:
             logger.warning(
                 "[Validator] [정합성] step %s: 실패 (target=%s, action=%s) → %s",
-                step_id, target_file, action,
+                step_id,
+                target_file,
+                action,
                 _format_first_error(failure.errors) if failure.errors else "unknown",
             )
             failures.append(failure)
         else:
-            logger.debug("[Validator] [정합성] step %s: 통과 (target=%s, action=%s)", step_id, target_file, action)
+            logger.debug(
+                "[Validator] [정합성] step %s: 통과 (target=%s, action=%s)",
+                step_id,
+                target_file,
+                action,
+            )
 
     return failures
 
@@ -620,7 +653,8 @@ async def validator(state: AgentState) -> dict[str, Any]:
         schema_failed = [r for r in schema_results if not r.success]
         logger.info(
             "[Validator] 스키마 검증 완료: total=%d, failed=%d",
-            len(schema_results), len(schema_failed),
+            len(schema_results),
+            len(schema_failed),
         )
         for r in schema_failed:
             first_err = _format_first_error(r.errors) if r.errors else "no error detail"
@@ -634,7 +668,8 @@ async def validator(state: AgentState) -> dict[str, Any]:
         consistency_failed = [r for r in consistency_results if not r.success]
         logger.info(
             "[Validator] 정합성 검증 완료: total=%d, failed=%d",
-            len(consistency_results), len(consistency_failed),
+            len(consistency_results),
+            len(consistency_failed),
         )
         for r in consistency_failed:
             first_err = _format_first_error(r.errors) if r.errors else "no error detail"
@@ -644,7 +679,9 @@ async def validator(state: AgentState) -> dict[str, Any]:
         success = all(item.success for item in final_results)
         logger.info(
             "[Validator] 최종 판정: success=%s (스키마 실패=%d, 정합성 실패=%d)",
-            success, len(schema_failed), len(consistency_failed),
+            success,
+            len(schema_failed),
+            len(consistency_failed),
         )
         result = build_output(
             validation_results=final_results,
