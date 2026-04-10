@@ -84,6 +84,8 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
   to_y: {정수}
   direction: retain  # retain | down | left | right | up
   set_switch: {스위치 이름}  # 선택
+  condition_switch: {스위치 이름}   # 선택 (이 스위치 ON일 때만 이동 가능)
+  blocked_dialogue: "아직 갈 수 없습니다."  # 선택 (조건 미충족 시 표시 메시지)
   character_name: "!Crystal"  # 워프 마커 스프라이트 (아래 가이드 참고)
   character_index: 0          # 스프라이트 인덱스
 
@@ -152,6 +154,7 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
   items:
     - { item: {아이템 이름}, item_type: item }
     - { item: {무기 이름}, item_type: weapon }
+  condition_switch: {스위치 이름}   # 선택 (이 스위치 ON일 때만 상점 오픈)
   character_name: People1  # 상점 NPC 스프라이트 — index로 외형 선택
   character_index: 0       # 추천: People4/4=쾌활상인·여관주인, People4/0=학자형상점주인,
   # People2/6=모험가상인, People2/7=발명가상인, People1/4=중년상인남
@@ -489,6 +492,7 @@ def _describe_required_events(
             f"2. 엔딩 이벤트 필수 (type: ending, condition_switch: {boss_name}_defeated, "
             f"action: title)\n"
             "3. 맵 이동 이벤트 (탈출용)\n"
-            "   ⚠️ battle 이벤트와 ending 이벤트의 x, y 좌표는 반드시 달라야 함"
+            "   ⚠️ battle 이벤트와 ending 이벤트의 x, y 좌표는 반드시 달라야 함\n"
+            "   ⚠️ 엔딩은 이 맵에만 1개 — 다른 맵에 엔딩 이벤트 중복 생성 금지"
         )
     return "맵 타입에 맞는 이벤트 3~5개"
