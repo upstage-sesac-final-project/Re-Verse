@@ -5,11 +5,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://api.re-verse.ai.kr/api/:path*"
+      "destination": "http://34.230.225.135:8000/api/:path*"
     },
     {
       "source": "/game/:path*",
-      "destination": "https://api.re-verse.ai.kr/game/:path*"
+      "destination": "http://34.230.225.135:8000/game/:path*"
     }
   ],
   "env": {
