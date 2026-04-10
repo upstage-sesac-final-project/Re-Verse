@@ -1658,6 +1658,16 @@ async def generate_enemies(spec: GameSpec, id_table: IdTable) -> list:
             for t in d.get("traits", [])
             if t.get("code") in _VALID_TRAIT_CODES
         ]
+        # 적 기본 traits 보장: 명중률 90% + 공격 속성
+        has_hit = any(t["code"] == 22 and t["dataId"] == 0 for t in d["traits"])
+        if not has_hit:
+            d["traits"].extend(
+                [
+                    {"code": 22, "dataId": 0, "value": 0.9},  # 명중률 90%
+                    {"code": 22, "dataId": 1, "value": 0.05},  # 회피율 5%
+                    {"code": 31, "dataId": 1, "value": 0},  # 공격 속성: 물리
+                ]
+            )
 
         output.append(d)
     return _ensure_null_at_0(output)
