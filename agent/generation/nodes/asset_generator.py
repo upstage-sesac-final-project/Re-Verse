@@ -50,70 +50,82 @@ def _normalize_role(raw: str) -> str:
 
 # ── Classes.json 알고리즘 params ─────────────────────────────────────────────
 
+# maxLevel=20 기준 (lv1, lv20) — 시뮬레이션 검증 완료
+# docs/The_world/BALANCE_IMPROVEMENT_PLAN.md 참조
 _CLASS_STAT_TEMPLATE: dict[str, dict[str, tuple[int, int]]] = {
     "warrior": {
-        "mhp": (180, 2500),
-        "mmp": (60, 800),
-        "atk": (18, 280),
-        "def": (10, 150),
-        "mat": (8, 135),
-        "mdf": (8, 110),
-        "agi": (9, 110),
-        "luk": (8, 80),
+        "mhp": (400, 3000),
+        "mmp": (30, 300),
+        "atk": (15, 60),
+        "def": (12, 50),
+        "mat": (5, 25),
+        "mdf": (8, 35),
+        "agi": (10, 35),
+        "luk": (8, 25),
     },
     "mage": {
-        "mhp": (130, 1600),
-        "mmp": (100, 1400),
-        "atk": (10, 140),
-        "def": (6, 90),
-        "mat": (18, 280),
-        "mdf": (12, 160),
-        "agi": (10, 120),
-        "luk": (9, 90),
+        "mhp": (250, 1800),
+        "mmp": (80, 800),
+        "atk": (5, 20),
+        "def": (6, 25),
+        "mat": (15, 65),
+        "mdf": (12, 50),
+        "agi": (10, 35),
+        "luk": (8, 25),
     },
     "healer": {
-        "mhp": (150, 2000),
-        "mmp": (90, 1200),
-        "atk": (10, 150),
-        "def": (8, 120),
-        "mat": (14, 200),
-        "mdf": (14, 200),
-        "agi": (9, 110),
-        "luk": (10, 100),
+        "mhp": (350, 2500),
+        "mmp": (60, 600),
+        "atk": (8, 30),
+        "def": (10, 40),
+        "mat": (12, 50),
+        "mdf": (14, 55),
+        "agi": (9, 30),
+        "luk": (10, 30),
     },
     "thief": {
-        "mhp": (140, 1800),
-        "mmp": (50, 700),
-        "atk": (15, 220),
-        "def": (7, 110),
-        "mat": (8, 100),
-        "mdf": (8, 100),
-        "agi": (18, 280),
-        "luk": (15, 200),
+        "mhp": (300, 2200),
+        "mmp": (40, 400),
+        "atk": (12, 50),
+        "def": (7, 30),
+        "mat": (5, 20),
+        "mdf": (7, 30),
+        "agi": (18, 70),
+        "luk": (15, 50),
     },
     "default": {
-        "mhp": (150, 2000),
-        "mmp": (70, 1000),
-        "atk": (14, 200),
-        "def": (8, 120),
-        "mat": (12, 160),
-        "mdf": (8, 120),
-        "agi": (10, 140),
-        "luk": (9, 90),
+        "mhp": (350, 2500),
+        "mmp": (50, 500),
+        "atk": (12, 45),
+        "def": (10, 40),
+        "mat": (10, 40),
+        "mdf": (10, 40),
+        "agi": (12, 40),
+        "luk": (10, 30),
     },
 }
 
 _STAT_ORDER = ["mhp", "mmp", "atk", "def", "mat", "mdf", "agi", "luk"]
 
 
-def _generate_class_params(lv1: int, lv99: int, growth: str = "linear") -> list[int]:
-    """lv1~lv99 값의 99개 정수 배열 생성."""
+_MAX_LEVEL = 20  # 생성 게임의 최대 레벨
+
+
+def _generate_class_params(lv1: int, lv_max: int, growth: str = "linear") -> list[int]:
+    """lv1~lv99 값의 99개 정수 배열 생성. lv_max는 _MAX_LEVEL 시점 목표값.
+
+    lv1~lv_MAX_LEVEL 구간에서 lv1→lv_max로 성장하고,
+    lv_MAX_LEVEL 이후는 lv_max 값을 유지한다.
+    """
     result = []
     for lv in range(1, 100):
-        t = (lv - 1) / 98.0
+        if lv <= _MAX_LEVEL:
+            t = (lv - 1) / max(1, _MAX_LEVEL - 1)
+        else:
+            t = 1.0
         if growth == "accelerate":
             t = t * t
-        val = round(lv1 + (lv99 - lv1) * t)
+        val = round(lv1 + (lv_max - lv1) * t)
         result.append(val)
     assert len(result) == 99, f"params row length error: {len(result)}"
     return result
@@ -124,21 +136,19 @@ def _build_params_2d(role: str) -> list[list[int]]:
     template = _CLASS_STAT_TEMPLATE.get(role, _CLASS_STAT_TEMPLATE["default"])
     params_2d = []
     for stat in _STAT_ORDER:
-        lv1, lv99 = template[stat]
+        lv1, lv_max = template[stat]
         growth = "accelerate" if stat in ("mhp", "mmp") else "linear"
-        params_2d.append(_generate_class_params(lv1, lv99, growth=growth))
+        params_2d.append(_generate_class_params(lv1, lv_max, growth=growth))
     return params_2d
 
 
 def _validate_exp_params(ep: list[int]) -> list[int]:
-    if len(ep) != 4:
-        return [30, 20, 30, 30]
-    return [
-        max(10, min(50, ep[0])),
-        max(10, min(40, ep[1])),
-        max(15, min(50, ep[2])),
-        max(20, min(50, ep[3])),
-    ]
+    """expParams 강제 — maxLevel=20 게임용 빠른 레벨업 곡선.
+
+    [5,5,2,30]: 총 ~16전으로 lv1→lv20 달성 (5~15분 플레이 기준).
+    LLM 출력은 무시하고 고정값 사용.
+    """
+    return [5, 5, 2, 30]
 
 
 # ── LLM 응답 스키마 ──────────────────────────────────────────────────────────
@@ -173,12 +183,11 @@ class RpgSkill(BaseModel):
     id: int
     name: str
     description: str = ""
-    animationId: int = -1
     iconTag: str = "physical_melee"
+    power: int = 5  # 0~10. 시스템이 damage.formula/mpCost 계산
     stypeId: int = 1
     scope: int = 1
     occasion: int = 1
-    mpCost: int = 0
     tpCost: int = 0
     tpGain: int = 0
     speed: int = 0
@@ -239,8 +248,7 @@ class RpgWeapon(BaseModel):
     iconTag: str = "sword"
     wtypeId: int = 1
     etypeId: int = 1
-    price: int = 500
-    params: list[int] = [0] * 8
+    power: int = 5  # 0~10. 시스템이 params/price 계산
     traits: list[dict] = []
     animationId: int = 0
     note: str = ""
@@ -257,8 +265,7 @@ class RpgArmor(BaseModel):
     iconTag: str = "light_armor"
     atypeId: int = 1
     etypeId: int = 4
-    price: int = 300
-    params: list[int] = [0] * 8
+    power: int = 5  # 0~10. 시스템이 params/price 계산
     traits: list[dict] = []
     note: str = ""
 
@@ -266,6 +273,60 @@ class RpgArmor(BaseModel):
 class ArmorListOutput(BaseModel):
     items: list[RpgArmor]
 
+
+# ── 적 tier별 스탯 테이블 (시뮬레이션 검증 완료) ────────────────────────────
+# docs/The_world/BALANCE_IMPROVEMENT_PLAN.md Phase 1
+
+_ENEMY_STAT_BY_TIER: dict[str, dict[str, int]] = {
+    "weak": {
+        "mhp": 200,
+        "mmp": 20,
+        "atk": 16,
+        "def": 10,
+        "mat": 11,
+        "mdf": 8,
+        "agi": 8,
+        "luk": 5,
+        "exp": 30,
+        "gold": 15,
+    },
+    "normal": {
+        "mhp": 500,
+        "mmp": 50,
+        "atk": 28,
+        "def": 18,
+        "mat": 20,
+        "mdf": 14,
+        "agi": 14,
+        "luk": 8,
+        "exp": 350,
+        "gold": 50,
+    },
+    "elite": {
+        "mhp": 1500,
+        "mmp": 150,
+        "atk": 45,
+        "def": 30,
+        "mat": 31,
+        "mdf": 24,
+        "agi": 22,
+        "luk": 14,
+        "exp": 2000,
+        "gold": 150,
+    },
+    "boss": {
+        "mhp": 4000,
+        "mmp": 400,
+        "atk": 60,
+        "def": 42,
+        "mat": 42,
+        "mdf": 34,
+        "agi": 30,
+        "luk": 18,
+        "exp": 4500,
+        "gold": 500,
+    },
+}
 
 # RPG Maker MZ 유효 trait 코드 (code:1 등 임의 코드는 무효)
 _VALID_TRAIT_CODES: frozenset[int] = frozenset(
@@ -667,6 +728,248 @@ _WEAPON_WTYPE_FALLBACK: dict[int, int] = {
 
 _ARMOR_ETYPE_FALLBACK: dict[int, int] = {2: 129, 3: 130, 4: 135, 5: 145}
 
+# ── power(0~10) → params 변환 (밸런스 Phase 2) ──────────────────────────────
+# params 순서: [MHP, MMP, ATK, DEF, MAT, MDF, AGI, LUK]
+
+_WEAPON_MAX_STATS = {"atk": 50, "mat": 45, "mdf": 35, "agi": 30}
+_WEAPON_PROFILE: dict[str, dict[str, float]] = {
+    "sword": {"atk": 1.0},
+    "dagger": {"atk": 1.0},
+    "axe": {"atk": 1.0},
+    "mace": {"atk": 1.0},
+    "spear": {"atk": 1.0},
+    "bow": {"atk": 0.8, "agi": 0.2},
+    "crossbow": {"atk": 0.8, "agi": 0.2},
+    "gun": {"atk": 0.8, "agi": 0.2},
+    "staff": {"mat": 0.7, "mdf": 0.3},
+    "claw": {"atk": 0.6, "agi": 0.4},
+    "gauntlet": {"atk": 0.6, "agi": 0.4},
+}
+_STAT_INDEX = {"mhp": 0, "mmp": 1, "atk": 2, "def": 3, "mat": 4, "mdf": 5, "agi": 6, "luk": 7}
+
+_ARMOR_MAX_STATS = {"def": 40, "mdf": 35, "luk": 25}
+_ARMOR_PROFILE: dict[int, dict[str, float]] = {
+    4: {"def": 1.0},  # 몸통
+    2: {"def": 0.8, "mdf": 0.2},  # 방패
+    3: {"def": 0.5, "mdf": 0.5},  # 머리
+    5: {"mdf": 0.6, "luk": 0.4},  # 장신구
+}
+
+# 16전 골드 수입(2060G) 기반 장비 가격 — 구간별 수입의 80%로 1세트 구매 가능
+_POWER_TO_PRICE_WEAPON = [10, 24, 48, 92, 137, 274, 412, 481, 550, 675, 800]
+_POWER_TO_PRICE_ARMOR = [10, 10, 14, 21, 55, 90, 180, 270, 315, 360, 500]
+
+
+def _calc_weapon_params(power: int, icon_tag: str) -> tuple[list[int], int]:
+    """weapon power(0~10) + iconTag → params[8], price."""
+    power = max(0, min(10, power))
+    profile = _WEAPON_PROFILE.get(icon_tag, _WEAPON_PROFILE["sword"])
+    params = [0] * 8
+    for stat, ratio in profile.items():
+        max_val = _WEAPON_MAX_STATS.get(stat, 50)
+        idx = _STAT_INDEX[stat]
+        params[idx] = round(power * max_val * ratio / 10)
+    price = _POWER_TO_PRICE_WEAPON[power]
+    return params, price
+
+
+def _calc_armor_params(power: int, etype_id: int) -> tuple[list[int], int]:
+    """armor power(0~10) + etypeId → params[8], price."""
+    power = max(0, min(10, power))
+    profile = _ARMOR_PROFILE.get(etype_id, _ARMOR_PROFILE[4])
+    params = [0] * 8
+    for stat, ratio in profile.items():
+        max_val = _ARMOR_MAX_STATS.get(stat, 40)
+        idx = _STAT_INDEX[stat]
+        params[idx] = round(power * max_val * ratio / 10)
+    price = _POWER_TO_PRICE_ARMOR[power]
+    return params, price
+
+
+# ── 스킬 power(0~10) → formula/mpCost 변환 (밸런스 Phase 4) ─────────────────
+
+# iconTag 카테고리 분류
+_PHYSICAL_TAGS = {"physical_melee", "physical_strong", "physical_ranged", "explosive"}
+_MAGIC_TAGS = {
+    "fire_magic",
+    "ice_magic",
+    "thunder_magic",
+    "water_magic",
+    "earth_magic",
+    "wind_magic",
+    "holy_magic",
+    "dark_magic",
+}
+_HEAL_TAGS = {"heal"}
+_DRAIN_TAGS = {"drain", "mp_drain"}
+
+
+def _calc_skill_formula(power: int, icon_tag: str, scope: int) -> tuple[str, int, dict]:
+    """스킬 power(0~10) + iconTag + scope → (formula, mpCost, damage_dict)."""
+    power = max(0, min(10, power))
+    t = power / 10.0
+    # scope 보정: 전체 공격은 약하게
+    scope_mult = 0.6 if scope == 2 else (0.7 if scope == 8 else 1.0)
+
+    if icon_tag in _PHYSICAL_TAGS:
+        atk_mult = round((1.5 + 3.5 * t) * scope_mult, 2)
+        def_mult = round((1.0 + 1.0 * t) * scope_mult, 2)
+        formula = f"a.atk * {atk_mult} - b.def * {def_mult}"
+        damage = {
+            "type": 1,
+            "elementId": -1,
+            "formula": formula,
+            "variance": 20,
+            "critical": power >= 7,
+        }
+    elif icon_tag in _MAGIC_TAGS:
+        mat_mult = round((1.5 + 3.5 * t) * scope_mult, 2)
+        mdf_mult = round((1.0 + 1.0 * t) * scope_mult, 2)
+        formula = f"a.mat * {mat_mult} - b.mdf * {mdf_mult}"
+        # elementId: iconTag → element
+        elem_map = {
+            "fire_magic": 2,
+            "ice_magic": 3,
+            "thunder_magic": 4,
+            "water_magic": 5,
+            "earth_magic": 6,
+            "wind_magic": 7,
+            "holy_magic": 8,
+            "dark_magic": 9,
+        }
+        damage = {
+            "type": 1,
+            "elementId": elem_map.get(icon_tag, 0),
+            "formula": formula,
+            "variance": 20,
+            "critical": False,
+        }
+    elif icon_tag in _HEAL_TAGS:
+        mat_mult = round((0.5 + 2.5 * t) * scope_mult, 2)
+        flat = round((20 + 180 * t) * scope_mult)
+        formula = f"a.mat * {mat_mult} + {flat}"
+        damage = {"type": 3, "elementId": 0, "formula": formula, "variance": 10, "critical": False}
+    elif icon_tag in _DRAIN_TAGS:
+        atk_mult = round(1.5 + 2.0 * t, 2)
+        def_mult = round(1.0 + 0.5 * t, 2)
+        formula = f"a.atk * {atk_mult} - b.def * {def_mult}"
+        dtype = 5 if icon_tag == "drain" else 6
+        damage = {
+            "type": dtype,
+            "elementId": 0,
+            "formula": formula,
+            "variance": 20,
+            "critical": False,
+        }
+    else:
+        # 버프/디버프/상태이상/특수 → 데미지 없음
+        formula = "0"
+        damage = {"type": 0, "elementId": 0, "formula": "0", "variance": 0, "critical": False}
+
+    mp_cost = power * 2
+    return formula, mp_cost, damage
+
+
+# ── 스킬 애니메이션 매핑 (base_game Animations.json 기준) ────────────────────
+
+# (iconTag, scope_type) → (weak_animId, strong_animId)
+# scope_type: "single"(1,3~6), "aoe"(2), "ally"(7), "ally_all"(8), "self"(11)
+_ANIM_MAP: dict[tuple[str, str], tuple[int, int]] = {
+    # 마법 원소 — 단일
+    ("fire_magic", "single"): (66, 67),
+    ("ice_magic", "single"): (71, 72),
+    ("thunder_magic", "single"): (76, 77),
+    ("water_magic", "single"): (81, 82),
+    ("earth_magic", "single"): (86, 87),
+    ("wind_magic", "single"): (91, 92),
+    ("holy_magic", "single"): (96, 97),
+    ("dark_magic", "single"): (101, 102),
+    # 마법 원소 — 전체
+    ("fire_magic", "aoe"): (68, 70),
+    ("ice_magic", "aoe"): (73, 75),
+    ("thunder_magic", "aoe"): (78, 80),
+    ("water_magic", "aoe"): (83, 85),
+    ("earth_magic", "aoe"): (88, 90),
+    ("wind_magic", "aoe"): (93, 95),
+    ("holy_magic", "aoe"): (98, 100),
+    ("dark_magic", "aoe"): (103, 105),
+    # 물리
+    ("physical_melee", "single"): (1, 6),
+    ("physical_melee", "aoe"): (1, 6),
+    ("physical_strong", "single"): (21, 25),
+    ("physical_strong", "aoe"): (21, 25),
+    ("physical_ranged", "single"): (29, 112),
+    ("physical_ranged", "aoe"): (29, 114),
+    ("explosive", "single"): (106, 107),
+    ("explosive", "aoe"): (108, 110),
+    # 회복
+    ("heal", "ally"): (41, 42),
+    ("heal", "ally_all"): (43, 44),
+    ("heal", "self"): (41, 42),
+    # 흡수
+    ("drain", "single"): (58, 58),
+    ("mp_drain", "single"): (58, 58),
+    # 버프/디버프
+    ("buff", "ally"): (51, 52),
+    ("buff", "ally_all"): (51, 53),
+    ("buff", "self"): (51, 52),
+    ("buff_atk", "ally"): (51, 52),
+    ("buff_def", "ally"): (51, 52),
+    ("buff_mat", "ally"): (51, 52),
+    ("buff_mdf", "ally"): (51, 52),
+    ("buff_agi", "ally"): (51, 52),
+    ("debuff", "single"): (54, 55),
+    ("debuff", "aoe"): (54, 56),
+    ("debuff_atk", "single"): (54, 55),
+    ("debuff_def", "single"): (54, 55),
+    ("debuff_mat", "single"): (54, 55),
+    ("debuff_mdf", "single"): (54, 55),
+    ("debuff_agi", "single"): (54, 55),
+    # 상태이상
+    ("poison", "single"): (59, 59),
+    ("blind", "single"): (60, 60),
+    ("blind", "aoe"): (40, 40),
+    ("silence", "single"): (61, 61),
+    ("confusion", "single"): (34, 63),
+    ("confusion", "aoe"): (34, 34),
+    ("sleep", "single"): (62, 62),
+    ("sleep", "aoe"): (36, 36),
+    ("paralyze", "single"): (64, 64),
+    # 특수
+    ("defense", "self"): (0, 0),
+    ("escape", "self"): (0, 0),
+    ("song", "aoe"): (36, 36),
+}
+
+
+def _scope_type(scope: int) -> str:
+    """scope 값 → 카테고리."""
+    if scope == 2:
+        return "aoe"
+    if scope == 7:
+        return "ally"
+    if scope == 8:
+        return "ally_all"
+    if scope in (11, 12):
+        return "self"
+    return "single"
+
+
+def _resolve_animation(icon_tag: str, scope: int, power: int) -> int:
+    """(iconTag, scope, power) → animationId."""
+    st = _scope_type(scope)
+    key = (icon_tag, st)
+    if key in _ANIM_MAP:
+        weak_id, strong_id = _ANIM_MAP[key]
+        return strong_id if power > 5 else weak_id
+
+    # fallback: scope 타입별 기본 애니메이션
+    if st in ("ally", "ally_all", "self"):
+        return 51  # 강화
+    if st == "aoe":
+        return 108  # 전체 폭발
+    return 1  # 물리 타격
+
 
 def _resolve_icon(tag: str, tag_map: dict[str, int], fallback: int) -> int:
     """iconTag → iconIndex 변환. 알 수 없는 태그면 fallback."""
@@ -729,7 +1032,15 @@ async def generate_classes(spec: GameSpec, id_table: IdTable) -> list:
         await invoke_llm(messages, structured_output=LlmClassList, temperature=_TEMPERATURE),
     )
 
-    class_roles: dict[str, str] = {c.class_name: _normalize_role(c.role) for c in spec.characters}
+    # role_type 직접 사용 (Phase 3), fallback: _normalize_role
+    class_roles: dict[str, str] = {
+        c.class_name: (
+            c.role_type
+            if hasattr(c, "role_type") and c.role_type in _CLASS_STAT_TEMPLATE
+            else _normalize_role(c.role)
+        )
+        for c in spec.characters
+    }
     llm_by_name = {cls.name: cls for cls in result.classes}
     # 시스템(id=1,2) + 적 전용 스킬 제외 → 플레이어 스킬만
     player_skill_ids = {
@@ -750,7 +1061,7 @@ async def generate_classes(spec: GameSpec, id_table: IdTable) -> list:
         llm_cls = llm_by_name.get(cls_name)
         if llm_cls is None:
             logger.warning("LLM이 직업 '%s'를 누락, 기본값 사용", cls_name)
-            llm_cls = LlmClass(id=cid, name=cls_name, expParams=[30, 20, 30, 30], learnings=[])
+            llm_cls = LlmClass(id=cid, name=cls_name, expParams=[5, 5, 2, 30], learnings=[])
 
         # 이 클래스에 배정된 스킬 + "공용" 스킬만 허용
         allowed = class_skill_ids.get(cls_name, set()) | class_skill_ids.get("공용", set())
@@ -918,6 +1229,14 @@ _ENEMY_SKILL_DATA: dict[str, dict[str, Any]] = {
 }
 
 
+_ENEMY_SKILL_ANIM: dict[str, int] = {
+    "적_강타": 25,  # 강한 베기
+    "적_전체공격": 108,  # 전체 폭발
+    "적_자가회복": 41,  # 1인 회복
+    "적_버프": 51,  # 강화
+}
+
+
 def _build_enemy_skill(template_name: str, skill_id: int) -> dict[str, Any]:
     """적 스킬 템플릿 → 완전한 RPG Maker MZ 스킬 dict."""
     tmpl = _ENEMY_SKILL_DATA[template_name]
@@ -925,7 +1244,7 @@ def _build_enemy_skill(template_name: str, skill_id: int) -> dict[str, Any]:
         "id": skill_id,
         "name": tmpl["name"],
         "description": "",
-        "animationId": -1,
+        "animationId": _ENEMY_SKILL_ANIM.get(template_name, -1),
         "iconIndex": tmpl["iconIndex"],
         "stypeId": tmpl["stypeId"],
         "scope": tmpl["scope"],
@@ -956,12 +1275,10 @@ async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
     output: list[Any] = [None, _SYSTEM_SKILL_ATTACK, _SYSTEM_SKILL_GUARD]
 
     # 2. LLM 생성 플레이어 스킬 (id=3~)
-    # build_skills_prompt에는 id=1,2 ("공격","방어")를 제외하고 전달
     player_skill_ids = {
-        name: sid
-        for name, sid in id_table.skills.items()
-        if sid >= 3 and name not in _ENEMY_SKILL_DATA
+        sid for name, sid in id_table.skills.items() if sid >= 3 and name not in _ENEMY_SKILL_DATA
     }
+    enemy_skill_ids = {sid for name, sid in id_table.skills.items() if name in _ENEMY_SKILL_DATA}
     if player_skill_ids:
         messages = build_skills_prompt(spec, id_table)
         result = cast(
@@ -970,9 +1287,19 @@ async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
         )
         for skill in sorted(result.items, key=lambda s: s.id):
             d = skill.model_dump()
+            # B: 시스템/적 스킬 ID 필터 (LLM이 생성해도 무시)
+            if d["id"] < 3 or d["id"] in enemy_skill_ids:
+                continue
             tag = d.pop("iconTag", "physical_melee")
+            power = d.pop("power", 5)
             tag = _refine_buff_tag(tag, d.get("effects", []))
             d["iconIndex"] = _resolve_icon(tag, SKILL_ICON_TAG, 0)
+            # power → formula/mpCost/animationId 자동 계산
+            scope = d.get("scope", 1)
+            _, mp_cost, damage = _calc_skill_formula(power, tag, scope)
+            d["damage"] = damage
+            d["mpCost"] = mp_cost
+            d["animationId"] = _resolve_animation(tag, scope, power)
             if d.get("message1") and d.get("messageType") == 0:
                 d["messageType"] = 1
             if d["damage"]["type"] == 0 and not d.get("effects"):
@@ -984,7 +1311,18 @@ async def generate_skills(spec: GameSpec, id_table: IdTable) -> list:
         if sname in _ENEMY_SKILL_DATA:
             output.append(_build_enemy_skill(sname, sid))
 
-    return _ensure_null_at_0(output)
+    # C: 최종 id 중복 제거 (선착순 유지)
+    seen_ids: set[int] = set()
+    deduped: list[Any] = [None]
+    for skill in output[1:]:
+        sid = skill["id"]
+        if sid in seen_ids:
+            logger.warning("Skills.json id=%d 중복 제거: '%s'", sid, skill.get("name"))
+            continue
+        seen_ids.add(sid)
+        deduped.append(skill)
+
+    return deduped
 
 
 async def generate_items(spec: GameSpec, id_table: IdTable) -> list:
@@ -1011,11 +1349,12 @@ async def generate_weapons(spec: GameSpec, id_table: IdTable) -> list:
     output: list[Any] = [None]
     for weapon in sorted(result.items, key=lambda w: w.id):
         d = weapon.model_dump()
-        if len(d["params"]) != 8:
-            d["params"] = [0] * 8
-        # iconTag → iconIndex 변환 (디버깅: fallback=0으로 할루시네이션 식별)
+        # iconTag → iconIndex 변환
         tag = d.pop("iconTag", "sword")
         d["iconIndex"] = _resolve_icon(tag, WEAPON_ICON_TAG, 0)
+        # power → params/price 알고리즘 (LLM params 무시)
+        power = d.pop("power", 5)
+        d["params"], d["price"] = _calc_weapon_params(power, tag)
         output.append(d)
     return _ensure_null_at_0(output)
 
@@ -1029,11 +1368,12 @@ async def generate_armors(spec: GameSpec, id_table: IdTable) -> list:
     output: list[Any] = [None]
     for armor in sorted(result.items, key=lambda a: a.id):
         d = armor.model_dump()
-        if len(d["params"]) != 8:
-            d["params"] = [0] * 8
-        # iconTag → iconIndex 변환 (디버깅: fallback=0으로 할루시네이션 식별)
+        # iconTag → iconIndex 변환
         tag = d.pop("iconTag", "light_armor")
         d["iconIndex"] = _resolve_icon(tag, ARMOR_ICON_TAG, 0)
+        # power → params/price 알고리즘 (LLM params 무시)
+        power = d.pop("power", 5)
+        d["params"], d["price"] = _calc_armor_params(power, d.get("etypeId", 4))
         output.append(d)
     return _ensure_null_at_0(output)
 
@@ -1051,12 +1391,61 @@ async def generate_enemies(spec: GameSpec, id_table: IdTable) -> list:
     for enemy in sorted(result.items, key=lambda e: e.id):
         d = enemy.model_dump()
 
-        # params 길이/최솟값 보정
-        if len(d["params"]) != 8:
-            d["params"] = [60, 0, 10, 5, 5, 5, 8, 8]
-        for i, min_val in enumerate(_ENEMY_PARAM_MINS):
-            if d["params"][i] < min_val:
-                d["params"][i] = min_val
+        # note + tier별 params/actions 강제 배정
+        enemy_spec = spec_by_name.get(d.get("name", ""))
+        if enemy_spec:
+            d["note"] = f"tier:{enemy_spec.tier} location:{enemy_spec.location}"
+
+            # tier 기반 params 강제 주입 (LLM params 무시)
+            tier_stats = _ENEMY_STAT_BY_TIER.get(enemy_spec.tier)
+            if tier_stats:
+                d["params"] = [
+                    tier_stats["mhp"],
+                    tier_stats["mmp"],
+                    tier_stats["atk"],
+                    tier_stats["def"],
+                    tier_stats["mat"],
+                    tier_stats["mdf"],
+                    tier_stats["agi"],
+                    tier_stats["luk"],
+                ]
+                d["exp"] = tier_stats["exp"]
+                d["gold"] = tier_stats["gold"]
+        else:
+            # spec 매칭 실패 시 기본 보정
+            if len(d["params"]) != 8:
+                d["params"] = [200, 20, 16, 10, 11, 8, 8, 5]
+            for i, min_val in enumerate(_ENEMY_PARAM_MINS):
+                if d["params"][i] < min_val:
+                    d["params"][i] = min_val
+
+        if enemy_spec:
+            # tier별 적 스킬 배정 (id=1 "공격" 기본 + 적 전용 스킬)
+            from agent.generation.nodes.asset_planner import _ENEMY_SKILL_TEMPLATES
+
+            tier_skills = _ENEMY_SKILL_TEMPLATES.get(enemy_spec.tier, [])
+            actions = [
+                {
+                    "conditionParam1": 0,
+                    "conditionParam2": 0,
+                    "conditionType": 0,
+                    "rating": 5,
+                    "skillId": 1,
+                }
+            ]  # 기본 공격
+            for sname in tier_skills:
+                sid = id_table.skills.get(sname)
+                if sid:
+                    actions.append(
+                        {
+                            "conditionParam1": 0,
+                            "conditionParam2": 0,
+                            "conditionType": 0,
+                            "rating": 4,
+                            "skillId": sid,
+                        }
+                    )
+            d["actions"] = actions
 
         # note + tier별 actions 배정
         enemy_spec = spec_by_name.get(d.get("name", ""))

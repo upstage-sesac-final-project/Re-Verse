@@ -22,6 +22,20 @@ logger = logging.getLogger(__name__)
 
 # ── base_game 고정 파일 로드 ────────────────────────────────────────────────
 
+_BASE_GAME_DATA = Path(__file__).resolve().parents[3] / "storage" / "games" / "base_game" / "data"
+
+
+def _load_base_game_file(fname: str) -> list | dict:
+    """base_game/data/{fname}을 읽어 반환. 실패 시 [None] fallback."""
+    path = _BASE_GAME_DATA / fname
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logger.warning("base_game %s 로드 실패, [None] fallback: %s", fname, e)
+        return [None]
+
+
 _BASE_GAME_DATA = Path(settings.BASE_GAME_PATH) / "data"
 
 
@@ -264,6 +278,105 @@ def _default_attack_motions() -> list[dict]:
     return [{"type": i, "weaponImageId": 0} for i in range(10)]
 
 
+# ── 타이틀 화면 자동 선택 (테마 키워드 → 배경/프레임/BGM) ───────────────────
+
+_TITLE_BG_KEYWORDS: dict[str, str] = {
+    "판타지": "Sword",
+    "fantasy": "Sword",
+    "기사": "Sword",
+    "중세": "Gate",
+    "medieval": "Gate",
+    "왕국": "Gate",
+    "해적": "Beach",
+    "pirate": "Beach",
+    "바다": "Beach",
+    "ocean": "Beach",
+    "숲": "Bigtree",
+    "forest": "Bigtree",
+    "자연": "Bigtree",
+    "정글": "Jungle",
+    "jungle": "Jungle",
+    "사막": "Oasis",
+    "desert": "Oasis",
+    "눈": "Snow",
+    "snow": "Snow",
+    "겨울": "Snow",
+    "얼음": "Snow",
+    "산": "Mountain",
+    "mountain": "Mountain",
+    "우주": "Universe",
+    "space": "Universe",
+    "sf": "Universe",
+    "사이버": "Universe",
+    "폐허": "Ruins",
+    "ruin": "Ruins",
+    "종말": "Ruins",
+    "포스트": "Ruins",
+    "좀비": "Wasteland",
+    "zombie": "Wasteland",
+    "황무지": "Wasteland",
+    "마왕": "Night",
+    "dark": "Night",
+    "어둠": "Night",
+    "암흑": "Night",
+    "성": "Mansion",
+    "castle": "Mansion",
+    "저택": "Mansion",
+    "하늘": "Sky",
+    "sky": "Sky",
+    "구름": "Sky",
+    "비행": "FlyingIsland",
+    "마을": "Town1",
+    "town": "Town1",
+    "협곡": "Canyon",
+    "canyon": "Canyon",
+    "황금": "Gold",
+    "gold": "Gold",
+    "보물": "Gold",
+    "프리렌": "Monument",
+    "여행": "Monument",
+}
+
+_TITLE_BGM_KEYWORDS: dict[str, str] = {
+    "판타지": "Theme4",
+    "중세": "Theme4",
+    "기사": "Theme4",
+    "sf": "Theme5",
+    "우주": "Theme5",
+    "사이버": "Theme5",
+    "좀비": "Theme3",
+    "어둠": "Theme3",
+    "마왕": "Theme3",
+    "해적": "Theme2",
+    "바다": "Theme2",
+}
+
+
+def _select_title_assets(theme: str) -> tuple[str, str, str]:
+    """GameSpec.theme → (title1Name, title2Name, titleBgm 이름)."""
+    theme_lower = theme.lower()
+
+    # title1Name: 키워드 매칭
+    title1 = "Sword"  # fallback
+    for keyword, bg in _TITLE_BG_KEYWORDS.items():
+        if keyword in theme_lower:
+            title1 = bg
+            break
+
+    # title2Name: SF/현대 → Floral, 판타지/중세 → Medieval
+    sf_keywords = {"sf", "우주", "사이버", "좀비", "현대", "미래", "로봇"}
+    title2 = "Floral" if any(k in theme_lower for k in sf_keywords) else "Medieval"
+
+    # titleBgm
+    bgm = "Theme6"  # fallback
+    for keyword, music in _TITLE_BGM_KEYWORDS.items():
+        if keyword in theme_lower:
+            bgm = music
+            break
+
+    return title1, title2, bgm
+
+
 def build_system_json_phase2(
     game_spec: GameSpec,
     id_table: IdTable,
@@ -275,6 +388,8 @@ def build_system_json_phase2(
     """System.json 조립. startMapId/startX/Y는 호출자가 결정."""
     party_members = sorted(id_table.actors.values())
     map_id = start_map_id if start_map_id is not None else min(id_table.maps.values(), default=1)
+
+    title1, title2, title_bgm = _select_title_assets(game_spec.theme)
 
     return {
         "gameTitle": game_spec.title,
@@ -306,10 +421,10 @@ def build_system_json_phase2(
         "battleBgm": _audio("Battle1"),
         "defeatMe": _audio("Defeat1"),
         "gameoverMe": _audio("Gameover1"),
-        "titleBgm": _audio("Theme6"),
+        "titleBgm": _audio(title_bgm),
         "victoryMe": _audio("Victory1"),
-        "title1Name": "",
-        "title2Name": "",
+        "title1Name": title1,
+        "title2Name": title2,
         "battleback1Name": "",
         "battleback2Name": "",
         "battlerName": "",
