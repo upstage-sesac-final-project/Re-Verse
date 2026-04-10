@@ -14,6 +14,7 @@ class CharacterSpec(BaseModel):
     name: str
     class_name: str
     role: str  # "주인공" | "서포터"
+    role_type: str = "balanced"  # "warrior" | "mage" | "healer" | "thief" | "balanced"
     personality: str
 
 

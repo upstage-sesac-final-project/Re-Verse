@@ -104,8 +104,11 @@ def test_id_table_get_id_returns_value_or_none() -> None:
     assert table.get_id("unknown_category", "해럴드") is None
 
 
-def test_asset_planner_returns_expected_phase_outputs() -> None:
-    result = asset_planner({"game_spec": make_game_spec(), "completed_phases": ["spec"]})
+@pytest.mark.asyncio
+async def test_asset_planner_returns_expected_phase_outputs() -> None:
+    result = await asset_planner(
+        {"game_spec": make_game_spec(), "completed_phases": ["spec"], "generation_id": "test"}
+    )
 
     assert result["completed_phases"] == ["spec", "planning"]
     assert result["generation_order"][0] == "classes"
@@ -152,7 +155,7 @@ async def test_game_designer_uses_structured_output_and_publishes_progress(
         assert generation_id == "gen-001"
         recorded_events.append(event)
 
-    async def fake_invoke_llm(messages, structured_output=None):
+    async def fake_invoke_llm(messages, structured_output=None, **kwargs):
         assert structured_output is GameSpec
         assert len(messages) == 2
         return expected_spec

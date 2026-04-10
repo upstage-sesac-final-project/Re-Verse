@@ -21,9 +21,7 @@ _CLASSES_SYSTEM = """\
 1. 모든 직업을 누락 없이 생성하세요.
 2. id는 제공된 값을 그대로 사용하세요.
 3. expParams: [basis, extra, acc_a, acc_b] 형식의 4개 정수
-   - 일반: [30, 20, 30, 30]
-   - 마법사(성장 느림): [30, 20, 15, 30]
-   - 빠른 성장: [30, 20, 40, 30]
+   - 일반: [5, 5, 2, 30]
 4. learnings: 레벨별 스킬 습득. level 1~20 사이, skillId는 제공된 목록에서만.
 5. params 배열은 생성하지 않습니다 (알고리즘으로 별도 생성됨).
 """
@@ -68,23 +66,17 @@ _SKILLS_SYSTEM = """\
 
 ## 규칙
 1. id는 제공된 값을 사용하세요.
-2. mpCost: 0~30 (지속 사용 가능해야 함)
+2. power: 0~10 정수 (스킬 강도. 시스템이 damage.formula/mpCost를 자동 계산)
+   - 0=최약, 3=초반기, 5=중반기, 7=후반기, 10=궁극기
 3. scope: 1=적1체, 2=적전체, 7=아군1체, 8=아군전체, 11=자신
-4. damage.type: 0=없음, 1=HP대미지, 3=HP회복, 5=HP흡수, 6=MP흡수
-5. damage.formula 예시:
-   - 물리 공격: "a.atk * 2 - b.def"
-   - 마법 공격: "a.mat * 2.5 - b.mdf"
-   - 회복: "a.mat * 1.5 + 50"
-   - damage.type=0이면 formula="0" (효과는 effects로 구현)
-6. stypeId: 1=마법, 2=특수기
-7. damage.type=0 스킬은 반드시 effects를 포함해야 합니다 (빈 배열 금지):
+4. stypeId: 1=마법, 2=특수기
+5. 상태이상/버프/디버프 스킬은 effects를 포함해야 합니다 (빈 배열 금지):
    - 적 상태이상: [{"code": 21, "dataId": 상태ID, "value1": 확률(0~1), "value2": 0}]
      상태 dataId: 4=독, 5=실명, 6=침묵, 8=혼란, 10=수면, 12=마비, 13=스턴
    - 아군 버프: [{"code": 31, "dataId": 스탯ID, "value1": 턴수, "value2": 0}]
    - 아군 디버프: [{"code": 32, "dataId": 스탯ID, "value1": 턴수, "value2": 0}]
      스탯 dataId: 2=ATK, 3=DEF, 4=MAT, 5=MDF, 6=AGI, 7=LUK
-   - HP/MP 회복 효과: [{"code": 11, "dataId": 0, "value1": 비율, "value2": 고정값}]
-8. iconTag (숫자 대신 태그 문자열 사용, 시스템이 자동 변환):
+6. iconTag (시스템이 자동 변환):
    - 물리: "physical_melee"(검), "physical_strong"(강타), "physical_ranged"(사격/활)
    - 마법: "fire_magic", "ice_magic", "thunder_magic", "water_magic",
            "earth_magic", "wind_magic", "holy_magic", "dark_magic"
@@ -102,9 +94,11 @@ def build_skills_prompt(
     id_table: IdTable,
 ) -> list[BaseMessage]:
     skill_class_map = {s.name: s.class_name for s in spec.skills}
+    # 시스템 스킬(id=1,2)과 적 전용 스킬(적_*) 제외 — 플레이어 스킬만 전달
     skill_lines = [
         f"  - id={sid}, name={sname}, class={skill_class_map.get(sname, '공용')}"
         for sname, sid in sorted(id_table.skills.items(), key=lambda x: x[1])
+        if sid >= 3 and not sname.startswith("적_")
     ]
 
     human = f"""## 스킬 목록
@@ -175,11 +169,9 @@ _WEAPONS_SYSTEM = """\
 ## 규칙
 1. id는 제공된 값을 사용하세요.
 2. wtypeId: 1=단검, 2=검, 3=철퇴, 4=도끼, 6=지팡이, 7=활, 8=석궁, 10=클로, 11=격투장갑, 12=창
-3. params: [MHP, MMP, ATK, DEF, MAT, MDF, AGI, LUK] 8개 보정값
-   - 검: ATK+15~25
-   - 지팡이: MAT+15~25
-4. price: 초반 300~800, 중반 1000~2500, 후반 3000~8000
-5. iconTag (태그 문자열, 시스템이 아이콘 번호로 변환):
+3. power: 0~10 정수 (무기 강도. 시스템이 params/price를 자동 계산)
+   - 0=없음, 3=초반, 5=중반, 7=후반, 10=최강
+4. iconTag (태그 문자열, 시스템이 아이콘 번호로 변환):
    "dagger"(단검), "sword"(검), "mace"(철퇴), "axe"(도끼), "staff"(지팡이),
    "bow"(활), "crossbow"(석궁), "claw"(클로), "gauntlet"(격투장갑), "spear"(창), "gun"(총)
 """
@@ -216,9 +208,9 @@ _ARMORS_SYSTEM = """\
 1. id는 제공된 값을 사용하세요.
 2. atypeId: 1=일반방어구, 2=마법장비, 3=경량장비, 4=무거운장비, 5=소형방패, 6=대형방패
 3. etypeId: 2=방패, 3=머리, 4=몸통, 5=장신구 (슬롯 ID)
-4. params: DEF, MDF 위주 보정
-5. price: 초반 200~600, 중반 800~2000, 후반 2500~6000
-6. iconTag (태그 문자열, 시스템이 아이콘 번호로 변환):
+4. power: 0~10 정수 (방어구 강도. 시스템이 params/price를 자동 계산)
+   - 0=없음, 3=초반, 5=중반, 7=후반, 10=최강
+5. iconTag (태그 문자열, 시스템이 아이콘 번호로 변환):
    몸통: "light_armor"(일반옷), "medium_armor"(경량갑옷), "heavy_armor"(중장갑), "robe"(로브)
    방패: "buckler"(소형방패), "shield"(대형방패), "bracelet"(팔찌)
    머리: "hat"(모자), "cap"(캡), "helmet"(투구), "circlet"(서클릿), "bandana"(반다나)

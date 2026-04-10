@@ -7,7 +7,7 @@ canonical: docs/The_world/game_ending_design.md
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class NpcEvent(BaseModel):
@@ -80,8 +80,20 @@ class BattleEvent(BaseModel):
 
 
 class ShopItem(BaseModel):
-    item: str
+    item: str = ""
     item_type: str = "item"  # "item" | "weapon" | "armor"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_item_key(cls, v: dict) -> dict:
+        """LLM이 {weapon: "검"} 또는 {armor: "갑옷"}으로 출력해도 item 키로 정규화."""
+        if isinstance(v, dict) and not v.get("item"):
+            for alt in ("weapon", "armor"):
+                if alt in v:
+                    v["item"] = v.pop(alt)
+                    if "item_type" not in v:
+                        v["item_type"] = alt
+        return v
 
 
 class ShopEvent(BaseModel):

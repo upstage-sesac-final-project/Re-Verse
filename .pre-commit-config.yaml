@@ -44,6 +44,19 @@ repos:
         exclude: ^app/frontend/
 
   # -------------------------------------------------------
+  # Python - pytest (LLM 통합테스트 제외)
+  # -------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        language: system
+        entry: uv run pytest app/backend/tests agent/tests -v --tb=short -m "not integration"
+        files: \.(py)$
+        pass_filenames: false
+        always_run: true
+
+  # -------------------------------------------------------
   # Frontend - eslint
   # 주의: app/frontend에서 npm install이 선행되어야 함
   # -------------------------------------------------------
