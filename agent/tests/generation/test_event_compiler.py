@@ -211,6 +211,102 @@ def test_compile_shop_without_condition_switch_unchanged(compiler: EventCompiler
     assert 302 in codes
 
 
+def test_compile_npc_with_required_item(compiler: EventCompiler) -> None:
+    """NpcEvent: required_item 있으면 page2는 itemValid 조건."""
+    event = NpcEvent(
+        type="npc",
+        name="장로",
+        x=5,
+        y=5,
+        dialogue=["열쇠를 가져오세요."],
+        required_item="회복 포션",
+        alt_dialogue=["열쇠를 가져왔군요!"],
+    )
+    result = compiler.compile(event)
+    assert len(result["pages"]) == 2
+    assert result["pages"][1]["conditions"]["itemValid"] is True
+    assert result["pages"][1]["conditions"]["itemId"] == 1  # 회복 포션 = id 1
+
+
+def test_compile_npc_with_required_item_and_consume(compiler: EventCompiler) -> None:
+    """NpcEvent: consume_item=True면 page2에서 아이템 소비 (code 126)."""
+    event = NpcEvent(
+        type="npc",
+        name="장로",
+        x=5,
+        y=5,
+        dialogue=["열쇠를 가져오세요."],
+        required_item="회복 포션",
+        alt_dialogue=["감사합니다!"],
+        consume_item=True,
+    )
+    result = compiler.compile(event)
+    assert len(result["pages"]) == 2
+    codes_p2 = [cmd["code"] for cmd in result["pages"][1]["list"]]
+    assert 126 in codes_p2  # Change Items (consume)
+
+
+def test_compile_npc_condition_switch_takes_priority_over_required_item(
+    compiler: EventCompiler,
+) -> None:
+    """condition_switch와 required_item 둘 다 있으면 condition_switch 우선."""
+    event = NpcEvent(
+        type="npc",
+        name="장로",
+        x=5,
+        y=5,
+        dialogue=["기본 대사"],
+        condition_switch="quest_done",
+        required_item="회복 포션",
+        alt_dialogue=["조건 후 대사"],
+    )
+    result = compiler.compile(event)
+    assert len(result["pages"]) == 2
+    # switch condition should be used, not item
+    assert result["pages"][1]["conditions"]["switch1Valid"] is True
+    assert result["pages"][1]["conditions"]["itemValid"] is False
+
+
+def test_compile_chest_with_condition_switch(compiler: EventCompiler) -> None:
+    """ChestEvent: condition_switch 있으면 2페이지 — page1 숨김, page2 상자."""
+    event = ChestEvent(
+        type="chest",
+        name="숨겨진_보물",
+        x=4,
+        y=6,
+        item="회복 포션",
+        item_type="item",
+        condition_switch="quest_done",
+        chest_switch="hidden_chest_01",
+        one_time=True,
+    )
+    result = compiler.compile(event)
+    assert len(result["pages"]) == 2
+    # page1: 숨겨진 상태
+    assert result["pages"][0]["conditions"]["switch1Valid"] is False
+    assert result["pages"][0]["image"]["characterName"] == ""
+    # page2: switch ON일 때 상자 출현
+    assert result["pages"][1]["conditions"]["switch1Valid"] is True
+    codes_p2 = [cmd["code"] for cmd in result["pages"][1]["list"]]
+    assert 126 in codes_p2  # Change Items
+
+
+def test_compile_chest_without_condition_switch_unchanged(compiler: EventCompiler) -> None:
+    """ChestEvent: condition_switch 없으면 기존과 동일."""
+    event = ChestEvent(
+        type="chest",
+        name="보물상자",
+        x=4,
+        y=6,
+        item="회복 포션",
+        item_type="item",
+        chest_switch="chest_01",
+        one_time=True,
+    )
+    result = compiler.compile(event)
+    assert len(result["pages"]) == 1
+
+
 def test_validate_switch_refs_warns_on_orphan_condition(caplog) -> None:
     """condition_switch가 어떤 이벤트의 set_switch에도 없으면 경고 로그."""
     import logging

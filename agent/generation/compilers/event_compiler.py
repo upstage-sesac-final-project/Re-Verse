@@ -141,7 +141,7 @@ class EventCompiler:
             )
         )
 
-        # 페이지 2: 조건부 대화
+        # 페이지 2: 조건부 대화 (condition_switch 우선, 없으면 required_item)
         if event.condition_switch and event.alt_dialogue:
             cond_sw_id = self.resolve_switch_id(event.condition_switch)
             page2_cmds = _build_dialogue_commands(
@@ -152,6 +152,26 @@ class EventCompiler:
                 _make_page(
                     page2_cmds,
                     _make_switch_condition(cond_sw_id),
+                    _trigger_code(event.trigger),
+                    character_name=event.character_name,
+                    character_index=event.character_index,
+                )
+            )
+        elif event.required_item and event.alt_dialogue:
+            item_id = self.resolve_item_id(event.required_item)
+            page2_cmds = []
+            if event.consume_item:
+                page2_cmds.append({"code": 126, "indent": 0, "parameters": [item_id, 0, 1, 1]})
+            page2_cmds.extend(
+                _build_dialogue_commands(
+                    event.face_image, event.face_index, event.name, event.alt_dialogue
+                )
+            )
+            page2_cmds.append({"code": 0, "indent": 0, "parameters": []})
+            pages.append(
+                _make_page(
+                    page2_cmds,
+                    _make_item_condition(item_id),
                     _trigger_code(event.trigger),
                     character_name=event.character_name,
                     character_index=event.character_index,
@@ -265,6 +285,25 @@ class EventCompiler:
             cmds.append({"code": 412, "indent": 0, "parameters": []})  # End If
 
         cmds.append({"code": 0, "indent": 0, "parameters": []})
+
+        if event.condition_switch:
+            cond_sw_id = self.resolve_switch_id(event.condition_switch)
+            page1 = _make_page(
+                [{"code": 0, "indent": 0, "parameters": []}],
+                _empty_conditions(),
+                _trigger_code("action_button"),
+                character_name="",  # 숨겨진 상태
+                character_index=0,
+            )
+            page2 = _make_page(
+                cmds,
+                _make_switch_condition(cond_sw_id),
+                _trigger_code("action_button"),
+                character_name=event.character_name,
+                character_index=event.character_index,
+            )
+            return _make_event(event.name, event.x, event.y, [page1, page2])
+
         page = _make_page(
             cmds,
             _empty_conditions(),
@@ -536,6 +575,13 @@ def _build_dialogue_commands(
         for line in chunk:
             cmds.append({"code": 401, "indent": 0, "parameters": [line]})
     return cmds
+
+
+def _make_item_condition(item_id: int) -> dict:
+    cond = _empty_conditions()
+    cond["itemId"] = item_id
+    cond["itemValid"] = True
+    return cond
 
 
 def _make_switch_condition(switch_id: int) -> dict:

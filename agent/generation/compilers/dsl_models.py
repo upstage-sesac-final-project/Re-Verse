@@ -24,6 +24,8 @@ class NpcEvent(BaseModel):
     condition_switch: str | None = None
     alt_dialogue: list[str] | None = None
     set_switch: str | None = None
+    required_item: str | None = None  # 아이템 소지 시 alt_dialogue 분기
+    consume_item: bool = False  # True면 아이템 소비 후 alt_dialogue
 
 
 class TransferEvent(BaseModel):
@@ -53,6 +55,7 @@ class ChestEvent(BaseModel):
     amount: int = 1
     one_time: bool = True
     chest_switch: str | None = None
+    condition_switch: str | None = None  # 스위치 ON일 때만 보물상자 출현
     dialogue_before: str = ""
     dialogue_after: str = ""
     character_name: str = "!Chest"  # 보물상자 스프라이트
