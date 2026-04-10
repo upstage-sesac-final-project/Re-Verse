@@ -24,6 +24,7 @@ from agent.generation.compilers.dsl_models import (
 )
 from agent.generation.models import (
     GameQuestPlan,
+    GameSpec,
     MapQuestScript,
     MapSpec,
     Quest,
@@ -31,6 +32,7 @@ from agent.generation.models import (
 from agent.generation.progress import publish_progress
 from agent.generation.registry.id_table import IdTable
 from agent.generation.registry.switch_table import normalize_switch_name
+from agent.generation.sprite_mapping import _build_troop_sprite_map, _fix_battle_sprites
 from agent.generation.state import GenerationState
 
 logger = logging.getLogger(__name__)
@@ -90,6 +92,7 @@ def _scaffold_town(
     map_script: MapQuestScript | None,
     quest: Quest | None,
     id_table: IdTable,
+    quest_plan: GameQuestPlan | None = None,
 ) -> list[NpcEvent | TransferEvent | ShopEvent]:
     """town 맵 이벤트 뼈대 생성."""
     events: list = []
@@ -178,13 +181,16 @@ def _scaffold_town(
         ex, ey = _exit_coords(spec, exit_spec.direction)
         used.add((ex, ey))
 
-        # 퀘스트가 있으면 수락 후에만 이동 가능
+        # 목적지 맵의 gate_switch가 있으면 그것을 사용, 없으면 퀘스트 수락 조건
         gate_switch: str | None = None
         blocked_msg: str | None = None
-        if map_script and map_script.gate_switch:
-            # 이 맵의 gate_switch는 진입 조건이므로 여기선 다음 맵 게이트 사용
-            pass
-        if quest:
+        dest_map_name = exit_spec.label
+        if quest_plan and dest_map_name:
+            dest_script = _find_map_script_by_name(dest_map_name, quest_plan)
+            if dest_script and dest_script.gate_switch:
+                gate_switch = dest_script.gate_switch
+                blocked_msg = _FILL_
+        if not gate_switch and quest:
             gate_switch = accept_switch
             blocked_msg = _FILL_
 
@@ -205,25 +211,35 @@ def _scaffold_town(
     return events
 
 
+def _select_troops_for_dungeon(id_table: IdTable, used_troops: set[str], num: int = 3) -> list[str]:
+    """이미 사용된 troop을 제외하고 선택."""
+    all_troops = [t for t in id_table.troops if "_단독" not in t]
+    available = [t for t in all_troops if t not in used_troops]
+    if not available:
+        available = all_troops  # 전부 사용됐으면 리셋
+    selected = available[:num]
+    used_troops.update(selected)
+    return selected
+
+
 def _scaffold_dungeon(
     spec: MapSpec,
     map_script: MapQuestScript | None,
     quest: Quest | None,
     id_table: IdTable,
+    used_troops: set[str] | None = None,
 ) -> list:
     """dungeon 맵 이벤트 뼈대 생성."""
     events: list = []
     used: set[tuple[int, int]] = set()
     prefix = _prefix(spec.name)
 
-    # ── 전투 이벤트 (2-3개) ─────────────────────────────────
-    # _단독 troop은 보스 전용이므로 제외
-    available_troops = [name for name in id_table.troops if not name.endswith("_단독")]
-    if not available_troops:
-        available_troops = list(id_table.troops.keys())[:2]
+    if used_troops is None:
+        used_troops = set()
 
-    num_battles = min(len(available_troops), random.randint(2, 3))
-    battle_troops = available_troops[:num_battles]
+    # ── 전투 이벤트 (2-3개) ─────────────────────────────────
+    num_battles = random.randint(2, 3)
+    battle_troops = _select_troops_for_dungeon(id_table, used_troops, num_battles)
 
     battle_switches: list[str] = []
     for i, troop_name in enumerate(battle_troops):
@@ -252,7 +268,8 @@ def _scaffold_dungeon(
         )
 
     # ── 보물상자 (첫 전투 승리 조건) ────────────────────────
-    chest_item = _pick_chest_item(id_table)
+    act_index = map_script.act_index if map_script else 0
+    chest_item = _pick_chest_item(id_table, act_index)
     chest_item_name, chest_item_type = chest_item
 
     first_win_switch = battle_switches[0] if battle_switches else None
@@ -325,6 +342,7 @@ def _scaffold_boss(
     map_script: MapQuestScript | None,
     boss_name: str,
     id_table: IdTable,
+    quest_plan: GameQuestPlan | None = None,
 ) -> list:
     """boss 맵 이벤트 뼈대 생성. EndingEvent는 CommonEvent에서 처리하므로 여기서 생성하지 않는다."""
     events: list = []
@@ -388,6 +406,28 @@ def _scaffold_boss(
             )
         )
 
+    # exits가 비어있으면 이전 맵으로 자동 탈출 transfer 추가
+    if not spec.exits and quest_plan:
+        prev_map_name = None
+        for ms in quest_plan.maps:
+            if ms.map_name == spec.name:
+                break
+            prev_map_name = ms.map_name
+        if prev_map_name and prev_map_name in id_table.maps:
+            x, y = _exit_coords(spec, "south")
+            used.add((x, y))
+            events.append(
+                TransferEvent(
+                    type="transfer",
+                    name=f"{prev_map_name}_탈출",
+                    x=x,
+                    y=y,
+                    to_map=prev_map_name,
+                    to_x=spec.width // 2,
+                    to_y=spec.height // 2,
+                )
+            )
+
     return events
 
 
@@ -417,18 +457,22 @@ def _find_boss_troop(boss_name: str, id_table: IdTable) -> str:
     return boss_name
 
 
-def _pick_chest_item(id_table: IdTable) -> tuple[str, str]:
-    """보물상자에 넣을 아이템 선택. (이름, 타입) 반환."""
-    if id_table.weapons:
-        name = list(id_table.weapons.keys())[0]
-        return name, "weapon"
-    if id_table.armors:
-        name = list(id_table.armors.keys())[0]
-        return name, "armor"
-    if id_table.items:
-        name = list(id_table.items.keys())[0]
-        return name, "item"
-    return "포션", "item"
+def _pick_chest_item(id_table: IdTable, act_index: int = 0) -> tuple[str, str]:
+    """act_index에 따라 보물상자 아이템 선택. 진행할수록 좋은 아이템."""
+    # 무기 → 방어구 → 아이템 순서로 우선
+    all_weapons = list(id_table.weapons.keys())
+    all_armors = list(id_table.armors.keys())
+    all_items = list(id_table.items.keys())
+
+    if all_weapons:
+        idx = min(act_index, len(all_weapons) - 1)
+        return all_weapons[idx], "weapon"
+    if all_armors:
+        idx = min(act_index, len(all_armors) - 1)
+        return all_armors[idx], "armor"
+    if all_items:
+        return all_items[0], "item"
+    return "회복 포션", "item"
 
 
 def _find_quest_for_map(map_name: str, quest_plan: GameQuestPlan) -> Quest | None:
@@ -448,6 +492,14 @@ def _find_map_script(map_id: int, quest_plan: GameQuestPlan) -> MapQuestScript |
     return None
 
 
+def _find_map_script_by_name(map_name: str, quest_plan: GameQuestPlan) -> MapQuestScript | None:
+    """quest_plan에서 맵 이름으로 MapQuestScript 찾기."""
+    for ms in quest_plan.maps:
+        if ms.map_name == map_name:
+            return ms
+    return None
+
+
 # ── 메인 함수 ──────────────────────────────────────────────────────────────
 
 
@@ -455,6 +507,7 @@ def scaffold_map_events(
     map_spec: MapSpec,
     quest_plan: GameQuestPlan,
     id_table: IdTable,
+    used_troops: set[str] | None = None,
 ) -> list:
     """단일 맵의 이벤트 뼈대 생성. 맵 타입에 따라 적절한 이벤트 조합 반환.
 
@@ -465,24 +518,26 @@ def scaffold_map_events(
     quest = _find_quest_for_map(map_spec.name, quest_plan)
 
     if map_spec.map_type == "town":
-        return _scaffold_town(map_spec, map_script, quest, id_table)
+        return _scaffold_town(map_spec, map_script, quest, id_table, quest_plan)
     elif map_spec.map_type == "dungeon":
-        return _scaffold_dungeon(map_spec, map_script, quest, id_table)
+        return _scaffold_dungeon(map_spec, map_script, quest, id_table, used_troops)
     elif map_spec.map_type == "boss":
-        return _scaffold_boss(map_spec, map_script, quest_plan.boss_name, id_table)
+        return _scaffold_boss(map_spec, map_script, quest_plan.boss_name, id_table, quest_plan)
     else:
         # field 등 — 최소 transfer만
         return _scaffold_field(map_spec, id_table)
 
 
 def _scaffold_field(spec: MapSpec, id_table: IdTable) -> list:
-    """field 맵: 최소 이벤트 (transfer만)."""
+    """field 맵: 최소 이벤트 (transfer + 최소 NPC 1명 보장)."""
     events: list = []
+    used: set[tuple[int, int]] = set()
     for exit_spec in spec.exits:
         to_name = _resolve_map_name(exit_spec.to_map_id, id_table)
         if not to_name:
             continue
         ex, ey = _exit_coords(spec, exit_spec.direction)
+        used.add((ex, ey))
         events.append(
             TransferEvent(
                 type="transfer",
@@ -494,6 +549,21 @@ def _scaffold_field(spec: MapSpec, id_table: IdTable) -> list:
                 to_y=spec.height // 2,
             )
         )
+
+    # 최소 이벤트 보장: transfer만 있으면 NPC 1명 추가
+    non_transfer = [e for e in events if not isinstance(e, TransferEvent)]
+    if not non_transfer:
+        x, y = _safe_coords(spec.width, spec.height, used)
+        events.append(
+            NpcEvent(
+                type="npc",
+                name="여행자",
+                x=x,
+                y=y,
+                dialogue=[_FILL_],
+            )
+        )
+
     return events
 
 
@@ -599,6 +669,8 @@ async def event_scaffolder(state: GenerationState) -> dict:
     map_specs: list[MapSpec] = state.get("map_specs") or []
     id_table: IdTable = state["id_table"]  # type: ignore[assignment]
     quest_plan: GameQuestPlan | None = state.get("quest_plan")
+    game_spec: GameSpec | None = state.get("game_spec")
+    generated_assets: dict = state.get("generated_assets") or {}
 
     await publish_progress(
         gen_id,
@@ -615,10 +687,17 @@ async def event_scaffolder(state: GenerationState) -> dict:
         logger.warning("quest_plan 없음 → fallback 생성")
         quest_plan = _fallback_quest_plan(map_specs, id_table)
 
+    # 스프라이트 매핑 사전 구성
+    troop_to_sprite: dict[str, tuple[str, int]] = {}
+    if game_spec is not None:
+        troop_to_sprite = _build_troop_sprite_map(game_spec, id_table, generated_assets)
+
     event_skeletons: dict[int, list] = {}
+    used_troops: set[str] = set()
     for spec in map_specs:
         try:
-            events = scaffold_map_events(spec, quest_plan, id_table)
+            events = scaffold_map_events(spec, quest_plan, id_table, used_troops)
+            events = _fix_battle_sprites(events, troop_to_sprite)
             event_skeletons[spec.map_id] = events
             logger.info(
                 "Map%d('%s') 스캐폴딩 완료: %d개 이벤트",

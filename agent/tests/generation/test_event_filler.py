@@ -55,7 +55,7 @@ def test_apply_default_dialogue_npc() -> None:
         NpcEvent(type="npc", name="NPC", x=1, y=1, dialogue=[_FILL]),
     ]
     result = _apply_default_dialogue(skeletons)
-    assert result[0].dialogue == ["..."]
+    assert result[0].dialogue == ["안녕하세요, 여행자님. 이곳에 오신 걸 환영합니다."]
 
 
 def test_apply_default_dialogue_transfer() -> None:
@@ -74,7 +74,7 @@ def test_apply_default_dialogue_transfer() -> None:
         ),
     ]
     result = _apply_default_dialogue(skeletons)
-    assert result[0].blocked_dialogue == "아직 갈 수 없습니다."
+    assert result[0].blocked_dialogue == "아직 이쪽으로는 갈 수 없습니다."
 
 
 def test_apply_default_dialogue_shop() -> None:
@@ -90,4 +90,4 @@ def test_apply_default_dialogue_shop() -> None:
         ),
     ]
     result = _apply_default_dialogue(skeletons)
-    assert result[0].dialogue == "어서오세요."
+    assert result[0].dialogue == "어서오세요! 좋은 물건이 많습니다."

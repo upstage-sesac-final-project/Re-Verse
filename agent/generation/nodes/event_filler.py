@@ -165,13 +165,18 @@ def _apply_default_dialogue(skeletons: list) -> list:
     """_FILL_을 기본 대사로 교체 (폴백)."""
     defaults = {
         "npc": {
-            "dialogue": ["..."],
-            "alt_dialogue": ["감사합니다."],
-            "hint_dialogue": ["잘 찾아보세요."],
+            "dialogue": ["안녕하세요, 여행자님. 이곳에 오신 걸 환영합니다."],
+            "alt_dialogue": ["감사합니다! 덕분에 큰 도움이 되었습니다."],
+            "hint_dialogue": ["동쪽을 잘 살펴보세요. 단서가 있을 겁니다."],
         },
-        "shop": {"dialogue": "어서오세요."},
-        "transfer": {"blocked_dialogue": "아직 갈 수 없습니다."},
+        "shop": {"dialogue": "어서오세요! 좋은 물건이 많습니다."},
+        "transfer": {"blocked_dialogue": "아직 이쪽으로는 갈 수 없습니다."},
+        "ending": {
+            "lines": ["축하합니다! 모험을 완수했습니다.", "세계에 다시 평화가 찾아왔습니다."]
+        },
     }
+    import json
+
     result = []
     for skeleton in skeletons:
         d = skeleton.model_dump()
@@ -180,5 +185,10 @@ def _apply_default_dialogue(skeletons: list) -> list:
         for field, default_val in type_defaults.items():
             if field in d and (d[field] == [_FILL] or d[field] == _FILL):
                 d[field] = default_val
+        # 최종 안전망: 남은 _FILL_ 문자열을 모두 기본값으로 교체
+        json_str = json.dumps(d, ensure_ascii=False)
+        if "_FILL_" in json_str:
+            json_str = json_str.replace('"_FILL_"', '"..."').replace("_FILL_", "...")
+            d = json.loads(json_str)
         result.append(_dsl_event_adapter.validate_python(d))
     return result

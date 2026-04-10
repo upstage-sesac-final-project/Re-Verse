@@ -18,6 +18,7 @@ from agent.generation.state import GenerationState
 logger = logging.getLogger(__name__)
 
 _TEMPERATURE = 0.7  # 창의적 세계관/스토리 기획
+_MAX_MAPS = 6  # 5~10분 게임에 적합
 
 
 async def game_designer(state: GenerationState) -> dict:
@@ -42,6 +43,19 @@ async def game_designer(state: GenerationState) -> dict:
     spec = cast(
         GameSpec, await invoke_llm(messages, structured_output=GameSpec, temperature=_TEMPERATURE)
     )
+
+    # 맵 개수 제한: 5~10분 게임에 적합한 최대 수로 클리핑
+    if len(spec.maps) > _MAX_MAPS:
+        logger.warning("game_designer: 맵 %d개 → %d개로 잘라냄", len(spec.maps), _MAX_MAPS)
+        town = [m for m in spec.maps if m.type == "town"][:1]
+        boss = [m for m in spec.maps if m.type == "boss"][:1]
+        middle = [m for m in spec.maps if m.type in ("dungeon", "field")][: _MAX_MAPS - 2]
+        spec = spec.model_copy(update={"maps": town + middle + boss})
+        # connects_to 보정
+        map_names = {m.name for m in spec.maps}
+        for m in spec.maps:
+            m.connects_to = [c for c in m.connects_to if c in map_names]
+
     _validate_map_connections(spec)
 
     logger.info("game_designer 완료: title=%s maps=%d", spec.title, len(spec.maps))
