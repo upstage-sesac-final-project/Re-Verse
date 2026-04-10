@@ -6,57 +6,57 @@ canonical: docs/The World/event/story_driven_event_plan.md §5
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from agent.generation.models import GameSpec, MapSpec
-from agent.generation.registry.id_table import IdTable
-from agent.generation.registry.switch_table import SwitchTable
 
 _SYSTEM = """\
-당신은 RPG 스토리 디렉터입니다.
-게임 전체 스토리를 맵별로 배분하여 이벤트 기획자(event_planner)가 참고할 스크립트를 작성합니다.
+당신은 RPG 퀘스트 기획자입니다.
+게임 정보를 받아 퀘스트 계획을 JSON으로 작성합니다.
 
-## 규칙
+## 반드시 지켜야 할 규칙
 
-1. NPC 이름은 반드시 제공된 주인공 이름 목록과 달라야 합니다.
-   — 주인공 이름이 "루나"라면, 어떤 NPC도 "루나"로 이름 짓지 마세요.
-2. 같은 NPC가 여러 맵에 등장할 수 있습니다 (이름 일관성 유지).
-3. story_flags는 반드시 제공된 스위치 목록에 있는 이름만 사용하세요.
-4. requires_switches: 이 맵의 이벤트가 활성화되려면 필요한 스위치 목록.
-   — 예: boss 맵은 ["던전 입구_cleared"] 등 선행 맵의 스위치를 요구
-   — 이전 맵의 story_flags에 있는 스위치만 참조할 것
-5. gate_transfer: true로 설정하면 event_planner가 이 맵으로의 transfer에 condition_switch를 붙임.
-   — 던전 깊은 곳, 보스 맵 등 스토리 진행 게이트가 필요한 맵에 사용
-   — true로 설정하려면 requires_switches가 최소 1개 있어야 함
-6. required_events는 event_planner가 어떤 이벤트를 만들어야 하는지 구체적인 지시사항으로 작성하세요.
-   예: "촌장 NPC와의 대화 — 던전 탐험 의뢰, act_1_started 스위치 ON"
-   예: "보스 전투 후 엔딩 이벤트 — game_cleared 스위치 ON, 타이틀로 귀환"
-7. 3막 구조에 따라 act_index를 맵 타입과 흐름에 맞게 배분하세요.
-   - 1막(0): town — 출발, 배경 소개, NPC와 대화로 여정 시작
-   - 2막(1): dungeon / field — 위기, 갈등, 단서 획득
-   - 3막(2): boss — 클라이막스, 최종 전투, 결말
-8. NPC의 before_dialogue(보스 처치 전)와 after_dialogue(보스 처치 후)를 구분하여 작성하세요.
-   after_dialogue가 있으면 condition_switch에 적절한 스위치 이름을 지정하세요.
-9. 맵당 NPC는 최대 3명까지만 지정하세요 (보스맵은 0명도 가능).
-10. 모든 맵(제공된 map_id 전체)에 대해 스크립트를 생성해야 합니다.
-11. 대사(before_dialogue/after_dialogue) 각 항목은 자연스러운 한 문장 단위로 작성하세요.
-   문장은 마침표·느낌표·물음표로 끝맺음하여 의미가 완결되도록 하세요.
+1. 퀘스트(quests)는 메인 퀘스트 1개만 작성합니다.
+2. 퀘스트 단계(steps)는 맵 순서대로 진행됩니다.
+   - 첫 맵(town): type="talk", target=NPC 이름 (퀘스트 부여)
+   - 중간 맵(dungeon/field): type="battle", target=적 그룹 이름 (전투)
+   - 마지막 맵(boss): 포함하지 않음 (보스전은 시스템이 자동 생성)
+3. 각 step의 completion_switch는 "{맵이름}_{목적}" 형식으로 작성합니다.
+   예: "시작_마을_quest_accepted", "어둠의_동굴_고블린_defeated"
+4. NPC 이름은 주인공(actor) 이름과 절대 겹치지 않아야 합니다.
+5. 맵별 NPC는 최대 2명. 역할: "퀘스트 부여자", "상점", "힌트 제공", "가이드" 중 선택.
+6. boss_name은 tier="boss"인 적의 이름입니다.
+7. 각 맵의 gate_switch는 이전 맵의 완료 스위치입니다. 첫 맵은 null.
+8. reward_item은 제공된 무기/아이템 목록에서 선택합니다.
+9. reward_switch는 마지막 dungeon/field 맵의 완료 스위치입니다.
+10. maps 목록은 제공된 맵 순서를 따릅니다. 모든 맵을 포함해야 합니다.
 """
 
 
 def build_story_planner_prompt(
     game_spec: GameSpec,
     map_specs: list[MapSpec],
-    id_table: IdTable,
-    switch_table: SwitchTable,
 ) -> list[BaseMessage]:
-    actor_names = ", ".join(id_table.actors.keys()) if id_table.actors else "없음"
+    actor_names = (
+        ", ".join(c.name for c in game_spec.characters) if game_spec.characters else "없음"
+    )
     acts = game_spec.story.get("acts", [])
     acts_text = "\n".join(f"  {i + 1}막: {act}" for i, act in enumerate(acts))
 
     maps_text = "\n".join(
-        f"  map_id={s.map_id} | 이름={s.name} | 타입={s.map_type} | 분위기={s.atmosphere}"
-        for s in map_specs
+        f"  {i + 1}. map_id={s.map_id} | 이름={s.name} | 타입={s.map_type} | 분위기={s.atmosphere}"
+        for i, s in enumerate(map_specs)
     )
 
-    switches_text = ", ".join(switch_table.switches.keys()) if switch_table.switches else "없음"
+    enemies_text = "\n".join(
+        f"  - {e.name} (tier={e.tier}, 위치={e.location})" for e in game_spec.enemies
+    )
+
+    items_list: list[str] = []
+    if game_spec.weapons:
+        items_list.extend(f"  - [무기] {w}" for w in game_spec.weapons)
+    if game_spec.armors:
+        items_list.extend(f"  - [방어구] {a}" for a in game_spec.armors)
+    if game_spec.key_items:
+        items_list.extend(f"  - [아이템] {k}" for k in game_spec.key_items)
+    items_text = "\n".join(items_list) if items_list else "  (없음)"
 
     human = f"""\
 ## 게임 기본 정보
@@ -70,17 +70,15 @@ def build_story_planner_prompt(
 ## 주인공(액터) 이름 목록 — NPC 이름으로 절대 사용 금지
 {actor_names}
 
-## 맵 목록 (모든 map_id에 대해 스크립트 생성 필수)
+## 맵 목록 (순서대로, 모든 맵에 대해 maps 항목 필수)
 {maps_text}
 
-## 사용 가능한 스위치 이름 (story_flags는 이 목록에서만 선택)
-{switches_text}
+## 적 목록 (tier로 보스 식별)
+{enemies_text}
 
-## 스위치 연동 가이드
-- town은 story_flags로 스위치를 ON (예: act_1_started)
-- dungeon은 requires_switches로 선행 조건 명시 + story_flags로 완료 스위치 ON
-- boss는 requires_switches로 던전 완료 조건 + gate_transfer: true로 진입 제한
+## 보상 후보 아이템/무기 목록 (reward_item 선택 시 이 목록에서)
+{items_text}
 
-위 정보를 바탕으로 각 맵의 스토리 스크립트를 작성하세요.
+위 정보를 바탕으로 GameQuestPlan JSON을 작성하세요.
 """
     return [SystemMessage(content=_SYSTEM), HumanMessage(content=human)]
