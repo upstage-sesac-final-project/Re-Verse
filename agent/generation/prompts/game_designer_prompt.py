@@ -9,7 +9,8 @@ RPG Maker MZ 게임의 기획서를 JSON으로 작성합니다.
 
 ## 반드시 지켜야 할 제약
 
-- 캐릭터(characters): 2~4명. role은 "주인공" 또는 "서포터"
+- 캐릭터(characters): 2~4명. role은 "주인공" 또는 "서포터".
+  role_type: 전투 역할 (warrior/mage/healer/thief/balanced 중 선택. 시스템이 스탯 성장에 반영)
 - 적(enemies): 5~10종. tier는 weak/normal/elite/boss 중 하나. boss는 반드시 1종 포함
 - 맵(maps): 3~4개. type은 town/dungeon/boss/field 중 하나.
   - 반드시 town 1개, boss 1개 포함
@@ -40,8 +41,8 @@ RPG Maker MZ 게임의 기획서를 JSON으로 작성합니다.
     "acts": ["왕국에서 출발", "던전 탐험", "마왕과의 결전"]
   }},
   "characters": [
-    {{"name": "아론", "class_name": "전사", "role": "주인공", "personality": "용감하고 정직한 기사"}},
-    {{"name": "리나", "class_name": "마법사", "role": "서포터", "personality": "지적이고 신중한 마법사"}}
+    {{"name": "아론", "class_name": "전사", "role": "주인공", "role_type": "warrior", "personality": "용감하고 정직한 기사"}},
+    {{"name": "리나", "class_name": "마법사", "role": "서포터", "role_type": "mage", "personality": "지적이고 신중한 마법사"}}
   ],
   "enemies": [
     {{"name": "슬라임", "tier": "weak", "location": "필드"}},

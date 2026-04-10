@@ -333,7 +333,7 @@ def _build_troop_sprite_map(
 #                                     6=보라리치, 7=붉은도깨비장군
 _BATTLER_TO_MAP_SPRITE: dict[str, tuple[str, int]] = {
     # ── 판타지: Monster 시트 ────────────────────────────────────────────
-    "Zombie": ("Monster", 0),
+    "Zombie": ("Monster", 1),
     "Caitsith": ("Monster", 0),
     "Undine": ("Monster", 0),
     "Goblin": ("Monster", 1),
