@@ -31,6 +31,8 @@ _SYSTEM = """\
   alt_dialogue:                    # 선택 (condition_switch가 ON일 때 대체 대사)
     - "대체 대사 1"
   set_switch: {스위치 이름}        # 선택 (대화 후 ON)
+  required_item: {아이템 이름}       # 선택 (이 아이템 소지 시 alt_dialogue 사용)
+  consume_item: true               # 선택 (true면 대화 후 아이템 1개 소비)
 
 **character_name + character_index 선택 가이드 (반드시 아래 목록에서만 선택):**
 
@@ -123,6 +125,7 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
   chest_switch: {스위치 이름}
   dialogue_before: "상자 발견 대사"
   dialogue_after: "아이템 획득 대사"
+  condition_switch: {스위치 이름}   # 선택 (이 스위치 ON일 때만 보물상자 출현)
   character_name: "!Chest"  # 보물상자 스프라이트 (!Chest 고정)
   character_index: 0        # 0=빨강(기본), 1=금색(귀중품), 2=초록(자연·던전), 3=파랑(마법·특별)
 
@@ -293,6 +296,10 @@ events:
 **패턴 2: NPC 대화 → 다른 이벤트 활성화**
 - npc의 set_switch로 스위치 ON
 - 다른 이벤트의 condition_switch로 같은 스위치를 참조
+
+**패턴 3: 아이템 전달 퀘스트**
+- chest에서 아이템 획득 후 set_switch로 NPC 대화 변경
+- npc의 required_item으로 아이템 소지 확인, consume_item: true로 아이템 소비
 
 ### 금지 사항
 - NPC의 set_switch에 `chest_` 접두어 스위치를 쓰지 말 것 (보물상자 스위치 오염)
