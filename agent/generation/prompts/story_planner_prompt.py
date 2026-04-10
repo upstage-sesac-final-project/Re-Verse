@@ -19,18 +19,24 @@ _SYSTEM = """\
    — 주인공 이름이 "루나"라면, 어떤 NPC도 "루나"로 이름 짓지 마세요.
 2. 같은 NPC가 여러 맵에 등장할 수 있습니다 (이름 일관성 유지).
 3. story_flags는 반드시 제공된 스위치 목록에 있는 이름만 사용하세요.
-4. required_events는 event_planner가 어떤 이벤트를 만들어야 하는지 구체적인 지시사항으로 작성하세요.
+4. requires_switches: 이 맵의 이벤트가 활성화되려면 필요한 스위치 목록.
+   — 예: boss 맵은 ["던전 입구_cleared"] 등 선행 맵의 스위치를 요구
+   — 이전 맵의 story_flags에 있는 스위치만 참조할 것
+5. gate_transfer: true로 설정하면 event_planner가 이 맵으로의 transfer에 condition_switch를 붙임.
+   — 던전 깊은 곳, 보스 맵 등 스토리 진행 게이트가 필요한 맵에 사용
+   — true로 설정하려면 requires_switches가 최소 1개 있어야 함
+6. required_events는 event_planner가 어떤 이벤트를 만들어야 하는지 구체적인 지시사항으로 작성하세요.
    예: "촌장 NPC와의 대화 — 던전 탐험 의뢰, act_1_started 스위치 ON"
    예: "보스 전투 후 엔딩 이벤트 — game_cleared 스위치 ON, 타이틀로 귀환"
-5. 3막 구조에 따라 act_index를 맵 타입과 흐름에 맞게 배분하세요.
+7. 3막 구조에 따라 act_index를 맵 타입과 흐름에 맞게 배분하세요.
    - 1막(0): town — 출발, 배경 소개, NPC와 대화로 여정 시작
    - 2막(1): dungeon / field — 위기, 갈등, 단서 획득
    - 3막(2): boss — 클라이막스, 최종 전투, 결말
-6. NPC의 before_dialogue(보스 처치 전)와 after_dialogue(보스 처치 후)를 구분하여 작성하세요.
+8. NPC의 before_dialogue(보스 처치 전)와 after_dialogue(보스 처치 후)를 구분하여 작성하세요.
    after_dialogue가 있으면 condition_switch에 적절한 스위치 이름을 지정하세요.
-7. 맵당 NPC는 최대 3명까지만 지정하세요 (보스맵은 0명도 가능).
-8. 모든 맵(제공된 map_id 전체)에 대해 스크립트를 생성해야 합니다.
-9. 대사(before_dialogue/after_dialogue) 각 항목은 자연스러운 한 문장 단위로 작성하세요.
+9. 맵당 NPC는 최대 3명까지만 지정하세요 (보스맵은 0명도 가능).
+10. 모든 맵(제공된 map_id 전체)에 대해 스크립트를 생성해야 합니다.
+11. 대사(before_dialogue/after_dialogue) 각 항목은 자연스러운 한 문장 단위로 작성하세요.
    문장은 마침표·느낌표·물음표로 끝맺음하여 의미가 완결되도록 하세요.
 """
 
@@ -69,6 +75,11 @@ def build_story_planner_prompt(
 
 ## 사용 가능한 스위치 이름 (story_flags는 이 목록에서만 선택)
 {switches_text}
+
+## 스위치 연동 가이드
+- town은 story_flags로 스위치를 ON (예: act_1_started)
+- dungeon은 requires_switches로 선행 조건 명시 + story_flags로 완료 스위치 ON
+- boss는 requires_switches로 던전 완료 조건 + gate_transfer: true로 진입 제한
 
 위 정보를 바탕으로 각 맵의 스토리 스크립트를 작성하세요.
 """

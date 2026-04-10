@@ -412,6 +412,15 @@ def _build_story_section(map_story: MapStoryScript) -> str:
         lines.append("")
         lines.append(f"### 이 맵에서 ON해야 하는 스위치: {', '.join(map_story.story_flags)}")
 
+    if map_story.requires_switches:
+        lines.append("")
+        lines.append(f"### 이 맵이 요구하는 선행 스위치: {', '.join(map_story.requires_switches)}")
+        if map_story.gate_transfer:
+            lines.append(
+                "⚠️ 이 맵으로의 transfer 이벤트에 반드시 condition_switch를 설정하세요. "
+                f"condition_switch: {map_story.requires_switches[0]}"
+            )
+
     lines.append("")
     return "\n".join(lines)
 

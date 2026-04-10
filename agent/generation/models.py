@@ -125,6 +125,8 @@ class MapStoryScript(BaseModel):
     npcs: list[NpcInfo]  # 이 맵에 등장할 NPC 목록 (이름 사전 확정)
     required_events: list[str]  # event_planner에 대한 이벤트 생성 지시사항
     story_flags: list[str] = []  # 이 맵에서 ON되어야 하는 스위치 이름 목록
+    requires_switches: list[str] = []  # 이 맵 진입/이벤트에 필요한 스위치 (다른 맵에서 SET)
+    gate_transfer: bool = False  # True면 이 맵으로의 이동을 requires_switches로 제한
 
 
 # Solar Pro 2 래퍼 (list 직접 반환 불가)
