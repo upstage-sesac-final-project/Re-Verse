@@ -12,25 +12,26 @@ from typing import Any
 
 from agent.generation.mapgen import extract_connection_info, generate_map
 from agent.generation.models import MapConnectionInfo, MapSpec
+from agent.generation.nodes.integrator import load_base_tilesets
 from agent.generation.progress import publish_progress
 from agent.generation.state import GenerationState
+from app.backend.core.config import settings
 
 logger = logging.getLogger(__name__)
-
-# 샘플 맵 저장 경로
-SAMPLE_MAPS_DIR = Path("agent/rag/data/samplemaps")
 
 
 async def _load_or_generate_map(
     spec: MapSpec,
     seed: int,
+    tilesets: list | None = None,
 ) -> tuple[int, list[int], MapConnectionInfo]:
     """샘플이 있으면 로드, 없으면 생성."""
     loop = asyncio.get_event_loop()
 
     # 1. 샘플 맵 로드 시도
     if spec.original_file_name:
-        sample_path = SAMPLE_MAPS_DIR / spec.original_file_name
+        sample_maps_dir = Path(settings.BASE_GAME_PATH) / "samplemaps"
+        sample_path = sample_maps_dir / spec.original_file_name
         if sample_path.exists():
             try:
                 with open(sample_path, encoding="utf-8") as f:
@@ -38,15 +39,17 @@ async def _load_or_generate_map(
                     tile_data = map_data.get("data", [])
                     if tile_data:
                         logger.info("샘플 맵 타일 로드 성공: %s", spec.original_file_name)
-                        # 샘플 맵의 연결 정보 추출 (exits 기준)
-                        conn_info = extract_connection_info(spec, tile_data)
+                        # 샘플 맵의 연결 정보 추출 (flags 기준)
+                        conn_info = extract_connection_info(spec, tile_data, tilesets=tilesets)
                         return spec.map_id, tile_data, conn_info
             except Exception as e:
                 logger.error("샘플 맵 로드 중 에러 (%s): %s", spec.original_file_name, e)
+        else:
+            logger.warning("샘플 맵 파일 없음: %s", sample_path)
 
     # 2. 샘플이 없거나 로드 실패 시 기존 AI 생성 로직 실행
     data = await loop.run_in_executor(None, generate_map, spec, seed)
-    conn_info = extract_connection_info(spec, data)
+    conn_info = extract_connection_info(spec, data, tilesets=tilesets)
     return spec.map_id, data, conn_info
 
 
@@ -69,8 +72,11 @@ async def tile_generator(state: GenerationState) -> dict:
         },
     )
 
+    # 타일셋 정보 로드 (스폰 포인트 계산용)
+    tilesets = load_base_tilesets()
+
     # 맵별 병렬 처리
-    tasks = [_load_or_generate_map(spec, seed=spec.map_id) for spec in map_specs]
+    tasks = [_load_or_generate_map(spec, seed=spec.map_id, tilesets=tilesets) for spec in map_specs]
     results: list[Any] = await asyncio.gather(*tasks, return_exceptions=True)
 
     map_tiles: dict[int, list[int]] = {}

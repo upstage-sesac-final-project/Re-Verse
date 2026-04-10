@@ -600,9 +600,13 @@ async def integrator(state: GenerationState) -> dict:
             map_specs[0],
         )
         start_map_id = start_spec.map_id
-        tile_data = map_tiles.get(start_map_id)
-        if tile_data:
-            start_x, start_y = calculate_spawn_point(start_spec, tile_data)
+        if start_spec.original_file_name:
+            # 샘플맵: sample_map_selector에서 이미 Tilesets.json flags 기반으로 계산됨
+            start_x, start_y = start_spec.spawn_point
+        else:
+            tile_data = map_tiles.get(start_map_id)
+            if tile_data:
+                start_x, start_y = calculate_spawn_point(start_spec, tile_data)
 
     final_project["System.json"] = build_system_json_phase2(
         game_spec,

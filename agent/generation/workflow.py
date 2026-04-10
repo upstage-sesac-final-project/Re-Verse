@@ -137,7 +137,7 @@ async def run_generation_workflow(
     game_id: str,
     generation_id: str | None = None,
     phase_limit: str = "assets",
-    map_source: str | None = None,
+    map_source: str | None = "samples",
 ) -> GenerationState:
     """Full Generation 워크플로우 실행.
 

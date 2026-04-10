@@ -10,6 +10,7 @@ algorithmic 생성(D+E)을 건너뛰고 바로 integrator로 연결된다.
 
 import json
 import logging
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -20,8 +21,11 @@ from agent.generation.state import GenerationState
 
 logger = logging.getLogger(__name__)
 
-_SAMPLEMAPS_DIR = Path(__file__).parents[2] / "rag" / "data" / "samplemaps"
+_SAMPLEMAPS_DIR = Path(__file__).parents[3] / "storage" / "games" / "base_game" / "samplemaps"
 _METADATA_PATH = Path(__file__).parents[2] / "generation" / "mapgen" / "data" / "map_metadata.json"
+_BASE_TILESETS_PATH = (
+    Path(__file__).parents[3] / "storage" / "games" / "base_game" / "data" / "Tilesets.json"
+)
 
 
 _MAP_TYPE_BY_TILESET = {
@@ -33,10 +37,82 @@ _MAP_TYPE_BY_TILESET = {
     6: "town",  # SF/현대 실내
 }
 
+# RPG Maker MZ flag bits
+_FLAG_PASSABLE_MASK = 0x0F  # bits 0-3: 방향별 통행 (0=가능, 1=불가)
+_FLAG_DAMAGE_FLOOR = 0x0100  # bit 8: 데미지 바닥
+
 
 def _load_metadata_index() -> dict[str, dict[str, Any]]:
     raw = json.loads(_METADATA_PATH.read_text(encoding="utf-8"))
     return {e["file_name"]: e for e in raw}
+
+
+def _load_tileset_flags() -> dict[int, list[int]]:
+    """base_game Tilesets.json에서 tileset_id → flags 매핑 로드."""
+    if not _BASE_TILESETS_PATH.exists():
+        logger.warning("Tilesets.json 없음: %s", _BASE_TILESETS_PATH)
+        return {}
+    try:
+        tilesets = json.loads(_BASE_TILESETS_PATH.read_text(encoding="utf-8"))
+        return {
+            ts["id"]: ts.get("flags", [])
+            for ts in tilesets
+            if ts and isinstance(ts, dict) and "id" in ts
+        }
+    except Exception:
+        logger.exception("Tilesets.json 로드 실패")
+        return {}
+
+
+def _find_safe_spawn(
+    tile_data: list[int],
+    width: int,
+    height: int,
+    flags: list[int],
+) -> tuple[int, int]:
+    """Tilesets.json flags 기반 BFS로 안전한 시작 좌표를 찾는다.
+
+    중앙에서 출발해 통행 가능 + 데미지 아닌 첫 번째 타일 반환.
+    """
+    cx, cy = width // 2, height // 2
+
+    def is_safe(x: int, y: int) -> bool:
+        # 레이어 0~3 검사: 어느 레이어든 불통과 or 데미지면 unsafe
+        for layer in range(4):
+            idx = layer * width * height + y * width + x
+            if idx >= len(tile_data):
+                return False
+            tile_id = tile_data[idx]
+            if tile_id == 0:
+                continue  # 빈 타일 (투과)
+            if tile_id >= len(flags):
+                continue  # 플래그 범위 밖 → 안전하다고 가정
+            f = flags[tile_id]
+            if f & _FLAG_DAMAGE_FLOOR:
+                return False
+            # 0x10 비트 = star tile (위로 지나감) → 통행 판정에서 제외
+            if f & 0x10:
+                continue
+            if (f & _FLAG_PASSABLE_MASK) == _FLAG_PASSABLE_MASK:
+                return False
+        return True
+
+    if is_safe(cx, cy):
+        return cx, cy
+
+    visited = {(cx, cy)}
+    q: deque[tuple[int, int]] = deque([(cx, cy)])
+    while q:
+        x, y = q.popleft()
+        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+            nx, ny = x + dx, y + dy
+            if (nx, ny) not in visited and 0 <= nx < width and 0 <= ny < height:
+                visited.add((nx, ny))
+                if is_safe(nx, ny):
+                    return nx, ny
+                q.append((nx, ny))
+
+    return cx, cy  # 모든 타일이 unsafe면 중앙 반환
 
 
 async def sample_map_selector(state: GenerationState) -> dict:
@@ -54,12 +130,21 @@ async def sample_map_selector(state: GenerationState) -> dict:
         },
     )
 
-    # 선택할 맵 개수 — 일단 3개 고정 (추후 GenerationOptions로 노출)
-    n_maps = 3
+    # 맵 개수: game_spec이 있으면 playtime 비례, 없으면 기본 3개
+    game_spec = state.get("game_spec")
+    if game_spec and hasattr(game_spec, "playtime_minutes"):
+        pt = game_spec.playtime_minutes
+        # 5분→3개, 7분→4개, 10분→5~6개, 15분→8~10개
+        n_maps = max(3, min(10, pt * 2 // 3))
+        logger.info("playtime %d분 → n_maps=%d", pt, n_maps)
+    else:
+        n_maps = 3
+
     file_names = await select_maps(user_input, n_maps=n_maps)
     logger.info("sample_map_selector: 선택된 맵 %s", file_names)
 
     metadata_index = _load_metadata_index()
+    tileset_flags_map = _load_tileset_flags()
 
     map_specs: list[MapSpec] = []
     map_tiles: dict[int, list[int]] = {}
@@ -89,6 +174,14 @@ async def sample_map_selector(state: GenerationState) -> dict:
         map_type = _MAP_TYPE_BY_TILESET.get(tileset_id, "town")
         tags = meta.get("tags", [])
 
+        # Tilesets.json flags 기반 안전한 시작 좌표 계산
+        tile_data = raw.get("data", [])
+        ts_flags = tileset_flags_map.get(tileset_id, [])
+        if ts_flags and tile_data:
+            spawn = _find_safe_spawn(tile_data, width, height, ts_flags)
+        else:
+            spawn = (width // 2, height // 2)
+
         spec = MapSpec(
             map_id=idx,
             name=display_name,
@@ -100,7 +193,7 @@ async def sample_map_selector(state: GenerationState) -> dict:
             atmosphere=", ".join(tags) if tags else meta.get("description", ""),
             landmarks=[],
             exits=[],
-            spawn_point=(width // 2, height // 2),
+            spawn_point=spawn,
             original_file_name=fname,
         )
         map_specs.append(spec)

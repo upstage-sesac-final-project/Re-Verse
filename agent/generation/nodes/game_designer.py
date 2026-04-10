@@ -23,6 +23,8 @@ _TEMPERATURE = 0.7  # 창의적 세계관/스토리 기획
 async def game_designer(state: GenerationState) -> dict:
     """A 노드: 사용자 입력 → GameSpec."""
     gen_id = state["generation_id"]
+    options = state.get("options", {})
+    play_time = options.get("play_time", 7)  # 기본값 7분
 
     await publish_progress(
         gen_id,
@@ -30,13 +32,17 @@ async def game_designer(state: GenerationState) -> dict:
             "type": "progress",
             "phase": "spec",
             "progress": 2,
-            "message": "게임 기획 중...",
+            "message": f"게임 기획 중... (예상 플레이 시간: {play_time}분)",
         },
     )
 
+    # 플레이 시간 정보를 포함한 사용자 메시지 구성
+    user_input = state["user_input"]
+    full_user_prompt = f"플레이 시간: {play_time}분\n설명: {user_input}"
+
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=state["user_input"]),
+        HumanMessage(content=full_user_prompt),
     ]
 
     spec = cast(
