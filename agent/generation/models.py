@@ -143,3 +143,52 @@ class MapConnectionInfo(BaseModel):
     map_id: int
     exit_tiles: list[dict]  # [{"direction": "north", "x": 15, "y": 0}, ...]
     entry_tiles: list[dict]  # [{"from_map_id": 2, "x": 15, "y": 1}, ...]
+
+
+# ── 이벤트 재설계: QuestScript 모델 ──────────────────────────────────────────
+
+
+class QuestStep(BaseModel):
+    """퀘스트 1단계."""
+
+    map_name: str
+    type: str  # "talk" | "battle" | "collect" | "deliver"
+    target: str  # NPC 이름 | 적 그룹 이름 | 아이템 이름
+    description: str
+    completion_switch: str
+
+
+class Quest(BaseModel):
+    """게임 내 퀘스트 1개."""
+
+    name: str
+    steps: list[QuestStep]
+    reward_item: str | None = None
+    reward_switch: str | None = None  # 완료 시 해제할 게이트 스위치
+
+
+class NpcRole(BaseModel):
+    """NPC 1명의 역할."""
+
+    name: str
+    role: str  # "퀘스트 부여자" | "상점" | "힌트 제공" | "가이드"
+    quest_ref: str | None = None  # 연결된 Quest.name
+
+
+class MapQuestScript(BaseModel):
+    """맵 1개의 퀘스트 배치."""
+
+    map_id: int
+    map_name: str
+    map_type: str  # town | dungeon | boss | field
+    act_index: int = 0
+    npcs: list[NpcRole] = []
+    gate_switch: str | None = None  # 이 맵 진입에 필요한 스위치
+
+
+class GameQuestPlan(BaseModel):
+    """게임 전체 퀘스트 계획 (story_planner 출력)."""
+
+    quests: list[Quest]
+    maps: list[MapQuestScript]
+    boss_name: str
