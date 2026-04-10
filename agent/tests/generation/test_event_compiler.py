@@ -106,9 +106,10 @@ def test_compile_ending_auto_run_and_return_to_title(compiler: EventCompiler) ->
     )
     result = compiler.compile(event)
     assert len(result["pages"]) == 2
-    # 페이지 1: trigger=3(Auto-Run), code 354 포함
-    assert result["pages"][0]["trigger"] == 3
-    codes = [cmd["code"] for cmd in result["pages"][0]["list"]]
+    # 페이지 1: 대기 페이지(trigger=0), 페이지 2: switch ON 시 Auto-Run(trigger=3)
+    assert result["pages"][0]["trigger"] == 0
+    assert result["pages"][1]["trigger"] == 3
+    codes = [cmd["code"] for cmd in result["pages"][1]["list"]]
     assert 354 in codes
 
 
