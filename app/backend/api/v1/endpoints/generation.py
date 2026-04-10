@@ -62,6 +62,7 @@ async def _run_generation_in_background(
             generation_id=generation_id,
             phase_limit=phase_limit,
             map_source=map_source,
+            options=options,
         )
 
         is_success = final_state.get("is_success", False)

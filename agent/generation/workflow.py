@@ -136,8 +136,9 @@ async def run_generation_workflow(
     prompt: str,
     game_id: str,
     generation_id: str | None = None,
-    phase_limit: str = "assets",
+    phase_limit: str | None = None,
     map_source: str | None = "samples",
+    options: dict[str, Any] | None = None,
 ) -> GenerationState:
     """Full Generation 워크플로우 실행.
 
@@ -146,6 +147,8 @@ async def run_generation_workflow(
         game_id: RPG 프로젝트 ID
         generation_id: 진행률 WebSocket 채널 ID (없으면 자동 생성)
         phase_limit: "assets" → C노드 후 integrator로 skip
+        map_source: "samples" 또는 "algorithmic"
+        options: 기타 설정 (playtime_minutes 등)
 
     Returns:
         최종 GenerationState
@@ -153,12 +156,20 @@ async def run_generation_workflow(
     gen_id = generation_id or f"gen_{uuid4().hex[:8]}"
     graph = get_generation_graph()
 
+    opts = options or {}
+    # 인자로 받은 값을 options에 병합 (우선순위: 인자 < options)
+    if phase_limit and "phase_limit" not in opts:
+        opts["phase_limit"] = phase_limit
+    if map_source and "map_source" not in opts:
+        opts["map_source"] = map_source
+
     initial_state: GenerationState = {
         "user_input": prompt,
         "game_id": game_id,
         "generation_id": gen_id,
-        "phase_limit": phase_limit,
-        "map_source": map_source,
+        "options": opts,
+        "phase_limit": opts.get("phase_limit"),
+        "map_source": opts.get("map_source"),
         "retry_count": 0,
         "completed_phases": [],
     }

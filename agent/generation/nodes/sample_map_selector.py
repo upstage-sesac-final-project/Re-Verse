@@ -130,15 +130,19 @@ async def sample_map_selector(state: GenerationState) -> dict:
         },
     )
 
-    # 맵 개수: game_spec이 있으면 playtime 비례, 없으면 기본 3개
+    # 맵 개수 결정: 기획서(game_spec)에 정의된 맵 개수를 우선함
     game_spec = state.get("game_spec")
-    if game_spec and hasattr(game_spec, "playtime_minutes"):
+    if game_spec and game_spec.maps:
+        n_maps = len(game_spec.maps)
+        logger.info("기획서 기반 맵 개수 설정: n_maps=%d", n_maps)
+    elif game_spec and hasattr(game_spec, "playtime_minutes"):
         pt = game_spec.playtime_minutes
-        # 5분→3개, 7분→4개, 10분→5~6개, 15분→8~10개
-        n_maps = max(3, min(10, pt * 2 // 3))
-        logger.info("playtime %d분 → n_maps=%d", pt, n_maps)
+        # 5분→3개, 10분→6개, 15분→9개 (선형 비례)
+        n_maps = pt * 3 // 5
+        logger.info("playtime %d분 → n_maps=%d (기획서 미존재 시 계산)", pt, n_maps)
     else:
         n_maps = 3
+        logger.info("기본 맵 개수 설정: n_maps=3")
 
     file_names = await select_maps(user_input, n_maps=n_maps)
     logger.info("sample_map_selector: 선택된 맵 %s", file_names)

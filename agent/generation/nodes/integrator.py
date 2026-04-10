@@ -7,6 +7,7 @@ canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §4.H
 
 import json
 import logging
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -22,20 +23,6 @@ logger = logging.getLogger(__name__)
 
 # ── base_game 고정 파일 로드 ────────────────────────────────────────────────
 
-_BASE_GAME_DATA = Path(__file__).resolve().parents[3] / "storage" / "games" / "base_game" / "data"
-
-
-def _load_base_game_file(fname: str) -> list | dict:
-    """base_game/data/{fname}을 읽어 반환. 실패 시 [None] fallback."""
-    path = _BASE_GAME_DATA / fname
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        logger.warning("base_game %s 로드 실패, [None] fallback: %s", fname, e)
-        return [None]
-
-
 _BASE_GAME_DATA = Path(settings.BASE_GAME_PATH) / "data"
 
 
@@ -48,6 +35,46 @@ def _load_base_game_file(fname: str) -> list | dict:
     except (FileNotFoundError, json.JSONDecodeError) as e:
         logger.warning("base_game %s 로드 실패, [None] fallback: %s", fname, e)
         return [None]
+
+
+@lru_cache(maxsize=1)
+def get_available_characters() -> dict[str, str]:
+    """base_game/img/characters 폴더의 실제 파일 목록을 {순수이름: 실제파일명}으로 반환."""
+    char_path = Path(settings.BASE_GAME_PATH) / "img" / "characters"
+    mapping = {}
+    if char_path.exists():
+        for f in char_path.glob("*.png"):
+            full_name = f.stem  # !$Gate1
+            # 기호를 제거한 순수 이름 추출 (대소문자 무시)
+            clean_name = full_name.replace("!", "").replace("$", "").lower()
+            mapping[clean_name] = full_name
+    return mapping
+
+
+def fix_character_filenames(map_json: dict) -> dict:
+    """실제 파일 목록과 대조하여 캐릭터 이름을 보정함."""
+    available_chars = get_available_characters()
+    if not available_chars:
+        return map_json
+
+    events = map_json.get("events", [])
+    for event in events:
+        if event is None:
+            continue
+        pages = event.get("pages", [])
+        for page in pages:
+            image = page.get("image", {})
+            if image and image.get("characterName"):
+                cname = image["characterName"]
+                # 1. 기호를 제거한 순수 이름으로 실제 파일 찾기
+                clean_lookup = cname.replace("!", "").replace("$", "").lower()
+
+                if clean_lookup in available_chars:
+                    real_name = available_chars[clean_lookup]
+                    if cname != real_name:
+                        logger.info("캐릭터 에셋 보정: %s -> %s", cname, real_name)
+                        image["characterName"] = real_name
+    return map_json
 
 
 def load_base_tilesets() -> list[dict]:
@@ -637,6 +664,10 @@ async def integrator(state: GenerationState) -> dict:
             map_json = build_map_json(spec, tile_data, events)
             if id_mapping:
                 map_json = translate_map_ids(map_json, id_mapping)
+
+            # 캐릭터 에셋 이름 보정 (대소문자/기호 불일치 해결)
+            map_json = fix_character_filenames(map_json)
+
             final_project[fname] = map_json
     else:
         final_project["MapInfos.json"] = {
