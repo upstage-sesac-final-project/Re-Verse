@@ -728,6 +728,60 @@ _WEAPON_WTYPE_FALLBACK: dict[int, int] = {
 
 _ARMOR_ETYPE_FALLBACK: dict[int, int] = {2: 129, 3: 130, 4: 135, 5: 145}
 
+# ── 직업 traits (role_type → 스킬유형/무기유형/방어구유형 허용) ────────────────
+# code 23: Skill Type 허용 (dataId = skillTypeId: 1=마법, 2=필살기)
+# code 51: Weapon Type 허용 (dataId = wtypeId: 1=단검, 2=검, 3=도끼, 4=지팡이, 5=활)
+# code 52: Armor Type 허용 (dataId = atypeId: 1=일반방어구, 2=마법방어구, 3=장신구)
+
+_CLASS_TRAITS: dict[str, list[dict]] = {
+    "warrior": [
+        {"code": 23, "dataId": 2, "value": 0},  # 필살기
+        {"code": 51, "dataId": 2, "value": 0},  # 검
+        {"code": 51, "dataId": 1, "value": 0},  # 단검
+        {"code": 52, "dataId": 1, "value": 0},  # 일반방어구
+    ],
+    "mage": [
+        {"code": 23, "dataId": 1, "value": 0},  # 마법
+        {"code": 51, "dataId": 4, "value": 0},  # 지팡이
+        {"code": 52, "dataId": 2, "value": 0},  # 마법방어구
+    ],
+    "healer": [
+        {"code": 23, "dataId": 1, "value": 0},  # 마법
+        {"code": 51, "dataId": 4, "value": 0},  # 지팡이
+        {"code": 52, "dataId": 2, "value": 0},  # 마법방어구
+    ],
+    "thief": [
+        {"code": 23, "dataId": 2, "value": 0},  # 필살기
+        {"code": 51, "dataId": 1, "value": 0},  # 단검
+        {"code": 52, "dataId": 1, "value": 0},  # 일반방어구
+        {"code": 52, "dataId": 3, "value": 0},  # 장신구
+    ],
+    "default": [
+        {"code": 23, "dataId": 1, "value": 0},  # 마법
+        {"code": 23, "dataId": 2, "value": 0},  # 필살기
+        {"code": 51, "dataId": 2, "value": 0},  # 검
+        {"code": 52, "dataId": 1, "value": 0},  # 일반방어구
+    ],
+}
+
+# iconTag → wtypeId 매핑 (System.weaponTypes 범위 내)
+_ICON_TAG_TO_WTYPE: dict[str, int] = {
+    "dagger": 1,
+    "sword": 2,
+    "mace": 2,
+    "axe": 3,
+    "staff": 4,
+    "bow": 5,
+    "crossbow": 5,
+    "gun": 5,
+    "claw": 1,
+    "gauntlet": 1,
+    "spear": 2,
+}
+
+# System.weaponTypes 최대 인덱스
+_MAX_WTYPE_ID = 5
+
 # ── power(0~10) → params 변환 (밸런스 Phase 2) ──────────────────────────────
 # params 순서: [MHP, MMP, ATK, DEF, MAT, MDF, AGI, LUK]
 
@@ -1094,7 +1148,7 @@ async def generate_classes(spec: GameSpec, id_table: IdTable) -> list:
                 "expParams": _validate_exp_params(llm_cls.expParams),
                 "params": _build_params_2d(role),
                 "learnings": learnings,
-                "traits": [],
+                "traits": _CLASS_TRAITS.get(role, _CLASS_TRAITS["default"]),
                 "note": llm_cls.note,
             }
         )
@@ -1352,6 +1406,10 @@ async def generate_weapons(spec: GameSpec, id_table: IdTable) -> list:
         # iconTag → iconIndex 변환
         tag = d.pop("iconTag", "sword")
         d["iconIndex"] = _resolve_icon(tag, WEAPON_ICON_TAG, 0)
+        # iconTag → wtypeId 강제 매핑 (LLM이 범위 초과 wtypeId를 생성하는 문제 방지)
+        d["wtypeId"] = _ICON_TAG_TO_WTYPE.get(tag, 2)  # 매핑 없으면 검(2)
+        if d["wtypeId"] > _MAX_WTYPE_ID:
+            d["wtypeId"] = 2  # 범위 초과 시 검으로 폴백
         # power → params/price 알고리즘 (LLM params 무시)
         power = d.pop("power", 5)
         d["params"], d["price"] = _calc_weapon_params(power, tag)
