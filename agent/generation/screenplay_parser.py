@@ -217,10 +217,14 @@ def scenes_to_dsl(
         events: list = []
 
         # ── NPC 이벤트 ──
-        for npc in scene.npcs:
+        # 첫 번째 NPC가 대화하면 quest_accepted ON (town: 퀘스트 수락, 기타: 맵 진입 확인)
+        for ni, npc in enumerate(scene.npcs):
             x, y = _safe_pos(spec.width, spec.height, used)
             quest_sw = f"{prefix}_quest_accepted"
             complete_sw = f"{prefix}_cleared"
+
+            # 첫 번째 NPC만 set_switch (맵당 1회)
+            npc_set_switch = quest_sw if ni == 0 else None
 
             events.append(
                 NpcEvent(
@@ -229,7 +233,7 @@ def scenes_to_dsl(
                     x=x,
                     y=y,
                     dialogue=[npc.first_meet] if npc.first_meet else ["안녕하세요, 여행자님."],
-                    set_switch=quest_sw if scene_idx == 0 else None,
+                    set_switch=npc_set_switch,
                     hint_switch=quest_sw if npc.hint else None,
                     hint_dialogue=[npc.hint] if npc.hint else None,
                     condition_switch=complete_sw if npc.reward else None,
@@ -334,15 +338,27 @@ def scenes_to_dsl(
             )
 
         # ── Transfer 이벤트 ──
+        # 순방향(다음 맵)과 역방향(이전 맵)을 구분하여 게이트 적용
+        forward_maps = {
+            map_specs[si + 1].name
+            for si in range(len(map_specs) - 1)
+            if map_specs[si].map_id == spec.map_id
+        }
+
         for exit_spec in spec.exits:
             ex, ey = _exit_pos(spec, exit_spec.direction)
             used.add((ex, ey))
 
-            # 다음 맵 gate 조건
+            is_forward = exit_spec.label in forward_maps
             condition = None
             blocked = None
-            if scene.transfer and scene.transfer.blocked:
-                condition = f"{prefix}_cleared"
+
+            if is_forward and scene.transfer and scene.transfer.blocked:
+                # 순방향: 게이트 조건 적용 (전투 승리/퀘스트 완료 필요)
+                if spec.map_type == "town":
+                    condition = f"{prefix}_quest_accepted"
+                else:
+                    condition = f"{prefix}_cleared"
                 blocked = scene.transfer.blocked
 
             events.append(
