@@ -174,3 +174,38 @@ def test_compile_transfer_without_condition_switch_unchanged(compiler: EventComp
     result = compiler.compile(event)
     assert len(result["pages"]) == 1
     assert result["pages"][0]["conditions"]["switch1Valid"] is False
+
+
+def test_compile_shop_with_condition_switch(compiler: EventCompiler) -> None:
+    """ShopEvent: condition_switch 있으면 2페이지 — page1 비활성, page2 상점."""
+    event = ShopEvent(
+        type="shop",
+        name="무기상인",
+        x=6,
+        y=4,
+        condition_switch="quest_completed",
+        items=[ShopItem(item="회복 포션", item_type="item")],
+    )
+    result = compiler.compile(event)
+    assert len(result["pages"]) == 2
+    # page1: 조건 없음 (비활성 상태)
+    assert result["pages"][0]["conditions"]["switch1Valid"] is False
+    # page2: switch 조건 ON일 때 상점
+    assert result["pages"][1]["conditions"]["switch1Valid"] is True
+    codes_p2 = [cmd["code"] for cmd in result["pages"][1]["list"]]
+    assert 302 in codes_p2  # Shop
+
+
+def test_compile_shop_without_condition_switch_unchanged(compiler: EventCompiler) -> None:
+    """ShopEvent: condition_switch 없으면 기존과 동일 1페이지."""
+    event = ShopEvent(
+        type="shop",
+        name="무기상인",
+        x=6,
+        y=4,
+        items=[ShopItem(item="회복 포션", item_type="item")],
+    )
+    result = compiler.compile(event)
+    assert len(result["pages"]) == 1
+    codes = [cmd["code"] for cmd in result["pages"][0]["list"]]
+    assert 302 in codes

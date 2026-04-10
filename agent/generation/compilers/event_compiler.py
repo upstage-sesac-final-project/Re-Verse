@@ -376,14 +376,39 @@ class EventCompiler:
             cmds.append({"code": 605, "indent": 0, "parameters": [gtype, gid, 0, 0]})
 
         cmds.append({"code": 0, "indent": 0, "parameters": []})
-        page = _make_page(
-            cmds,
-            _empty_conditions(),
-            _trigger_code(event.trigger),
-            character_name=event.character_name,
-            character_index=event.character_index,
-        )
-        return _make_event(event.name, event.x, event.y, [page])
+
+        if event.condition_switch:
+            cond_sw_id = self.resolve_switch_id(event.condition_switch)
+
+            page1_cmds = [{"code": 0, "indent": 0, "parameters": []}]
+            pages = [
+                _make_page(
+                    page1_cmds,
+                    _empty_conditions(),
+                    _trigger_code(event.trigger),
+                    character_name=event.character_name,
+                    character_index=event.character_index,
+                ),
+                _make_page(
+                    cmds,
+                    _make_switch_condition(cond_sw_id),
+                    _trigger_code(event.trigger),
+                    character_name=event.character_name,
+                    character_index=event.character_index,
+                ),
+            ]
+        else:
+            pages = [
+                _make_page(
+                    cmds,
+                    _empty_conditions(),
+                    _trigger_code(event.trigger),
+                    character_name=event.character_name,
+                    character_index=event.character_index,
+                )
+            ]
+
+        return _make_event(event.name, event.x, event.y, pages)
 
     # ── Ending ───────────────────────────────────────────────────────────────
 

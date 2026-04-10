@@ -107,6 +107,7 @@ class ShopEvent(BaseModel):
     dialogue: str = ""
     items: list[ShopItem]
     purchase_only: bool = False
+    condition_switch: str | None = None  # 스위치 ON일 때만 상점 활성
     character_name: str = "People1"  # 상점 NPC 스프라이트
     character_index: int = 0
 
