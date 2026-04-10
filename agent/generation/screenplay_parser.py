@@ -163,6 +163,23 @@ def parse_screenplay(text: str) -> list[ParsedScene]:
                 scene.boss = boss
                 continue
 
+            # "보스전 전:" / "보스전 후:" — LLM이 보스전 대사를 별도 줄로 작성한 경우
+            elif line.startswith("보스전 전:") or line.startswith("보스전전:"):
+                if scene.boss is None and scene.battles:
+                    # 마지막 전투를 보스전으로 승격
+                    last_battle = scene.battles.pop()
+                    scene.boss = ParsedBoss(troop=last_battle.troop)
+                if scene.boss:
+                    scene.boss.before_dialogue = _extract_dialogue(
+                        line, "보스전 전:" if "보스전 전:" in line else "보스전전:"
+                    )
+
+            elif line.startswith("보스전 후:") or line.startswith("보스전후:"):
+                if scene.boss:
+                    scene.boss.after_dialogue = _extract_dialogue(
+                        line, "보스전 후:" if "보스전 후:" in line else "보스전후:"
+                    )
+
             # 이동조건
             elif line.startswith("이동조건:"):
                 transfer = ParsedTransfer()
@@ -301,6 +318,12 @@ def scenes_to_dsl(
                     )
 
         # ── 보스전 ──
+        # boss 맵인데 scene.boss가 None이면 마지막 전투를 보스전으로 승격
+        if scene.boss is None and spec.map_type == "boss" and scene.battles:
+            last = scene.battles[-1]
+            scene.boss = ParsedBoss(troop=last.troop)
+            logger.info("boss 맵 '%s': 마지막 전투 '%s'를 보스전으로 승격", spec.name, last.troop)
+
         if scene.boss:
             x, y = _safe_pos(spec.width, spec.height, used)
             troop = _resolve_troop_name(scene.boss.troop, id_table)
@@ -361,6 +384,13 @@ def scenes_to_dsl(
                     condition = f"{prefix}_cleared"
                 blocked = scene.transfer.blocked
 
+            # 목적지 좌표: 목적지 맵의 중앙 (범위 초과 방지)
+            dest_spec = _find_map_spec(exit_spec.label, map_specs)
+            dest_w = dest_spec.width if dest_spec else 30
+            dest_h = dest_spec.height if dest_spec else 30
+            to_x = min(dest_w // 2, dest_w - 2)
+            to_y = min(dest_h // 2, dest_h - 2)
+
             events.append(
                 TransferEvent(
                     type="transfer",
@@ -368,8 +398,8 @@ def scenes_to_dsl(
                     x=ex,
                     y=ey,
                     to_map=exit_spec.label,
-                    to_x=spec.width // 2,
-                    to_y=spec.height // 2,
+                    to_x=to_x,
+                    to_y=to_y,
                     condition_switch=condition,
                     blocked_dialogue=blocked,
                 )
