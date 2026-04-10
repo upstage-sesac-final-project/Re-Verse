@@ -197,8 +197,13 @@ name은 이벤트의 실제 기능과 타입을 반영해야 합니다.
 - 형식: "{적이름}_battle_{번호}" (예: "고블린_battle_01", "고블린_battle_02")
 - 여러 battle 이벤트가 같은 battle_switch를 공유하면 안 됩니다
 
+## 이벤트 수 제한
+
+맵당 이벤트는 **최소 5개, 최대 10개**로 제한합니다. 초과 생성 금지.
+
 ## 절대 금지 사항
 
+- 이벤트를 10개 초과 생성 금지 — 맵당 5~10개 엄수
 - 스위치·아이템·맵을 번호(숫자)로 지정 금지 → 반드시 이름(문자열) 사용
 - x, y 좌표가 맵 크기를 벗어나는 것 금지
 - 동일한 (x, y)에 이벤트 2개 배치 금지
@@ -461,6 +466,7 @@ def _describe_required_events(
 ) -> str:
     if spec.map_type == "town":
         return (
+            "⚠️ 이벤트 수: 5~8개 (초과 금지)\n"
             "1. NPC 대화 최소 2개 (랜드마크마다 1개, 보스 처치 전후 조건부 대화 권장)\n"
             "2. 상점 이벤트 (상점 랜드마크가 있으면)\n"
             "3. 맵 이동 이벤트 (exits 수만큼, 위 좌표 정보 사용)\n"
@@ -470,6 +476,7 @@ def _describe_required_events(
         )
     elif spec.map_type == "dungeon":
         return (
+            "⚠️ 이벤트 수: 5~8개 (초과 금지)\n"
             "1. 맵 이동 이벤트 (입구/출구, 위 좌표 정보 사용)\n"
             "2. 전투 이벤트 2~3개 (player_touch, one_time=true)\n"
             "3. 보물 상자 1~2개 (chest 타입)\n"
@@ -487,12 +494,14 @@ def _describe_required_events(
                 (k for k in id_table.troops if boss_name in k), list(id_table.troops.keys())[-1]
             )
         return (
+            "⚠️ 이벤트 수: 5~7개 (초과 금지)\n"
             f"1. 보스 전투 이벤트 필수 (type: battle, troop: {troop_key}, "
             f"lose_condition: game_over, battle_switch: {boss_name}_defeated)\n"
             f"2. 엔딩 이벤트 필수 (type: ending, condition_switch: {boss_name}_defeated, "
             f"action: title)\n"
             "3. 맵 이동 이벤트 (탈출용)\n"
+            "4. 선택: NPC 1~2개, 보물 상자 1~2개\n"
             "   ⚠️ battle 이벤트와 ending 이벤트의 x, y 좌표는 반드시 달라야 함\n"
             "   ⚠️ 엔딩은 이 맵에만 1개 — 다른 맵에 엔딩 이벤트 중복 생성 금지"
         )
-    return "맵 타입에 맞는 이벤트 3~5개"
+    return "맵 타입에 맞는 이벤트 5~10개 (초과 금지)"

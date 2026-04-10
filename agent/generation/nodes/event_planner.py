@@ -30,6 +30,7 @@ from agent.generation.state import GenerationState
 logger = logging.getLogger(__name__)
 
 _TEMPERATURE = 0.7  # 이벤트 대화/시나리오 — 창의적 텍스트 생성
+_MAX_EVENTS_PER_MAP = 15  # LLM 반복 생성 방지 — 맵당 이벤트 상한
 
 _dsl_event_adapter: TypeAdapter = TypeAdapter(DslEvent)
 
@@ -159,7 +160,13 @@ def _parse_dsl_safe(raw_yaml: str, map_id: int) -> list | None:
             return None
 
         events = data["events"] or []
-        return [_dsl_event_adapter.validate_python(e) for e in events]
+        parsed = [_dsl_event_adapter.validate_python(e) for e in events]
+        if len(parsed) > _MAX_EVENTS_PER_MAP:
+            logger.warning(
+                "Map%d: 이벤트 %d개 → %d개로 잘라냄", map_id, len(parsed), _MAX_EVENTS_PER_MAP
+            )
+            parsed = parsed[:_MAX_EVENTS_PER_MAP]
+        return parsed
     except (yaml.YAMLError, ValidationError, Exception) as e:
         logger.warning("Map%d DSL 파싱 실패: %s", map_id, e)
         return None
