@@ -729,37 +729,54 @@ _WEAPON_WTYPE_FALLBACK: dict[int, int] = {
 _ARMOR_ETYPE_FALLBACK: dict[int, int] = {2: 129, 3: 130, 4: 135, 5: 145}
 
 # ── 직업 traits (role_type → 스킬유형/무기유형/방어구유형 허용) ────────────────
-# code 23: Skill Type 허용 (dataId = skillTypeId: 1=마법, 2=필살기)
-# code 51: Weapon Type 허용 (dataId = wtypeId: 1=단검, 2=검, 3=도끼, 4=지팡이, 5=활)
-# code 52: Armor Type 허용 (dataId = atypeId: 1=일반방어구, 2=마법방어구, 3=장신구)
+# base_game Classes.json 참조 — RPG Maker MZ 기본 직업과 동일 패턴
+# code 22: Attack Element (dataId=elementId, value=rate)
+# code 41: SType Add (dataId=stypeId: 1=마법, 2=필살기) — 스킬 타입 추가
+# code 51: Weapon Type (dataId=wtypeId: 1=단검, 2=검, 3=도끼, 4=지팡이, 5=활)
+# code 52: Armor Type (dataId=atypeId: 1=일반방어구, 2=마법방어구, 3=투구, 5=장신구)
 
 _CLASS_TRAITS: dict[str, list[dict]] = {
     "warrior": [
-        {"code": 23, "dataId": 2, "value": 0},  # 필살기
-        {"code": 51, "dataId": 2, "value": 0},  # 검
-        {"code": 51, "dataId": 1, "value": 0},  # 단검
+        {"code": 22, "dataId": 0, "value": 1},  # 물리 공격 속성
+        {"code": 22, "dataId": 1, "value": 0.05},
+        {"code": 41, "dataId": 2, "value": 0},  # 필살기 사용
+        {"code": 51, "dataId": 2, "value": 0},  # 검 장착
+        {"code": 51, "dataId": 1, "value": 0},  # 단검 장착
         {"code": 52, "dataId": 1, "value": 0},  # 일반방어구
+        {"code": 52, "dataId": 3, "value": 0},  # 투구
+        {"code": 52, "dataId": 5, "value": 0},  # 장신구
     ],
     "mage": [
-        {"code": 23, "dataId": 1, "value": 0},  # 마법
-        {"code": 51, "dataId": 4, "value": 0},  # 지팡이
+        {"code": 22, "dataId": 0, "value": 1},
+        {"code": 22, "dataId": 1, "value": 0.05},
+        {"code": 41, "dataId": 1, "value": 0},  # 마법 사용
+        {"code": 51, "dataId": 4, "value": 0},  # 지팡이 장착
+        {"code": 52, "dataId": 1, "value": 0},  # 일반방어구
         {"code": 52, "dataId": 2, "value": 0},  # 마법방어구
     ],
     "healer": [
-        {"code": 23, "dataId": 1, "value": 0},  # 마법
-        {"code": 51, "dataId": 4, "value": 0},  # 지팡이
+        {"code": 22, "dataId": 0, "value": 1},
+        {"code": 22, "dataId": 1, "value": 0.05},
+        {"code": 41, "dataId": 1, "value": 0},  # 마법 사용
+        {"code": 51, "dataId": 4, "value": 0},  # 지팡이 장착
+        {"code": 51, "dataId": 3, "value": 0},  # 도끼 (사제 보조무기)
+        {"code": 52, "dataId": 1, "value": 0},  # 일반방어구
         {"code": 52, "dataId": 2, "value": 0},  # 마법방어구
     ],
     "thief": [
-        {"code": 23, "dataId": 2, "value": 0},  # 필살기
-        {"code": 51, "dataId": 1, "value": 0},  # 단검
+        {"code": 22, "dataId": 0, "value": 0.95},
+        {"code": 22, "dataId": 1, "value": 0.05},
+        {"code": 41, "dataId": 2, "value": 0},  # 필살기 사용
+        {"code": 51, "dataId": 1, "value": 0},  # 단검 장착
         {"code": 52, "dataId": 1, "value": 0},  # 일반방어구
-        {"code": 52, "dataId": 3, "value": 0},  # 장신구
+        {"code": 52, "dataId": 3, "value": 0},  # 투구
     ],
     "default": [
-        {"code": 23, "dataId": 1, "value": 0},  # 마법
-        {"code": 23, "dataId": 2, "value": 0},  # 필살기
-        {"code": 51, "dataId": 2, "value": 0},  # 검
+        {"code": 22, "dataId": 0, "value": 1},
+        {"code": 22, "dataId": 1, "value": 0.05},
+        {"code": 41, "dataId": 1, "value": 0},  # 마법 사용
+        {"code": 41, "dataId": 2, "value": 0},  # 필살기 사용
+        {"code": 51, "dataId": 2, "value": 0},  # 검 장착
         {"code": 52, "dataId": 1, "value": 0},  # 일반방어구
     ],
 }
