@@ -46,15 +46,15 @@ repos:
   # -------------------------------------------------------
   # Python - pytest (LLM 통합테스트 제외)
   # -------------------------------------------------------
-  # - repo: local
-  #   hooks:
-  #     - id: pytest
-  #       name: pytest
-  #       language: system
-  #       entry: uv run pytest app/backend/tests agent/tests -v --tb=short -m "not integration"
-  #       files: \.(py)$
-  #       pass_filenames: false
-  #       always_run: true
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        language: system
+        entry: uv run pytest app/backend/tests agent/tests -v --tb=short -m "not integration"
+        files: \.(py)$
+        pass_filenames: false
+        always_run: true
 
   # -------------------------------------------------------
   # Frontend - eslint
