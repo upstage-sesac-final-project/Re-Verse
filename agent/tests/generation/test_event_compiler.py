@@ -209,3 +209,33 @@ def test_compile_shop_without_condition_switch_unchanged(compiler: EventCompiler
     assert len(result["pages"]) == 1
     codes = [cmd["code"] for cmd in result["pages"][0]["list"]]
     assert 302 in codes
+
+
+def test_validate_switch_refs_warns_on_orphan_condition(caplog) -> None:
+    """condition_switch가 어떤 이벤트의 set_switch에도 없으면 경고 로그."""
+    import logging
+
+    from agent.generation.nodes.event_planner import _validate_switch_refs
+
+    events = [
+        NpcEvent(
+            type="npc",
+            name="NPC",
+            x=1,
+            y=1,
+            dialogue=["hi"],
+            condition_switch="never_set_switch",
+        ),
+        NpcEvent(
+            type="npc",
+            name="NPC2",
+            x=2,
+            y=2,
+            dialogue=["hello"],
+            set_switch="some_other_switch",
+        ),
+    ]
+    with caplog.at_level(logging.WARNING):
+        _validate_switch_refs(events, set())
+
+    assert any("never_set_switch" in r.message for r in caplog.records)

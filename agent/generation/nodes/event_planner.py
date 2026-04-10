@@ -128,6 +128,7 @@ async def _plan_single_map(
             valid = _validate_event_types(valid, map_spec)
             valid = _validate_npc_names(valid, id_table, map_story=map_story)
             if valid is not None:
+                _validate_switch_refs(valid, set(switch_table.switches.keys()))
                 return _fix_battle_sprites(valid, troop_to_sprite)
         except Exception as e:
             logger.warning("Map%d 이벤트 기획 시도 %d 실패: %s", map_spec.map_id, attempt + 1, e)
@@ -264,6 +265,33 @@ def _validate_name_refs(events: list, id_table: IdTable, switch_table: SwitchTab
             logger.warning("이벤트 '%s' 검증 오류: %s → 제거", getattr(e, "name", "?"), exc)
 
     return valid
+
+
+def _validate_switch_refs(events: list, pre_allocated_switches: set[str]) -> None:
+    """condition_switch가 참조하는 스위치가 set되는 곳이 있는지 경고 로그."""
+    # 이벤트들이 SET하는 스위치 수집
+    set_switches: set[str] = set(pre_allocated_switches)
+    for e in events:
+        if hasattr(e, "set_switch") and e.set_switch:
+            set_switches.add(e.set_switch)
+        if hasattr(e, "battle_switch") and e.battle_switch:
+            set_switches.add(e.battle_switch)
+        if hasattr(e, "chest_switch") and e.chest_switch:
+            set_switches.add(e.chest_switch)
+        if hasattr(e, "on_win"):
+            for action in e.on_win:
+                if action.set_switch:
+                    set_switches.add(action.set_switch)
+
+    # condition_switch가 참조하는데 SET되는 곳이 없는 스위치 경고
+    for e in events:
+        if hasattr(e, "condition_switch") and e.condition_switch:
+            if e.condition_switch not in set_switches:
+                logger.warning(
+                    "이벤트 '%s': condition_switch '%s'가 어떤 이벤트에서도 set되지 않음",
+                    e.name,
+                    e.condition_switch,
+                )
 
 
 # 맵 타입별 생성 금지 이벤트 타입
