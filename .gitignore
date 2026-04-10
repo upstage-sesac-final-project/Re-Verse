@@ -8,6 +8,7 @@ __pycache__/
 .Python
 .venv/
 venv/
+venv.*/
 env/
 .uv/
 dist/
