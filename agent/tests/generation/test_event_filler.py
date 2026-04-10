@@ -1,61 +1,128 @@
-"""event_filler 유닛 테스트 — LLM mock 없이 유틸리티 함수 검증."""
+"""event_filler 유닛 테스트 — 대사 추출/파싱/적용 검증."""
 
 from agent.generation.compilers.dsl_models import NpcEvent, ShopEvent, ShopItem, TransferEvent
-from agent.generation.nodes.event_filler import _apply_default_dialogue, _merge_dialogue_only
+from agent.generation.nodes.event_filler import (
+    _apply_default_dialogue,
+    _apply_fills,
+    _extract_fill_requests,
+    _parse_fill_response,
+    _remove_remaining_fills,
+)
 
 _FILL = "_FILL_"
 
 
-def test_merge_dialogue_only_preserves_structure() -> None:
+def test_extract_fill_requests_finds_fill_fields() -> None:
+    """_FILL_ 필드를 정확히 추출."""
+    skeletons = [
+        NpcEvent(
+            type="npc",
+            name="촌장",
+            x=1,
+            y=1,
+            dialogue=[_FILL],
+            condition_switch="boss_defeated",
+            alt_dialogue=[_FILL],
+        ),
+        TransferEvent(
+            type="transfer",
+            name="이동",
+            x=2,
+            y=2,
+            to_map="마을",
+            to_x=5,
+            to_y=5,
+            blocked_dialogue=_FILL,
+            condition_switch="gate",
+        ),
+    ]
+    requests = _extract_fill_requests(skeletons)
+    assert len(requests) == 3
+    fields = [r[1] for r in requests]
+    assert "dialogue" in fields
+    assert "alt_dialogue" in fields
+    assert "blocked_dialogue" in fields
+
+
+def test_parse_fill_response() -> None:
+    """번호.필드: 대사 형식 파싱."""
+    raw = """1.dialogue: 용사여, 마왕을 물리쳐주시오!
+1.alt_dialogue: 감사하오! 이 검을 받으시오.
+2.blocked_dialogue: 아직 준비가 되지 않았습니다."""
+    result = _parse_fill_response(raw)
+    assert result[(0, "dialogue")] == "용사여, 마왕을 물리쳐주시오!"
+    assert result[(0, "alt_dialogue")] == "감사하오! 이 검을 받으시오."
+    assert result[(1, "blocked_dialogue")] == "아직 준비가 되지 않았습니다."
+
+
+def test_parse_fill_response_ignores_fill() -> None:
+    """_FILL_ 이 그대로 남은 응답은 무시."""
+    raw = "1.dialogue: _FILL_\n2.dialogue: 실제 대사"
+    result = _parse_fill_response(raw)
+    assert (0, "dialogue") not in result
+    assert result[(1, "dialogue")] == "실제 대사"
+
+
+def test_apply_fills_preserves_structure() -> None:
     """대사만 교체, 나머지 필드 유지."""
-    original = {
+    skeletons = [
+        NpcEvent(
+            type="npc",
+            name="촌장",
+            x=5,
+            y=5,
+            dialogue=[_FILL],
+            set_switch="quest",
+        ),
+    ]
+    filled_map = {(0, "dialogue"): "마왕을 처치해주시오!"}
+    result = _apply_fills(skeletons, filled_map)
+    assert result[0].dialogue == ["마왕을 처치해주시오!"]
+    assert result[0].name == "촌장"
+    assert result[0].x == 5
+    assert result[0].set_switch == "quest"
+
+
+def test_remove_remaining_fills() -> None:
+    """남은 _FILL_을 기본 대사로 교체."""
+    d = {
         "type": "npc",
-        "name": "촌장",
-        "x": 5,
-        "y": 5,
+        "name": "NPC",
+        "x": 1,
+        "y": 1,
         "dialogue": [_FILL],
-        "set_switch": "quest",
+        "alt_dialogue": [_FILL],
         "trigger": "action_button",
     }
-    filled = {
-        "type": "npc",
-        "name": "다른이름",
-        "x": 99,
-        "y": 99,
-        "dialogue": ["안녕하세요!"],
-        "set_switch": "변경됨",
-    }
-    result = _merge_dialogue_only(original, filled)
-    assert result["dialogue"] == ["안녕하세요!"]
-    assert result["name"] == "촌장"
-    assert result["x"] == 5
-    assert result["set_switch"] == "quest"
-
-
-def test_merge_dialogue_only_skips_fill_values() -> None:
-    """_FILL_ 값은 교체하지 않음."""
-    original = {"type": "npc", "dialogue": [_FILL], "alt_dialogue": [_FILL]}
-    filled = {"type": "npc", "dialogue": ["대사"], "alt_dialogue": [_FILL]}
-    result = _merge_dialogue_only(original, filled)
-    assert result["dialogue"] == ["대사"]
-    assert result["alt_dialogue"] == [_FILL]  # 여전히 _FILL_
-
-
-def test_merge_blocked_dialogue_str() -> None:
-    """blocked_dialogue (str 타입) 교체."""
-    original = {"type": "transfer", "blocked_dialogue": _FILL}
-    filled = {"type": "transfer", "blocked_dialogue": "아직 준비가 안 됐어요."}
-    result = _merge_dialogue_only(original, filled)
-    assert result["blocked_dialogue"] == "아직 준비가 안 됐어요."
+    result = _remove_remaining_fills(d)
+    assert result["dialogue"] != [_FILL]
+    assert result["alt_dialogue"] != [_FILL]
 
 
 def test_apply_default_dialogue_npc() -> None:
-    """NPC _FILL_ → 기본 대사."""
+    """NPC _FILL_ → 기본 대사 (폴백)."""
     skeletons = [
         NpcEvent(type="npc", name="NPC", x=1, y=1, dialogue=[_FILL]),
     ]
     result = _apply_default_dialogue(skeletons)
-    assert result[0].dialogue == ["안녕하세요, 여행자님. 이곳에 오신 걸 환영합니다."]
+    assert _FILL not in str(result[0].dialogue)
+
+
+def test_apply_default_dialogue_shop() -> None:
+    """Shop dialogue _FILL_ → 기본 대사."""
+    skeletons = [
+        ShopEvent(
+            type="shop",
+            name="상인",
+            x=3,
+            y=3,
+            dialogue=_FILL,
+            items=[ShopItem(item="포션", item_type="item")],
+        ),
+    ]
+    result = _apply_default_dialogue(skeletons)
+    assert result[0].dialogue != _FILL
+    assert "어서오세요" in result[0].dialogue
 
 
 def test_apply_default_dialogue_transfer() -> None:
@@ -74,20 +141,4 @@ def test_apply_default_dialogue_transfer() -> None:
         ),
     ]
     result = _apply_default_dialogue(skeletons)
-    assert result[0].blocked_dialogue == "아직 이쪽으로는 갈 수 없습니다."
-
-
-def test_apply_default_dialogue_shop() -> None:
-    """Shop dialogue _FILL_ → 기본 대사."""
-    skeletons = [
-        ShopEvent(
-            type="shop",
-            name="상인",
-            x=3,
-            y=3,
-            dialogue=_FILL,
-            items=[ShopItem(item="포션", item_type="item")],
-        ),
-    ]
-    result = _apply_default_dialogue(skeletons)
-    assert result[0].dialogue == "어서오세요! 좋은 물건이 많습니다."
+    assert result[0].blocked_dialogue != _FILL

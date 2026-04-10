@@ -1,14 +1,14 @@
 """event_filler — 이벤트 뼈대의 대사를 LLM으로 채운다.
 
-event_scaffolder가 생성한 _FILL_ 플레이스홀더를 자연스러운 대사로 교체.
+YAML 전체 재출력 대신, 번호별 대사 요청 → 파싱 → 원본에 삽입.
 구조(스위치, 좌표)는 변경하지 않음.
 """
 
 import logging
+import re
 from typing import cast
 
-import yaml
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter
 
 from agent.core.llm_client import invoke_llm
 from agent.generation.compilers.dsl_models import DslEvent
@@ -22,6 +22,14 @@ logger = logging.getLogger(__name__)
 _TEMPERATURE = 0.7
 _FILL = "_FILL_"
 _dsl_event_adapter: TypeAdapter = TypeAdapter(DslEvent)
+
+# 대사 역할 설명 (프롬프트에 포함)
+_FIELD_ROLE = {
+    "dialogue": "기본 대사 (처음 만났을 때)",
+    "hint_dialogue": "힌트 (퀘스트 진행 중, 간접 힌트)",
+    "alt_dialogue": "보상/완료 대사 (퀘스트 완료 후)",
+    "blocked_dialogue": "차단 안내 (조건 미충족 시)",
+}
 
 
 async def event_filler(state: GenerationState) -> dict:
@@ -68,27 +76,29 @@ async def event_filler(state: GenerationState) -> dict:
     return {"event_dsl": event_dsl, "completed_phases": completed}
 
 
+# ── 맵 단위 처리 ────────────────────────────────────────────────────────────
+
+
 async def _fill_single_map(
     map_spec: MapSpec,
     game_spec: GameSpec,
     skeletons: list,
 ) -> list:
     """맵 1개의 뼈대에 대사를 채운다."""
-    skeleton_dicts = [e.model_dump() for e in skeletons]
-    skeleton_yaml = yaml.dump(
-        {"events": skeleton_dicts}, allow_unicode=True, default_flow_style=False
-    )
-
-    if _FILL not in skeleton_yaml:
+    # _FILL_ 위치 추출
+    fill_requests = _extract_fill_requests(skeletons)
+    if not fill_requests:
         return skeletons
+
+    request_text = _format_fill_requests(fill_requests)
 
     for attempt in range(2):
         try:
-            prompt = build_event_filler_prompt(map_spec, game_spec, skeleton_yaml)
+            prompt = build_event_filler_prompt(map_spec, game_spec, request_text)
             raw = cast(str, await invoke_llm(prompt, temperature=_TEMPERATURE))
-            filled = _parse_filled_yaml(raw, skeletons)
-            if filled is not None:
-                return filled
+            filled_map = _parse_fill_response(raw)
+            if filled_map:
+                return _apply_fills(skeletons, filled_map)
         except Exception as e:
             logger.warning("Map%d 대사 채우기 시도 %d 실패: %s", map_spec.map_id, attempt + 1, e)
 
@@ -96,99 +106,121 @@ async def _fill_single_map(
     return _apply_default_dialogue(skeletons)
 
 
-def _parse_filled_yaml(raw: str, originals: list) -> list | None:
-    """LLM 응답 파싱. 구조는 원본 유지, 대사만 교체."""
-    try:
-        text = raw.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:-1]) if lines[-1].strip() == "```" else "\n".join(lines[1:])
-
-        data = yaml.safe_load(text)
-        if not isinstance(data, dict) or "events" not in data:
-            return None
-
-        events = data["events"] or []
-        if len(events) != len(originals):
-            logger.warning("LLM 출력 이벤트 수 불일치: %d vs %d", len(events), len(originals))
-
-        result = []
-        for i, orig in enumerate(originals):
-            if i < len(events):
-                merged = _merge_dialogue_only(orig.model_dump(), events[i])
-                result.append(_dsl_event_adapter.validate_python(merged))
-            else:
-                result.append(orig)
-
-        return result
-    except (yaml.YAMLError, ValidationError) as e:
-        logger.warning("filled YAML 파싱 실패: %s", e)
-        return None
+# ── _FILL_ 추출 ─────────────────────────────────────────────────────────────
 
 
-def _merge_dialogue_only(original: dict, filled: dict) -> dict:
-    """filled에서 대사 필드만 가져오고 나머지는 original 유지."""
-    dialogue_fields = {
-        "dialogue",
-        "alt_dialogue",
-        "hint_dialogue",
-        "lines",
+def _extract_fill_requests(skeletons: list) -> list[tuple[int, str, str]]:
+    """(이벤트 인덱스, 필드명, 역할 설명) 목록 추출."""
+    requests: list[tuple[int, str, str]] = []
+    dialogue_fields = ["dialogue", "alt_dialogue", "hint_dialogue", "blocked_dialogue"]
+
+    for i, skeleton in enumerate(skeletons):
+        d = skeleton.model_dump()
+        event_type = d.get("type", "npc")
+        event_name = d.get("name", f"이벤트{i + 1}")
+
+        for field in dialogue_fields:
+            if field not in d:
+                continue
+            val = d[field]
+            if val == _FILL or val == [_FILL] or (isinstance(val, list) and _FILL in val):
+                role = _FIELD_ROLE.get(field, field)
+                # 추가 맥락
+                context = f"[{event_name}] ({event_type})"
+                if field == "alt_dialogue" and d.get("condition_switch"):
+                    context += f" — {d['condition_switch']} 조건 충족 후"
+                if field == "hint_dialogue" and d.get("hint_switch"):
+                    context += f" — {d['hint_switch']} 조건 충족 후, 퀘스트 진행 중"
+                requests.append((i, field, f"{context} {role}"))
+
+        # shop dialogue (str)
+        if event_type == "shop" and d.get("dialogue") == _FILL:
+            requests.append((i, "dialogue", f"[{event_name}] (상점) 상점 인사말"))
+
+    return requests
+
+
+def _format_fill_requests(requests: list[tuple[int, str, str]]) -> str:
+    """프롬프트에 들어갈 대사 요청 텍스트."""
+    lines = []
+    for idx, field, desc in requests:
+        lines.append(f"{idx + 1}.{field}: {desc}")
+    return "\n".join(lines)
+
+
+# ── LLM 응답 파싱 ───────────────────────────────────────────────────────────
+
+_RESPONSE_PATTERN = re.compile(r"^(\d+)\.(\w+):\s*(.+)$", re.MULTILINE)
+
+
+def _parse_fill_response(raw: str) -> dict[tuple[int, str], str]:
+    """LLM 응답에서 번호.필드: 대사 형식을 파싱."""
+    result: dict[tuple[int, str], str] = {}
+    for match in _RESPONSE_PATTERN.finditer(raw):
+        idx = int(match.group(1)) - 1  # 1-based → 0-based
+        field = match.group(2)
+        text = match.group(3).strip().strip('"').strip("'")
+        if text and text != _FILL and "FILL" not in text:
+            result[(idx, field)] = text
+    return result
+
+
+# ── 대사 적용 ────────────────────────────────────────────────────────────────
+
+
+def _apply_fills(
+    skeletons: list,
+    filled_map: dict[tuple[int, str], str],
+) -> list:
+    """파싱된 대사를 원본 스켈레톤에 적용."""
+    result = []
+    for i, skeleton in enumerate(skeletons):
+        d = skeleton.model_dump()
+        for (idx, field), text in filled_map.items():
+            if idx != i:
+                continue
+            if field in d:
+                # list 필드 (dialogue, alt_dialogue, hint_dialogue)
+                if isinstance(d[field], list):
+                    d[field] = [text]
+                else:
+                    d[field] = text
+
+        # 남은 _FILL_ 제거
+        d = _remove_remaining_fills(d)
+        result.append(_dsl_event_adapter.validate_python(d))
+    return result
+
+
+def _remove_remaining_fills(d: dict) -> dict:
+    """dict에 남은 _FILL_ 을 기본 대사로 교체."""
+    # shop dialogue는 str 타입이므로 먼저 처리
+    if d.get("type") == "shop" and d.get("dialogue") == _FILL:
+        d["dialogue"] = "어서오세요! 좋은 물건이 많습니다."
+        return d  # shop은 다른 대사 필드 없음
+
+    defaults = {
+        "dialogue": ["안녕하세요, 여행자님. 이곳에 오신 걸 환영합니다."],
+        "alt_dialogue": ["감사합니다! 덕분에 큰 도움이 되었습니다."],
+        "hint_dialogue": ["이 근처를 잘 살펴보세요. 단서가 있을 겁니다."],
+        "blocked_dialogue": "아직 이쪽으로는 갈 수 없습니다.",
     }
-    merged = dict(original)
-    for field in dialogue_fields:
-        if (
-            field in filled
-            and filled[field]
-            and filled[field] != [_FILL]
-            and filled[field] != _FILL
-        ):
-            merged[field] = filled[field]
-    # blocked_dialogue (str)
-    if (
-        "blocked_dialogue" in filled
-        and isinstance(filled.get("blocked_dialogue"), str)
-        and filled["blocked_dialogue"] != _FILL
-    ):
-        merged["blocked_dialogue"] = filled["blocked_dialogue"]
-    # shop dialogue (str)
-    if (
-        original.get("type") == "shop"
-        and "dialogue" in filled
-        and isinstance(filled.get("dialogue"), str)
-        and filled["dialogue"] != _FILL
-    ):
-        merged["dialogue"] = filled["dialogue"]
-    return merged
+    for field, default_val in defaults.items():
+        if field in d:
+            val = d[field]
+            if val == _FILL or val == [_FILL] or (isinstance(val, list) and _FILL in val):
+                d[field] = default_val
+    return d
+
+
+# ── 폴백 ────────────────────────────────────────────────────────────────────
 
 
 def _apply_default_dialogue(skeletons: list) -> list:
     """_FILL_을 기본 대사로 교체 (폴백)."""
-    defaults = {
-        "npc": {
-            "dialogue": ["안녕하세요, 여행자님. 이곳에 오신 걸 환영합니다."],
-            "alt_dialogue": ["감사합니다! 덕분에 큰 도움이 되었습니다."],
-            "hint_dialogue": ["동쪽을 잘 살펴보세요. 단서가 있을 겁니다."],
-        },
-        "shop": {"dialogue": "어서오세요! 좋은 물건이 많습니다."},
-        "transfer": {"blocked_dialogue": "아직 이쪽으로는 갈 수 없습니다."},
-        "ending": {
-            "lines": ["축하합니다! 모험을 완수했습니다.", "세계에 다시 평화가 찾아왔습니다."]
-        },
-    }
-    import json
-
     result = []
     for skeleton in skeletons:
         d = skeleton.model_dump()
-        event_type = d.get("type", "npc")
-        type_defaults = defaults.get(event_type, {})
-        for field, default_val in type_defaults.items():
-            if field in d and (d[field] == [_FILL] or d[field] == _FILL):
-                d[field] = default_val
-        # 최종 안전망: 남은 _FILL_ 문자열을 모두 기본값으로 교체
-        json_str = json.dumps(d, ensure_ascii=False)
-        if "_FILL_" in json_str:
-            json_str = json_str.replace('"_FILL_"', '"..."').replace("_FILL_", "...")
-            d = json.loads(json_str)
+        d = _remove_remaining_fills(d)
         result.append(_dsl_event_adapter.validate_python(d))
     return result
