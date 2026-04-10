@@ -166,8 +166,8 @@ class EventCompiler:
         map_id = self.resolve_map_id(event.to_map)
         direction = _DIRECTION_CODE.get(event.direction, 0)
 
-        cmds: list[dict] = []
-        cmds.append(
+        transfer_cmds: list[dict] = []
+        transfer_cmds.append(
             {
                 "code": 201,
                 "indent": 0,
@@ -176,17 +176,50 @@ class EventCompiler:
         )
         if event.set_switch:
             sw_id = self.resolve_switch_id(event.set_switch)
-            cmds.append({"code": 121, "indent": 0, "parameters": [sw_id, sw_id, 0]})
-        cmds.append({"code": 0, "indent": 0, "parameters": []})
+            transfer_cmds.append({"code": 121, "indent": 0, "parameters": [sw_id, sw_id, 0]})
+        transfer_cmds.append({"code": 0, "indent": 0, "parameters": []})
 
-        page = _make_page(
-            cmds,
-            _empty_conditions(),
-            _trigger_code(event.trigger),
-            character_name=event.character_name,
-            character_index=event.character_index,
-        )
-        return _make_event(event.name, event.x, event.y, [page])
+        if event.condition_switch:
+            cond_sw_id = self.resolve_switch_id(event.condition_switch)
+
+            # page1: 조건 없음 — 차단 메시지 (switch OFF 시 활성)
+            page1_cmds: list[dict] = []
+            if event.blocked_dialogue:
+                page1_cmds.append({"code": 101, "indent": 0, "parameters": ["", 0, 0, 2, ""]})
+                page1_cmds.append(
+                    {"code": 401, "indent": 0, "parameters": [event.blocked_dialogue]}
+                )
+            page1_cmds.append({"code": 0, "indent": 0, "parameters": []})
+
+            # page2: switch ON → 이동 실행
+            pages = [
+                _make_page(
+                    page1_cmds,
+                    _empty_conditions(),
+                    _trigger_code(event.trigger),
+                    character_name=event.character_name,
+                    character_index=event.character_index,
+                ),
+                _make_page(
+                    transfer_cmds,
+                    _make_switch_condition(cond_sw_id),
+                    _trigger_code(event.trigger),
+                    character_name=event.character_name,
+                    character_index=event.character_index,
+                ),
+            ]
+        else:
+            pages = [
+                _make_page(
+                    transfer_cmds,
+                    _empty_conditions(),
+                    _trigger_code(event.trigger),
+                    character_name=event.character_name,
+                    character_index=event.character_index,
+                )
+            ]
+
+        return _make_event(event.name, event.x, event.y, pages)
 
     # ── Chest ────────────────────────────────────────────────────────────────
 

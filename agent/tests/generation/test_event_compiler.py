@@ -139,3 +139,38 @@ def test_compile_transfer_unknown_map_raises(compiler: EventCompiler) -> None:
     )
     with pytest.raises(CompileError):
         compiler.compile(event)
+
+
+def test_compile_transfer_with_condition_switch(compiler: EventCompiler) -> None:
+    """TransferEvent: condition_switch 있으면 2페이지 — page1 차단, page2 이동."""
+    event = TransferEvent(
+        type="transfer",
+        name="보스맵_입구",
+        x=10,
+        y=13,
+        to_map="보스의 성",
+        to_x=1,
+        to_y=1,
+        condition_switch="던전_입구_클리어",
+        blocked_dialogue="아직 던전을 클리어하지 못했습니다.",
+    )
+    result = compiler.compile(event)
+    assert len(result["pages"]) == 2
+    # page1: 조건 없음 (차단 메시지)
+    assert result["pages"][0]["conditions"]["switch1Valid"] is False
+    codes_p1 = [cmd["code"] for cmd in result["pages"][0]["list"]]
+    assert 101 in codes_p1  # 차단 대화
+    # page2: switch 조건 ON일 때 이동
+    assert result["pages"][1]["conditions"]["switch1Valid"] is True
+    codes_p2 = [cmd["code"] for cmd in result["pages"][1]["list"]]
+    assert 201 in codes_p2  # Transfer
+
+
+def test_compile_transfer_without_condition_switch_unchanged(compiler: EventCompiler) -> None:
+    """TransferEvent: condition_switch 없으면 기존과 동일 1페이지."""
+    event = TransferEvent(
+        type="transfer", name="마을_이동", x=5, y=5, to_map="출발 마을", to_x=1, to_y=1
+    )
+    result = compiler.compile(event)
+    assert len(result["pages"]) == 1
+    assert result["pages"][0]["conditions"]["switch1Valid"] is False

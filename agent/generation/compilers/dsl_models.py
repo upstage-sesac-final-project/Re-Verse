@@ -37,6 +37,8 @@ class TransferEvent(BaseModel):
     to_y: int
     direction: str = "retain"
     set_switch: str | None = None
+    condition_switch: str | None = None  # 스위치 ON일 때만 이동
+    blocked_dialogue: str | None = None  # 조건 미충족 시 메시지
     character_name: str = "!Crystal"  # 워프 스프라이트 (기본: 크리스탈 포털)
     character_index: int = 0
 
