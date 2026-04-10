@@ -1957,7 +1957,10 @@ async def _execute_one_structured_step(
         if target_file == "Items.json" and action == "create":
             if target_info.get("item_id") is not None or target_info.get("itemId") is not None:
                 logger.debug("[Executor] 구조화: Items.json.create → JSON 직접 저장")
-                r = await asyncio.to_thread(_structured_create_item_sync, data_path, target_info)
+                async with game_locks[game_id]:
+                    r = await asyncio.to_thread(
+                        _structured_create_item_sync, data_path, target_info
+                    )
                 step_results[sid] = {**r, "step_id": sid}
                 mf = r.get("modified_files") or ["Items.json"]
                 return {
@@ -1974,7 +1977,10 @@ async def _execute_one_structured_step(
         if target_file == "Enemies.json" and action == "create":
             if target_info.get("enemy_id") is not None or target_info.get("enemyId") is not None:
                 logger.debug("[Executor] 구조화: Enemies.json.create → JSON 직접 저장")
-                r = await asyncio.to_thread(_structured_create_enemy_sync, data_path, target_info)
+                async with game_locks[game_id]:
+                    r = await asyncio.to_thread(
+                        _structured_create_enemy_sync, data_path, target_info
+                    )
                 step_results[sid] = {**r, "step_id": sid}
                 mf = r.get("modified_files") or ["Enemies.json"]
                 return {
@@ -2582,7 +2588,11 @@ async def _executor_structured(
 
     current_game_state = _copy_snapshot_files_to_disk(data_path, target_files, snap_dir, "before")
     backup_targets = _collect_structured_backup_files(execution_plan)
-    backup_paths = _create_backup(data_path, backup_targets)
+    if retry_count == 0:
+        backup_paths = _create_backup(data_path, backup_targets)
+    else:
+        backup_paths = {}
+        logger.info("[Executor structured] retry=%d → 백업 생성 skip (중복 방지)", retry_count)
     logger.info(
         "[Executor structured] before 스냅샷: %d개 파일, 백업: %d개 파일",
         len(current_game_state),

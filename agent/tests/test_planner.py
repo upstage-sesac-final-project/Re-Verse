@@ -7,7 +7,7 @@
 
 [ 실행 방법 ]
   # 결과 출력 없이 검증만
-  uv run pytest agent/tests/test_planner.py -v
+  uv run pytest agent/tests/test_planner.py -v -m integration
 
   # LLM이 실제로 만든 execution_plan 내용까지 출력
   uv run pytest agent/tests/test_planner.py -v -s
@@ -26,6 +26,8 @@ import pytest
 
 from agent.graph.nodes.planner import planner
 from agent.graph.state import AgentState
+
+pytestmark = pytest.mark.integration
 
 # ──────────────────────────────────────────────────────────────
 # 공통 헬퍼

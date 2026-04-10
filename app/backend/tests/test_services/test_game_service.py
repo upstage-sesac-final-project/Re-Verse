@@ -114,7 +114,7 @@ class TestDeleteProject:
         self, db_session: AsyncSession, test_project: Project
     ):
         """프로젝트 삭제 시 _game_locks에서 해당 lock이 제거되는지 확인."""
-        from app.backend.services.llm_service import _game_locks
+        from app.backend.services.session_manager import _game_locks
 
         game_id = test_project.game_id
         # lock을 미리 생성해둠
