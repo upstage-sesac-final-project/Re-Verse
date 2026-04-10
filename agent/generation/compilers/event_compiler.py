@@ -85,7 +85,13 @@ class EventCompiler:
         return self.id_table.troops[name]
 
     def resolve_switch_id(self, name: str) -> int:
-        """스위치 이름 → ID. 없으면 새로 할당 (SwitchTable 불변, model_copy 패턴)."""
+        """스위치 이름 → ID. 없으면 새로 할당 (SwitchTable 불변, model_copy 패턴).
+
+        이름은 SwitchTable.allocate_switch에서 정규화됨 (공백→밑줄).
+        """
+        from agent.generation.registry.switch_table import normalize_switch_name
+
+        name = normalize_switch_name(name)
         if name not in self.switch_table.switches:
             self.switch_table, _ = self.switch_table.allocate_switch(name)
         return self.switch_table.switches[name]

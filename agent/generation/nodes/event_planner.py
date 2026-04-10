@@ -15,6 +15,7 @@ from pydantic import TypeAdapter, ValidationError
 from agent.core.llm_client import invoke_llm
 from agent.generation.compilers.dsl_models import (
     BattleEvent,
+    ChestEvent,
     DslEvent,
     NpcEvent,
     TransferEvent,
@@ -125,6 +126,7 @@ async def _plan_single_map(
                 logger.warning("Map%d DSL 파싱 실패 (시도 %d)", map_spec.map_id, attempt + 1)
                 continue
             valid = _validate_coords(events, map_spec)
+            valid = _prefix_chest_switches(valid, map_spec.name)
             valid = _validate_name_refs(valid, id_table, switch_table)
             valid = _validate_event_types(valid, map_spec)
             valid = _validate_npc_names(valid, id_table, map_story=map_story)
@@ -187,6 +189,26 @@ def _validate_coords(events: list, spec: MapSpec) -> list:
                 e.y,
             )
     return valid
+
+
+def _prefix_chest_switches(events: list, map_name: str) -> list:
+    """chest_switch에 맵 이름 접두어가 없으면 자동 추가.
+
+    LLM이 'chest_01' 같은 범용 이름을 쓰면 맵 간 충돌이 발생한다.
+    '마을_chest_01'처럼 맵 고유 이름으로 변환하여 방지.
+    """
+    from agent.generation.registry.switch_table import normalize_switch_name
+
+    prefix = normalize_switch_name(map_name)
+    for e in events:
+        if isinstance(e, ChestEvent) and e.chest_switch:
+            sw = e.chest_switch
+            # 이미 맵 이름 접두어가 있으면 스킵
+            if not sw.startswith(prefix):
+                new_sw = f"{prefix}_{sw}"
+                logger.info("chest_switch '%s' → '%s' (맵 접두어 추가)", sw, new_sw)
+                e.chest_switch = new_sw
+    return events
 
 
 def _correct_troop_name(raw: str, all_troop_names: set[str]) -> str | None:

@@ -115,9 +115,9 @@ async def test_asset_planner_returns_expected_phase_outputs() -> None:
     assert result["generation_order"][1] == "actors"
     assert result["id_table"].actors == {"캐릭터1": 1, "캐릭터2": 2}
     assert result["id_table"].maps["마왕의 성"] == 4
-    assert result["switch_table"].switches["오크 대장_defeated"] >= 1
+    assert result["switch_table"].switches["오크_대장_defeated"] >= 1
     assert result["switch_table"].switches["마왕_defeated"] >= 1
-    assert result["switch_table"].switches["어둠의 던전_cleared"] >= 1
+    assert result["switch_table"].switches["어둠의_던전_cleared"] >= 1
     assert result["switch_table"].switches["game_cleared"] >= 1
 
 

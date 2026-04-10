@@ -335,3 +335,51 @@ def test_validate_switch_refs_warns_on_orphan_condition(caplog) -> None:
         _validate_switch_refs(events, set())
 
     assert any("never_set_switch" in r.message for r in caplog.records)
+
+
+def test_switch_name_normalization_spaces_to_underscores() -> None:
+    """공백이 포함된 스위치 이름과 밑줄 버전이 같은 ID를 받는지 확인."""
+    from agent.generation.registry.switch_table import normalize_switch_name
+
+    assert normalize_switch_name("고대 유적_cleared") == "고대_유적_cleared"
+    assert normalize_switch_name("던전 입구_cleared") == "던전_입구_cleared"
+    assert normalize_switch_name("act_1_started") == "act_1_started"  # 변경 없음
+
+
+def test_switch_table_allocates_same_id_for_normalized_names() -> None:
+    """공백 vs 밑줄 이름이 같은 스위치 ID를 할당받는지 확인."""
+    table = SwitchTable()
+    table, id1 = table.allocate_switch("고대 유적_cleared")
+    table, id2 = table.allocate_switch("고대_유적_cleared")
+    assert id1 == id2  # 정규화 후 같은 이름이므로 같은 ID
+
+
+def test_prefix_chest_switches_adds_map_name() -> None:
+    """chest_switch에 맵 접두어가 없으면 자동 추가."""
+    from agent.generation.nodes.event_planner import _prefix_chest_switches
+
+    events = [
+        ChestEvent(
+            type="chest",
+            name="보물상자",
+            x=4,
+            y=6,
+            item="회복 포션",
+            item_type="item",
+            chest_switch="chest_01",
+            one_time=True,
+        ),
+        ChestEvent(
+            type="chest",
+            name="보물상자2",
+            x=5,
+            y=6,
+            item="회복 포션",
+            item_type="item",
+            chest_switch="고대_유적_chest_02",
+            one_time=True,
+        ),
+    ]
+    result = _prefix_chest_switches(events, "고대 유적")
+    assert result[0].chest_switch == "고대_유적_chest_01"  # 접두어 추가됨
+    assert result[1].chest_switch == "고대_유적_chest_02"  # 이미 접두어 있어서 변경 없음
