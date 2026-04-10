@@ -5,7 +5,7 @@ canonical: docs/The_world/full_generation_plan.md
 
 from typing import Any, TypedDict
 
-from agent.generation.models import GameSpec, MapConnectionInfo, MapSpec
+from agent.generation.models import GameSpec, MapConnectionInfo, MapSpec, MapStoryScript
 from agent.generation.registry.id_table import IdTable
 from agent.generation.registry.switch_table import SwitchTable
 
@@ -31,7 +31,10 @@ class GenerationState(TypedDict, total=False):
     map_tiles: dict[int, list[int]]  # map_id → flat 1D (width×height×6)
     connection_info: dict[int, MapConnectionInfo]
 
-    # ── F+G 노드 출력 ──────────────────────────────────────
+    # ── F 노드 (story_planner) 출력 ───────────────────────
+    story_script: dict[int, MapStoryScript] | None  # map_id → MapStoryScript
+
+    # ── G+H 노드 출력 ─────────────────────────────────────
     event_dsl: dict[int, list]
     compiled_events: dict[int, list[dict]]
 

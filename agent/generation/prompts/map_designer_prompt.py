@@ -16,7 +16,7 @@ _SYSTEM = """\
 ## 맵 크기 규칙 (반드시 준수)
 - town:    width=30, height=30, tileset_id=1, bgm="Town1"
 - dungeon: width=40, height=30, tileset_id=2, bgm="Dungeon1"
-- boss:    width=20, height=20, tileset_id=2, bgm="Boss1"
+- boss:    width=20, height=20, tileset_id=2, bgm="Battle1"
 - field:   width=40, height=30, tileset_id=1, bgm="Field1"
 
 ## landmark position_hint 허용값

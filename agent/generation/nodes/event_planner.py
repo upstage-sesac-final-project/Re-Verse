@@ -19,7 +19,7 @@ from agent.generation.compilers.dsl_models import (
     NpcEvent,
     TransferEvent,
 )
-from agent.generation.models import GameSpec, MapConnectionInfo, MapSpec
+from agent.generation.models import GameSpec, MapConnectionInfo, MapSpec, MapStoryScript
 from agent.generation.progress import publish_progress
 from agent.generation.prompts.event_planner_prompt import build_event_planner_prompt
 from agent.generation.rag_context import get_event_planner_context
@@ -58,6 +58,8 @@ async def event_planner(state: GenerationState) -> dict:
         },
     )
 
+    story_script: dict[int, MapStoryScript] = state.get("story_script") or {}
+
     tasks = [
         _plan_single_map(
             map_spec=spec,
@@ -66,6 +68,7 @@ async def event_planner(state: GenerationState) -> dict:
             switch_table=switch_table,
             connection_info=connection_info.get(spec.map_id, _empty_connection(spec.map_id)),
             troop_to_sprite=troop_to_sprite,
+            map_story=story_script.get(spec.map_id),
         )
         for spec in map_specs
     ]
@@ -101,12 +104,19 @@ async def _plan_single_map(
     switch_table: SwitchTable,
     connection_info: MapConnectionInfo,
     troop_to_sprite: dict[str, tuple[str, int]],
+    map_story: MapStoryScript | None = None,
 ) -> list:
     rag_context = get_event_planner_context(map_spec.map_type)
     for attempt in range(3):
         try:
             prompt = build_event_planner_prompt(
-                map_spec, game_spec, id_table, switch_table, connection_info, rag_context
+                map_spec,
+                game_spec,
+                id_table,
+                switch_table,
+                connection_info,
+                rag_context,
+                map_story=map_story,
             )
             raw = cast(str, await invoke_llm(prompt, temperature=_TEMPERATURE))
             events = _parse_dsl_safe(raw, map_spec.map_id)
@@ -115,6 +125,8 @@ async def _plan_single_map(
                 continue
             valid = _validate_coords(events, map_spec)
             valid = _validate_name_refs(valid, id_table, switch_table)
+            valid = _validate_event_types(valid, map_spec)
+            valid = _validate_npc_names(valid, id_table, map_story=map_story)
             if valid is not None:
                 return _fix_battle_sprites(valid, troop_to_sprite)
         except Exception as e:
@@ -173,29 +185,44 @@ def _correct_troop_name(raw: str, all_troop_names: set[str]) -> str | None:
     """LLM이 suffix를 생략하거나 잘못 붙인 troop 이름을 자동 보정한다.
 
     보정 순서:
-      1. × 앞 공백/언더스코어 제거 ("이름 ×2" → "이름×2")
-      2. _단독 suffix 추가 ("이름" → "이름_단독")
-      3. ×1 suffix 추가 ("이름" → "이름×1")
-      4. 접두 부분 매칭 (all_troop_names 중 raw로 시작하는 첫 번째)
+      1. × 주변 공백 제거 ("이름 × 2" → "이름×2")
+      2. 적 이름 내 언더스코어→공백 변환 ("이름_보스_단독" → "이름 보스_단독")
+      3. _단독 suffix 추가 ("이름" → "이름_단독")
+      4. ×1 suffix 추가 ("이름" → "이름×1")
+      5. 접두 부분 매칭 (all_troop_names 중 raw로 시작하는 첫 번째)
     """
-    # 1. × 앞 공백/underscore 정규화
-    normalized = re.sub(r"[\s_]+×", "×", raw)
+    # 1. × 앞뒤 공백/underscore 정규화: "이름 × 2" → "이름×2"
+    normalized = re.sub(r"\s*×\s*", "×", raw)
     if normalized in all_troop_names:
         return normalized
 
+    # 2. 적 이름 부분의 언더스코어를 공백으로 변환
+    #    "알고리즘_관리자_단독" → base="알고리즘_관리자" → "알고리즘 관리자_단독"
+    #    "에러_고블린×2"        → base="에러_고블린"     → "에러 고블린×2"
+    if "×" in normalized:
+        base_part, count_part = normalized.rsplit("×", 1)
+        spaced = f"{base_part.replace('_', ' ')}×{count_part}"
+        if spaced in all_troop_names:
+            return spaced
+    elif normalized.endswith("_단독"):
+        base_part = normalized[: -len("_단독")]
+        spaced = f"{base_part.replace('_', ' ')}_단독"
+        if spaced in all_troop_names:
+            return spaced
+
     base = normalized  # 이후 suffix 시도는 정규화된 이름 기준
 
-    # 2. _단독 suffix
+    # 3. _단독 suffix
     candidate = f"{base}_단독"
     if candidate in all_troop_names:
         return candidate
 
-    # 3. ×1 suffix
+    # 4. ×1 suffix
     candidate = f"{base}×1"
     if candidate in all_troop_names:
         return candidate
 
-    # 4. 접두 부분 매칭 (정렬해서 가장 짧은 것 우선)
+    # 5. 접두 부분 매칭 (정렬해서 가장 짧은 것 우선)
     matches = sorted(t for t in all_troop_names if t.startswith(base))
     return matches[0] if matches else None
 
@@ -236,6 +263,81 @@ def _validate_name_refs(events: list, id_table: IdTable, switch_table: SwitchTab
         except Exception as exc:
             logger.warning("이벤트 '%s' 검증 오류: %s → 제거", getattr(e, "name", "?"), exc)
 
+    return valid
+
+
+# 맵 타입별 생성 금지 이벤트 타입
+_FORBIDDEN_EVENT_TYPES: dict[str, set[str]] = {
+    "town": {"battle", "ending"},  # 마을/안전지역 — 전투·엔딩 이벤트 금지
+    "boss": set(),  # 보스맵 — 제한 없음
+    "dungeon": {"ending"},  # 던전 — 엔딩 이벤트 금지 (보스맵 전용)
+    "field": {"ending"},  # 필드 — 엔딩 이벤트 금지
+}
+
+
+def _validate_npc_names(
+    events: list,
+    id_table: IdTable,
+    map_story: MapStoryScript | None = None,
+) -> list:
+    """NPC 이름이 액터(주인공 파티) 이름과 겹치면 role 기반으로 자동 수정.
+
+    수정 우선순위:
+      1. map_story.npcs에서 동일 이름 NPC의 role 사용
+      2. role 없으면 map_story.npcs의 role 중 첫 번째 미사용 role
+      3. 그래도 없으면 "안내인" (강제 접두사 금지)
+    """
+    actor_names: set[str] = set(id_table.actors.keys())
+    if not actor_names:
+        return events
+
+    # story_script의 NPC name → role 역매핑
+    story_name_to_role: dict[str, str] = {}
+    if map_story:
+        for npc in map_story.npcs:
+            story_name_to_role[npc.name] = npc.role
+
+    for e in events:
+        if e.type not in ("npc", "shop"):
+            continue
+        if e.name not in actor_names:
+            continue
+
+        # role 결정: story_script 매칭 → 첫 번째 story NPC role → 기본값
+        role = story_name_to_role.get(e.name)
+        if not role and map_story and map_story.npcs:
+            role = map_story.npcs[0].role
+        if not role or role in actor_names:
+            role = "안내인"
+
+        logger.warning(
+            "NPC 이름 '%s'이 액터 이름과 충돌 → '%s'(role)로 자동 수정",
+            e.name,
+            role,
+        )
+        e.name = role
+
+    return events
+
+
+def _validate_event_types(events: list, spec: MapSpec) -> list:
+    """맵 타입에 허용되지 않는 이벤트 타입 제거."""
+    forbidden = _FORBIDDEN_EVENT_TYPES.get(spec.map_type, set())
+    if not forbidden:
+        return events
+    valid = []
+    for e in events:
+        if e.type in forbidden:
+            logger.warning(
+                "Map%d('%s') 이벤트 '%s' (type=%s) — %s 맵에서 금지된 타입 → 제거",
+                spec.map_id,
+                spec.name,
+                e.name,
+                e.type,
+                spec.map_type,
+            )
+        else:
+            valid.append(e)
     return valid
 
 

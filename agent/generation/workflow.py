@@ -23,6 +23,7 @@ from agent.generation.nodes.generation_responder import generation_responder
 from agent.generation.nodes.generation_validator import generation_validator, route_after_validation
 from agent.generation.nodes.integrator import integrator
 from agent.generation.nodes.map_designer import map_designer
+from agent.generation.nodes.story_planner import story_planner
 from agent.generation.nodes.tile_generator import tile_generator
 from agent.generation.state import GenerationState
 
@@ -42,7 +43,7 @@ def _route_after_tile_generator(state: GenerationState) -> str:
     phase_limit = state.get("phase_limit")
     if phase_limit == "maps":
         return "skip_to_integrate"
-    return "event_phase"
+    return "story_phase"
 
 
 def build_generation_graph() -> Any:
@@ -60,6 +61,7 @@ def build_generation_graph() -> Any:
     builder.add_node("asset_generator", asset_generator)
     builder.add_node("map_designer", map_designer)
     builder.add_node("tile_generator", tile_generator)
+    builder.add_node("story_planner", story_planner)
     builder.add_node("event_planner", event_planner)
     builder.add_node("event_compiler", event_compiler_node)
     builder.add_node("integrator", integrator)
@@ -83,16 +85,17 @@ def build_generation_graph() -> Any:
 
     builder.add_edge("map_designer", "tile_generator")
 
-    # E → (maps → H) or (events → F)
+    # E → (maps → H) or (story → F → G)
     builder.add_conditional_edges(
         "tile_generator",
         _route_after_tile_generator,
         {
             "skip_to_integrate": "integrator",
-            "event_phase": "event_planner",
+            "story_phase": "story_planner",
         },
     )
 
+    builder.add_edge("story_planner", "event_planner")
     builder.add_edge("event_planner", "event_compiler")
     builder.add_edge("event_compiler", "integrator")
     builder.add_edge("integrator", "validator")
