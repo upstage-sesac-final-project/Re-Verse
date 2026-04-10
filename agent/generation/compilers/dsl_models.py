@@ -26,6 +26,10 @@ class NpcEvent(BaseModel):
     set_switch: str | None = None
     required_item: str | None = None  # 아이템 소지 시 alt_dialogue 분기
     consume_item: bool = False  # True면 아이템 소비 후 alt_dialogue
+    give_item: str | None = None  # 대화 후 아이템 지급
+    hint_switch: str | None = None  # 힌트 페이지 조건 스위치
+    hint_dialogue: list[str] | None = None  # 힌트 대사
+    unlock_switch: str | None = None  # 보상 시 해제할 게이트 스위치
 
 
 class TransferEvent(BaseModel):

@@ -383,3 +383,58 @@ def test_prefix_chest_switches_adds_map_name() -> None:
     result = _prefix_chest_switches(events, "고대 유적")
     assert result[0].chest_switch == "고대_유적_chest_01"  # 접두어 추가됨
     assert result[1].chest_switch == "고대_유적_chest_02"  # 이미 접두어 있어서 변경 없음
+
+
+def test_compile_npc_three_pages(compiler: EventCompiler) -> None:
+    """NPC 3페이지: page1=퀘스트부여, page2=힌트, page3=보상."""
+    event = NpcEvent(
+        type="npc",
+        name="촌장",
+        x=5,
+        y=5,
+        dialogue=["마왕을 처치해주세요!"],
+        set_switch="quest_accepted",
+        hint_switch="quest_accepted",
+        hint_dialogue=["마왕은 동굴 깊은 곳에 있어요."],
+        condition_switch="boss_defeated",
+        alt_dialogue=["감사합니다! 이 보물을 받으세요."],
+    )
+    result = compiler.compile(event)
+    assert len(result["pages"]) == 3
+    assert result["pages"][0]["conditions"]["switch1Valid"] is False
+    assert result["pages"][1]["conditions"]["switch1Valid"] is True
+    assert result["pages"][2]["conditions"]["switch1Valid"] is True
+
+
+def test_compile_npc_with_give_item(compiler: EventCompiler) -> None:
+    """NPC give_item: 대화 후 아이템 지급 (code 126)."""
+    event = NpcEvent(
+        type="npc",
+        name="상인",
+        x=3,
+        y=3,
+        dialogue=["이 포션을 드릴게요."],
+        give_item="회복 포션",
+    )
+    result = compiler.compile(event)
+    codes = [cmd["code"] for cmd in result["pages"][0]["list"]]
+    assert 126 in codes
+
+
+def test_compile_npc_with_unlock_switch(compiler: EventCompiler) -> None:
+    """NPC unlock_switch: 보상 페이지에서 게이트 스위치 해제."""
+    event = NpcEvent(
+        type="npc",
+        name="촌장",
+        x=5,
+        y=5,
+        dialogue=["의뢰가 있소."],
+        condition_switch="boss_defeated",
+        alt_dialogue=["감사하오!"],
+        unlock_switch="next_map_gate",
+    )
+    result = compiler.compile(event)
+    assert len(result["pages"]) == 2
+    # page2에서 unlock_switch가 SET됨
+    codes_p2 = [cmd["code"] for cmd in result["pages"][1]["list"]]
+    assert 121 in codes_p2  # Control Switches

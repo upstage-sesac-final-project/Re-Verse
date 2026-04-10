@@ -119,23 +119,32 @@ class EventCompiler:
     # ── NPC ──────────────────────────────────────────────────────────────────
 
     def _compile_npc(self, event: NpcEvent) -> dict:
-        """NpcEvent → 1~2페이지 이벤트.
+        """NpcEvent → 1~3페이지 이벤트.
 
-        페이지 1: 기본 대화 (조건 없음)
-        페이지 2: alt_dialogue 있을 때만, condition_switch=ON 조건
+        페이지 1: 기본 대화 (조건 없음). set_switch, give_item 처리.
+        페이지 2 (hint_switch+hint_dialogue): 힌트 대화. 조건: hint_switch ON.
+        페이지 2/3 (condition_switch+alt_dialogue): 보상/조건부 대화.
+                  consume_item, unlock_switch 처리. 조건: condition_switch ON 또는 required_item.
+
+        hint_switch + condition_switch 둘 다 있으면 3페이지.
+        hint_switch만 있으면 2페이지 (기본+힌트).
+        condition_switch/required_item만 있으면 2페이지 (기존 동작 유지).
         """
         if event.condition_switch and not event.alt_dialogue:
             logger.warning("NpcEvent '%s': condition_switch 있지만 alt_dialogue 없음", event.name)
 
         pages = []
 
-        # 페이지 1: 기본 대화
+        # ── 페이지 1: 기본 대화 (조건 없음) ──
         page1_cmds = _build_dialogue_commands(
             event.face_image, event.face_index, event.name, event.dialogue
         )
         if event.set_switch:
             sw_id = self.resolve_switch_id(event.set_switch)
             page1_cmds.append({"code": 121, "indent": 0, "parameters": [sw_id, sw_id, 0]})
+        if event.give_item:
+            give_item_id = self.resolve_item_id(event.give_item)
+            page1_cmds.append({"code": 126, "indent": 0, "parameters": [give_item_id, 0, 0, 1]})
         page1_cmds.append({"code": 0, "indent": 0, "parameters": []})
         pages.append(
             _make_page(
@@ -147,16 +156,46 @@ class EventCompiler:
             )
         )
 
-        # 페이지 2: 조건부 대화 (condition_switch 우선, 없으면 required_item)
-        if event.condition_switch and event.alt_dialogue:
-            cond_sw_id = self.resolve_switch_id(event.condition_switch)
-            page2_cmds = _build_dialogue_commands(
-                event.face_image, event.face_index, event.name, event.alt_dialogue
+        # ── 페이지 2 (힌트): hint_switch + hint_dialogue ──
+        if event.hint_switch and event.hint_dialogue:
+            hint_sw_id = self.resolve_switch_id(event.hint_switch)
+            hint_cmds = _build_dialogue_commands(
+                event.face_image, event.face_index, event.name, event.hint_dialogue
             )
-            page2_cmds.append({"code": 0, "indent": 0, "parameters": []})
+            hint_cmds.append({"code": 0, "indent": 0, "parameters": []})
             pages.append(
                 _make_page(
-                    page2_cmds,
+                    hint_cmds,
+                    _make_switch_condition(hint_sw_id),
+                    _trigger_code(event.trigger),
+                    character_name=event.character_name,
+                    character_index=event.character_index,
+                )
+            )
+
+        # ── 보상/조건부 페이지: condition_switch 또는 required_item ──
+        if event.condition_switch and event.alt_dialogue:
+            cond_sw_id = self.resolve_switch_id(event.condition_switch)
+            reward_cmds: list[dict] = []
+            if event.consume_item and event.required_item:
+                consume_item_id = self.resolve_item_id(event.required_item)
+                reward_cmds.append(
+                    {"code": 126, "indent": 0, "parameters": [consume_item_id, 0, 1, 1]}
+                )
+            reward_cmds.extend(
+                _build_dialogue_commands(
+                    event.face_image, event.face_index, event.name, event.alt_dialogue
+                )
+            )
+            if event.unlock_switch:
+                unlock_sw_id = self.resolve_switch_id(event.unlock_switch)
+                reward_cmds.append(
+                    {"code": 121, "indent": 0, "parameters": [unlock_sw_id, unlock_sw_id, 0]}
+                )
+            reward_cmds.append({"code": 0, "indent": 0, "parameters": []})
+            pages.append(
+                _make_page(
+                    reward_cmds,
                     _make_switch_condition(cond_sw_id),
                     _trigger_code(event.trigger),
                     character_name=event.character_name,
@@ -165,18 +204,23 @@ class EventCompiler:
             )
         elif event.required_item and event.alt_dialogue:
             item_id = self.resolve_item_id(event.required_item)
-            page2_cmds = []
+            item_cmds: list[dict] = []
             if event.consume_item:
-                page2_cmds.append({"code": 126, "indent": 0, "parameters": [item_id, 0, 1, 1]})
-            page2_cmds.extend(
+                item_cmds.append({"code": 126, "indent": 0, "parameters": [item_id, 0, 1, 1]})
+            item_cmds.extend(
                 _build_dialogue_commands(
                     event.face_image, event.face_index, event.name, event.alt_dialogue
                 )
             )
-            page2_cmds.append({"code": 0, "indent": 0, "parameters": []})
+            if event.unlock_switch:
+                unlock_sw_id = self.resolve_switch_id(event.unlock_switch)
+                item_cmds.append(
+                    {"code": 121, "indent": 0, "parameters": [unlock_sw_id, unlock_sw_id, 0]}
+                )
+            item_cmds.append({"code": 0, "indent": 0, "parameters": []})
             pages.append(
                 _make_page(
-                    page2_cmds,
+                    item_cmds,
                     _make_item_condition(item_id),
                     _trigger_code(event.trigger),
                     character_name=event.character_name,
