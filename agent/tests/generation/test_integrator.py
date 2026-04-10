@@ -116,3 +116,20 @@ def test_build_system_json_party_members() -> None:
     result = build_system_json_phase2(game_spec, id_table, switch_table)
 
     assert sorted(result["partyMembers"]) == [1, 2]
+
+
+def test_build_ending_common_event() -> None:
+    """보스 처치 스위치 → CommonEvent autorun 엔딩."""
+    from agent.generation.nodes.integrator import build_ending_common_event
+
+    result = build_ending_common_event(
+        switch_id=3,
+        ending_lines=["마왕을 물리쳤다!", "세계에 평화가 찾아왔다."],
+    )
+    assert result["id"] == 1
+    assert result["trigger"] == 1  # Autorun
+    assert result["switchId"] == 3
+    codes = [cmd["code"] for cmd in result["list"]]
+    assert 101 in codes  # ShowText
+    assert 354 in codes  # Return to Title
+    assert codes[-1] == 0  # End

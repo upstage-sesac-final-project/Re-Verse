@@ -14,7 +14,7 @@ from agent.generation.mapgen import calculate_spawn_point
 from agent.generation.models import GameSpec, MapSpec
 from agent.generation.progress import publish_progress
 from agent.generation.registry.id_table import IdTable
-from agent.generation.registry.switch_table import SwitchTable
+from agent.generation.registry.switch_table import SwitchTable, normalize_switch_name
 from agent.generation.state import GenerationState
 
 logger = logging.getLogger(__name__)
@@ -325,6 +325,28 @@ def _select_title_assets(theme: str) -> tuple[str, str, str]:
             break
 
     return title1, title2, bgm
+
+
+def build_ending_common_event(switch_id: int, ending_lines: list[str]) -> dict:
+    """보스 처치 시 자동 실행되는 엔딩 CommonEvent."""
+    cmds: list[dict] = []
+    cmds.append({"code": 230, "indent": 0, "parameters": [60]})  # Wait 1초
+    for line in ending_lines:
+        cmds.append({"code": 101, "indent": 0, "parameters": ["", 0, 0, 2, ""]})
+        cmds.append({"code": 401, "indent": 0, "parameters": [line]})
+    cmds.append({"code": 230, "indent": 0, "parameters": [60]})
+    cmds.append({"code": 221, "indent": 0, "parameters": []})  # Fadeout
+    cmds.append({"code": 230, "indent": 0, "parameters": [60]})
+    cmds.append({"code": 354, "indent": 0, "parameters": []})  # Return to Title
+    cmds.append({"code": 0, "indent": 0, "parameters": []})
+
+    return {
+        "id": 1,
+        "name": "엔딩",
+        "switchId": switch_id,
+        "trigger": 1,  # Autorun
+        "list": cmds,
+    }
 
 
 def build_system_json_phase2(
@@ -648,7 +670,29 @@ async def integrator(state: GenerationState) -> dict:
     # 4. base_game에서 상속받는 고정 파일 (States/Animations/CommonEvents)
     final_project["States.json"] = _load_base_game_file("States.json")
     final_project["Animations.json"] = _load_base_game_file("Animations.json")
-    final_project["CommonEvents.json"] = _load_base_game_file("CommonEvents.json")
+
+    # CommonEvents.json — 보스 처치 엔딩 CommonEvent 삽입
+    common_events = _load_base_game_file("CommonEvents.json")
+    boss_switch_id: int | None = None
+    for enemy in game_spec.enemies:
+        if enemy.tier == "boss":
+            sw_name = normalize_switch_name(f"{enemy.name}_defeated")
+            boss_switch_id = switch_table.switches.get(sw_name)
+            if boss_switch_id is not None:
+                break
+    if boss_switch_id is not None:
+        ending_lines = [
+            f"{game_spec.title}의 이야기가 끝났습니다.",
+            "플레이해 주셔서 감사합니다!",
+        ]
+        ending_ce = build_ending_common_event(boss_switch_id, ending_lines)
+        # common_events는 [null, ...] 배열 — index 1에 삽입
+        if isinstance(common_events, list) and len(common_events) > 1:
+            common_events[1] = ending_ce
+        elif isinstance(common_events, list):
+            common_events.append(ending_ce)
+    final_project["CommonEvents.json"] = common_events
+
     final_project["Tilesets.json"] = _DEFAULT_TILESETS
 
     logger.info("integrator 완료: %d개 파일", len(final_project))
