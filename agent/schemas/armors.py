@@ -18,7 +18,7 @@ class Armor(BaseModel):
     description: str = Field(description="일반 설정 > 설명", default="")
     atypeId: int = Field(description="일반 설정 > 방어구 유형", ge=0, le=6)
     price: int = Field(description="일반 설정 > 가격", default=100, ge=0, le=999999)
-    etypeId: int = Field(description="장비 유형", ge=2, le=5)
+    etypeId: int = Field(description="장비 유형", ge=1)
 
     # --------------- 능력치 변화량
 
