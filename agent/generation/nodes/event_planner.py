@@ -19,6 +19,7 @@ from agent.generation.compilers.dsl_models import (
     NpcEvent,
     TransferEvent,
 )
+from agent.generation.mapgen.tile_checker import find_nearest_safe_coord
 from agent.generation.models import GameSpec, MapConnectionInfo, MapSpec
 from agent.generation.progress import publish_progress
 from agent.generation.prompts.event_planner_prompt import build_event_planner_prompt
@@ -42,10 +43,12 @@ async def event_planner(state: GenerationState) -> dict:
     id_table: IdTable = state["id_table"]  # type: ignore[assignment]
     switch_table: SwitchTable = state["switch_table"]  # type: ignore[assignment]
     connection_info: dict[int, MapConnectionInfo] = state.get("connection_info") or {}
+    map_tiles: dict[int, list[int]] = state.get("map_tiles") or {}
+    generated_assets: dict = state.get("generated_assets") or {}
+    tilesets: list | None = generated_assets.get("Tilesets.json")
 
     # troop_name → (character_name, character_index) 매핑 테이블 사전 구성
     # id_table.troops의 exact key를 사용하므로 런타임 문자열 파싱 불필요
-    generated_assets: dict = state.get("generated_assets") or {}
     troop_to_sprite = _build_troop_sprite_map(game_spec, id_table, generated_assets)
 
     await publish_progress(
@@ -66,6 +69,8 @@ async def event_planner(state: GenerationState) -> dict:
             switch_table=switch_table,
             connection_info=connection_info.get(spec.map_id, _empty_connection(spec.map_id)),
             troop_to_sprite=troop_to_sprite,
+            tile_data=map_tiles.get(spec.map_id),
+            tilesets=tilesets,
         )
         for spec in map_specs
     ]
@@ -101,6 +106,8 @@ async def _plan_single_map(
     switch_table: SwitchTable,
     connection_info: MapConnectionInfo,
     troop_to_sprite: dict[str, tuple[str, int]],
+    tile_data: list[int] | None = None,
+    tilesets: list | None = None,
 ) -> list:
     rag_context = get_event_planner_context(map_spec.map_type)
     for attempt in range(3):
@@ -113,7 +120,9 @@ async def _plan_single_map(
             if events is None:
                 logger.warning("Map%d DSL 파싱 실패 (시도 %d)", map_spec.map_id, attempt + 1)
                 continue
-            valid = _validate_coords(events, map_spec)
+
+            # 좌표 보정 (범위 초과 제거 + 통행 불가 타일 보정 + 중복 방지)
+            valid = _validate_coords(events, map_spec, tile_data, tilesets, connection_info)
             valid = _validate_name_refs(valid, id_table, switch_table)
             if valid is not None:
                 return _fix_battle_sprites(valid, troop_to_sprite)
@@ -128,7 +137,7 @@ _YAML_BANG_RE = re.compile(r"(:\s+)(![^\s\n\"']+)")
 
 
 def _parse_dsl_safe(raw_yaml: str, map_id: int) -> list | None:
-    """YAML 파싱 실패 시 None 반환."""
+    # ... (생략 없이 유지)
     try:
         # YAML 코드블록 제거
         text = raw_yaml.strip()
@@ -152,13 +161,27 @@ def _parse_dsl_safe(raw_yaml: str, map_id: int) -> list | None:
         return None
 
 
-def _validate_coords(events: list, spec: MapSpec) -> list:
-    """좌표가 맵 범위를 벗어난 이벤트 제거."""
+def _validate_coords(
+    events: list,
+    spec: MapSpec,
+    tile_data: list[int] | None = None,
+    tilesets: list | None = None,
+    connection_info: MapConnectionInfo | None = None,
+) -> list:
+    """좌표가 맵 범위를 벗어난 이벤트 제거, 통행 불가 타일 보정 및 중복 배치 방지."""
     valid = []
+    # 1. 이미 사용 중인 좌표 집합 (입구, 출구 좌표 포함)
+    used_coords: set[tuple[int, int]] = set()
+
+    if connection_info:
+        for et in connection_info.entry_tiles:
+            used_coords.add((et["x"], et["y"]))
+        for xt in connection_info.exit_tiles:
+            used_coords.add((xt["x"], xt["y"]))
+
     for e in events:
-        if 0 <= e.x < spec.width and 0 <= e.y < spec.height:
-            valid.append(e)
-        else:
+        # 1. 맵 범위 체크
+        if not (0 <= e.x < spec.width and 0 <= e.y < spec.height):
             logger.warning(
                 "Map%d 이벤트 '%s' 좌표 (%d, %d) 범위 초과 → 제거",
                 spec.map_id,
@@ -166,6 +189,41 @@ def _validate_coords(events: list, spec: MapSpec) -> list:
                 e.x,
                 e.y,
             )
+            continue
+
+        # 2. 통행 가능 여부 및 중복 체크하여 보정
+        if tile_data:
+            nx, ny = find_nearest_safe_coord(
+                tile_data,
+                e.x,
+                e.y,
+                spec.width,
+                spec.height,
+                spec.tileset_id,
+                tilesets,
+                used_coords=used_coords,
+            )
+
+            if (nx, ny) != (e.x, e.y):
+                logger.info(
+                    "Map%d 이벤트 '%s' 좌표 보정: (%d, %d) -> (%d, %d)",
+                    spec.map_id,
+                    e.name,
+                    e.x,
+                    e.y,
+                    nx,
+                    ny,
+                )
+                e.x, e.y = nx, ny
+
+            # 보정된 좌표가 여전히 차단되어 있거나 중복이면 제거 (최후의 수단)
+            if (nx, ny) in used_coords:
+                logger.warning("Map%d 이벤트 '%s': 빈 좌표를 찾지 못함 → 제거", spec.map_id, e.name)
+                continue
+
+            used_coords.add((e.x, e.y))
+
+        valid.append(e)
     return valid
 
 
