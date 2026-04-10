@@ -195,10 +195,11 @@ class EventCompiler:
         cmds: list[dict] = []
 
         # one_time 블록은 111(If)로 감싸고, 내부 커맨드는 indent 1
+        # parameters[2]=1 → "스위치가 OFF일 때" 실행 (아직 열지 않은 경우에만 동작)
         indent = 0
         if event.one_time and event.chest_switch:
             sw_id = self.resolve_switch_id(event.chest_switch)
-            cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 0]})
+            cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 1]})
             indent = 1
 
         if event.dialogue_before:
@@ -248,10 +249,11 @@ class EventCompiler:
         cmds: list[dict] = []
 
         # one_time 블록은 111(If)로 감싸고, 내부 커맨드는 indent+1
+        # parameters[2]=1 → "스위치가 OFF일 때" 실행 (아직 처치하지 않은 경우에만 전투 발생)
         base_indent = 0
         if event.one_time and event.battle_switch:
             sw_id = self.resolve_switch_id(event.battle_switch)
-            cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 0]})
+            cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 1]})
             base_indent = 1
 
         cmds.append(
@@ -299,10 +301,13 @@ class EventCompiler:
             cmds.append({"code": 412, "indent": 0, "parameters": []})  # End If
 
         cmds.append({"code": 0, "indent": 0, "parameters": []})
+        # through=False(기본) + priorityType=1 → 이동 차단
+        # 차단 시 checkEventTriggerThere([0]) 발동 → action_button(0) 이벤트 자동 실행
+        # 플레이어가 몬스터 방향으로 이동 시도하면 막히면서 전투 발동 (player_touch와 동일 체감)
         page = _make_page(
             cmds,
             _empty_conditions(),
-            _trigger_code(event.trigger),
+            trigger=0,  # action_button: 막힐 때 자동 발동
             character_name=event.character_name,
             character_index=event.character_index,
         )
@@ -399,13 +404,70 @@ def _item_change_code(item_type: str) -> int:
     return {"item": 126, "weapon": 127, "armor": 128}.get(item_type, 126)
 
 
+def _wrap_text(text: str, max_chars: int = 22) -> list[str]:
+    """RPG Maker MZ 메시지창 너비에 맞게 텍스트 자동 줄바꿈.
+
+    한국어 22자/줄 기준 (screenWidth=816, faceSize=144, fontSize=26).
+    분할 순서:
+      1. 마침표·느낌표·물음표 기준 → 자연스러운 문장 단위 분할
+      2. 여전히 초과 시 공백 기준 분할
+      3. 공백 없고 초과 시 글자 수 강제 분할
+    """
+    import re
+
+    if len(text) <= max_chars:
+        return [text]
+
+    result: list[str] = []
+
+    # 1단계: 문장 끝 구두점 기준 분할 (구두점은 앞 문장에 포함)
+    sentences = [s.strip() for s in re.split(r"(?<=[.。!?！？])\s*", text) if s.strip()]
+    if not sentences:
+        sentences = [text]
+
+    for sentence in sentences:
+        if len(sentence) <= max_chars:
+            result.append(sentence)
+            continue
+
+        # 2단계: 공백 기준 분할
+        words = sentence.split(" ")
+        current = ""
+        for word in words:
+            if not current:
+                current = word
+            elif len(current) + 1 + len(word) <= max_chars:
+                current += " " + word
+            else:
+                if current:
+                    result.append(current)
+                current = word
+
+        # 3단계: 남은 current가 초과면 글자 수 강제 분할
+        while len(current) > max_chars:
+            result.append(current[:max_chars])
+            current = current[max_chars:]
+        if current:
+            result.append(current)
+
+    return [r for r in result if r] or [text]
+
+
 def _build_dialogue_commands(
     face_image: str, face_index: int, speaker: str, lines: list[str]
 ) -> list[dict]:
-    """ShowText 커맨드 시퀀스 (101 + 401×N, 4줄마다 새 101)."""
+    """ShowText 커맨드 시퀀스 (101 + 401×N, 4줄마다 새 101).
+
+    각 라인을 _wrap_text로 분할하여 메시지창 너비 초과를 방지.
+    """
+    # 각 라인을 래핑 후 평탄화 (최대 22자/줄)
+    wrapped: list[str] = []
+    for line in lines:
+        wrapped.extend(_wrap_text(line))
+
     cmds: list[dict] = []
-    for chunk_start in range(0, len(lines), 4):
-        chunk = lines[chunk_start : chunk_start + 4]
+    for chunk_start in range(0, len(wrapped), 4):
+        chunk = wrapped[chunk_start : chunk_start + 4]
         cmds.append(
             {
                 "code": 101,
@@ -464,6 +526,7 @@ def _make_page(
     step_anime: bool = False,
     character_name: str = "",
     character_index: int = 0,
+    through: bool = False,
 ) -> dict:
     return {
         "conditions": conditions,
@@ -487,7 +550,7 @@ def _make_page(
         "moveType": 0,
         "priorityType": priority,
         "stepAnime": step_anime,
-        "through": False,
+        "through": through,
         "trigger": trigger,
         "walkAnime": walk_anime,
     }

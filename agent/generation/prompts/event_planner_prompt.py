@@ -6,7 +6,7 @@ canonical: docs/The_world/game_ending_design.md
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
-from agent.generation.models import GameSpec, MapConnectionInfo, MapSpec
+from agent.generation.models import GameSpec, MapConnectionInfo, MapSpec, MapStoryScript
 from agent.generation.registry.id_table import IdTable
 from agent.generation.registry.switch_table import SwitchTable
 
@@ -19,9 +19,9 @@ _SYSTEM = """\
 ### npc (NPC 대화)
 - x: {정수}
   y: {정수}
-  name: {이벤트 이름}
+  name: {NPC 이름 또는 역할}  # 예: "마을촌장", "상인", "경비병"
   type: npc
-  trigger: action_button  # action_button | player_touch | auto_run
+  trigger: action_button  # 고정 — 변경 금지
   character_name: People1  # 맵 위 스프라이트. 아래 목록에서 선택 (필수)
   character_index: 0       # 스프라이트 시트 내 인덱스 0~7
   dialogue:
@@ -76,9 +76,9 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
 ### transfer (맵 이동)
 - x: {정수}
   y: {정수}
-  name: {이벤트 이름}
+  name: {목적지}_이동  # 예: "던전_입구_이동", "마을_귀환"
   type: transfer
-  trigger: player_touch
+  trigger: player_touch  # 고정 — 변경 금지
   to_map: {맵 이름}
   to_x: {정수}
   to_y: {정수}
@@ -112,7 +112,7 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
 ### chest (보물 상자)
 - x: {정수}
   y: {정수}
-  name: {이벤트 이름}
+  name: 보물상자_{번호}  # 예: "보물상자_01", "보물상자_02"
   type: chest
   item: {아이템 이름}
   item_type: item  # item | weapon | armor
@@ -127,9 +127,9 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
 ### battle (전투)
 - x: {정수}
   y: {정수}
-  name: {이벤트 이름}
+  name: {적이름}_전투  # 예: "고블린_전투", "드래곤_보스전" — 반드시 전투임을 나타내는 이름
   type: battle
-  trigger: player_touch
+  trigger: player_touch # 고정 — 변경 금지 (플레이어 접촉 시 전투 시작)
   troop: {적 그룹 이름}  # ⚠️ 반드시 아래 "적 그룹" 목록의 정확한 이름 그대로 사용
                          # 형식: "적이름×숫자" 또는 "적이름_단독"
                          # 예시 ❌ 틀림: "고블린"  ✅ 맞음: "고블린×2" 또는 "고블린_단독"
@@ -138,16 +138,16 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
   on_win:
     - set_switch: {스위치 이름}
   one_time: true
-  battle_switch: {스위치 이름}
+  battle_switch: {고유한 스위치 이름}  # 각 battle마다 반드시 다른 이름 사용! 예: "{적이름}_battle_01"
   character_name: Monster  # 자동 결정됨 — 기본값 그대로 출력
   character_index: 0       # 자동 결정됨 — 기본값 그대로 출력
 
 ### shop (상점)
 - x: {정수}
   y: {정수}
-  name: {이벤트 이름}
+  name: {상점 NPC 이름}  # 예: "무기상인", "도구점주인"
   type: shop
-  trigger: action_button
+  trigger: action_button  # 고정 — 변경 금지
   dialogue: "상점 인사 대사"
   items:
     - { item: {아이템 이름}, item_type: item }
@@ -169,6 +169,31 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
   fade_type: black
   action: title
 
+## trigger 규칙 (반드시 준수)
+
+각 타입의 trigger는 고정값이며 변경하면 안 됩니다. trigger 필드를 생략하면 기본값이 적용됩니다.
+- npc → action_button (결정키로 대화)
+- transfer → player_touch (접촉 시 이동)
+- chest → action_button (결정키로 상자 열기)
+- battle → player_touch (접촉 시 전투 시작)
+- shop → action_button (결정키로 상점 열기)
+
+## 이벤트 이름 규칙
+
+name은 이벤트의 실제 기능과 타입을 반영해야 합니다.
+- npc: NPC 이름 또는 역할 (예: "마을촌장", "경비병")
+- transfer: "{목적지}_이동" (예: "던전_입구_이동")
+- chest: "보물상자_{번호}" (예: "보물상자_01")
+- battle: "{적이름}_전투" (예: "고블린_전투", "드래곤_보스전")
+- shop: 상점 NPC 이름 (예: "무기상인")
+- ending: "엔딩_이벤트"
+
+## battle_switch 규칙
+
+각 battle 이벤트의 battle_switch는 반드시 서로 다른 고유한 이름이어야 합니다.
+- 형식: "{적이름}_battle_{번호}" (예: "고블린_battle_01", "고블린_battle_02")
+- 여러 battle 이벤트가 같은 battle_switch를 공유하면 안 됩니다
+
 ## 절대 금지 사항
 
 - 스위치·아이템·맵을 번호(숫자)로 지정 금지 → 반드시 이름(문자열) 사용
@@ -180,6 +205,10 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
 - 같은 맵 내 NPC에 동일한 (character_name + character_index) 조합 반복 금지
   → 예) People1/0 NPC가 이미 있으면 다음 NPC는 People1/1, People2/0 등 다른 조합 사용
   → 맵당 NPC 스프라이트 다양성 확보 필수 (같은 얼굴 NPC 2명 이상 배치 금지)
+- trigger 값을 타입별 고정값과 다르게 지정 금지
+- 서로 다른 battle 이벤트에 같은 battle_switch 이름 사용 금지
+- NPC의 name 및 대화창 화자를 주인공(플레이어 파티) 이름으로 지정 금지 → Human 메시지의 주인공 이름 목록 참고
+- dialogue 각 항목은 자연스러운 한 문장 단위로 작성 — 마침표·느낌표·물음표로 문장을 끝맺음하세요
 
 ## 출력 형식
 
@@ -226,6 +255,19 @@ events:
     chest_switch: chest_1_01
     dialogue_before: "낡은 상자가 있다."
     dialogue_after: "회복 포션을 2개 손에 넣었다!"
+
+  - x: 5
+    y: 9
+    name: 고블린_전투
+    type: battle
+    trigger: player_touch
+    troop: 고블린 × 2
+    escape_allowed: true
+    lose_condition: game_over
+    on_win:
+      - set_switch: 고블린_battle_01
+    one_time: true
+    battle_switch: 고블린_battle_01
 """
 
 
@@ -236,6 +278,7 @@ def build_event_planner_prompt(
     switch_table: SwitchTable,
     connection_info: MapConnectionInfo,
     rag_context: str = "",
+    map_story: MapStoryScript | None = None,
 ) -> list[BaseMessage]:
     exit_lines: list[str] = []
     for tile in connection_info.exit_tiles:
@@ -258,6 +301,9 @@ def build_event_planner_prompt(
 
     existing_switches = "\n".join(f"  - {s}" for s in switch_table.switches)
     filtered_troops = _filter_troops_for_map(map_spec.map_type, id_table, game_spec)
+    actor_names = ", ".join(id_table.actors.keys()) if id_table.actors else "없음"
+
+    story_section = _build_story_section(map_story) if map_story else ""
 
     human = f"""\
 ## 맵 정보
@@ -271,10 +317,10 @@ def build_event_planner_prompt(
 
 ## 맵 연결 정보 (transfer 이벤트에 반드시 이 좌표 사용)
 {chr(10).join(exit_lines) if exit_lines else "없음 (이 맵은 출구 없음)"}
-
-## 스토리 컨텍스트
-{game_spec.story.get("synopsis", "")}
-현재 맵의 역할: {map_spec.atmosphere}
+{story_section}
+## 주인공(플레이어 파티) 이름 목록 — NPC 이름으로 절대 사용 금지
+{actor_names}
+NPC는 위 이름과 다른 고유한 이름을 가져야 합니다. 위 이름을 NPC name 또는 대화창 화자(speaker)로 사용하지 마세요.
 
 ## 사용 가능한 이름 목록 (목록에 없는 이름 사용 금지)
 
@@ -295,6 +341,42 @@ def build_event_planner_prompt(
 YAML 출력:
 """
     return [SystemMessage(content=_SYSTEM), HumanMessage(content=human)]
+
+
+def _build_story_section(map_story: MapStoryScript) -> str:
+    """MapStoryScript → 프롬프트 삽입용 스토리 섹션 텍스트."""
+    lines = [
+        "",
+        "## 스토리 스크립트",
+        f"[현재 막: {map_story.act_index + 1}막]",
+        f"스토리 역할: {map_story.story_role}",
+    ]
+
+    if map_story.npcs:
+        lines.append("")
+        lines.append("### 이 맵의 NPC 목록 — 반드시 아래 이름과 역할로만 NPC 생성 (임의 이름 금지)")
+        for npc in map_story.npcs:
+            lines.append(f"- 이름: {npc.name}  역할: {npc.role}")
+            if npc.before_dialogue:
+                lines.append(f"  기본 대사: {' / '.join(npc.before_dialogue)}")
+            if npc.after_dialogue and npc.condition_switch:
+                lines.append(
+                    f"  조건 후 대사 ({npc.condition_switch} ON 시): "
+                    f"{' / '.join(npc.after_dialogue)}"
+                )
+
+    if map_story.required_events:
+        lines.append("")
+        lines.append("### 반드시 포함할 이벤트")
+        for ev in map_story.required_events:
+            lines.append(f"- {ev}")
+
+    if map_story.story_flags:
+        lines.append("")
+        lines.append(f"### 이 맵에서 ON해야 하는 스위치: {', '.join(map_story.story_flags)}")
+
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _filter_troops_for_map(
@@ -357,14 +439,17 @@ def _describe_required_events(
             "1. NPC 대화 최소 2개 (랜드마크마다 1개, 보스 처치 전후 조건부 대화 권장)\n"
             "2. 상점 이벤트 (상점 랜드마크가 있으면)\n"
             "3. 맵 이동 이벤트 (exits 수만큼, 위 좌표 정보 사용)\n"
-            "4. 선택: 보물 상자 1개"
+            "4. 선택: 보물 상자 1개\n"
+            "⚠️ 금지: battle 이벤트 생성 금지 — town은 안전 지역\n"
+            "⚠️ 금지: ending 이벤트 생성 금지 — 엔딩은 boss 맵 전용"
         )
     elif spec.map_type == "dungeon":
         return (
             "1. 맵 이동 이벤트 (입구/출구, 위 좌표 정보 사용)\n"
             "2. 전투 이벤트 2~3개 (player_touch, one_time=true)\n"
             "3. 보물 상자 1~2개 (chest 타입)\n"
-            "4. 선택: 경고 NPC 1개"
+            "4. 선택: 경고 NPC 1개\n"
+            "⚠️ 금지: ending 이벤트 생성 금지 — 엔딩은 boss 맵 전용"
         )
     elif spec.map_type == "boss":
         boss_enemies = [e for e in game_spec.enemies if e.tier == "boss"]

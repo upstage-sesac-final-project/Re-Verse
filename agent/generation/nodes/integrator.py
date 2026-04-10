@@ -163,29 +163,59 @@ def _default_terms() -> dict:
             "행운",
         ],
         "messages": {
-            "actorDamage": "%1은 %2의 데미지를 받았다!",
-            "actorRecovery": "%1의 %2이(가) %3 회복됐다!",
-            "actorGain": "%1의 %2이(가) %3 늘었다!",
-            "actorLoss": "%1의 %2이(가) %3 줄었다!",
-            "actorDrain": "%1의 %2이(가) %3 빼앗겼다!",
-            "actorNoDamage": "%1은 데미지를 받지 않았다.",
-            "actorNoHit": "미스!  %1은 데미지를 받지 않았다!",
-            "enemyDamage": "%1에게 %2 데미지!",
-            "enemyRecovery": "%1의 %2이(가) %3 회복됐다!",
-            "enemyGain": "%1의 %2이(가) %3 늘었다!",
-            "enemyLoss": "%1의 %2이(가) %3 줄었다!",
-            "enemyDrain": "%2의 %3을(를) %1로부터 빼앗았다!",
-            "enemyNoDamage": "%1은 데미지를 받지 않았다.",
-            "enemyNoHit": "미스!  %1은 데미지를 받지 않았다!",
-            "evasion": "%1은 공격을 회피했다!",
-            "magicEvasion": "%1은 마법을 회피했다!",
-            "magicReflection": "%1은 마법을 반사했다!",
-            "counterAttack": "%1의 반격!",
-            "substitute": "%1은 %2을 감쌌다!",
-            "buffAdd": "%1의 %2이(가) 올랐다!",
-            "debuffAdd": "%1의 %2이(가) 내려갔다!",
-            "buffRemove": "%1의 %2이(가) 원래대로 돌아왔다.",
-            "actionFailure": "%1에게는 효과가 없었다!",
+            "alwaysDash": "항상 대쉬",
+            "commandRemember": "명령 기억",
+            "touchUI": "터치 UI",
+            "bgmVolume": "BGM 볼륨",
+            "bgsVolume": "BGS 볼륨",
+            "meVolume": "ME 볼륨",
+            "seVolume": "SE 볼륨",
+            "possession": "갖고 있는 수",
+            "expTotal": "현재 %1",
+            "expNext": "다음 %1까지",
+            "saveMessage": "어느 파일에 저장할까요?",
+            "loadMessage": "어떤 파일을 로드할까요?",
+            "file": "파일",
+            "autosave": "자동 저장",
+            "partyName": "%1 파티",
+            "emerge": "%1 이(가) 나타났습니다!",
+            "preemptive": "%1 이(가) 우위를 점했습니다!",
+            "surprise": "%1 이(가) 습격당했습니다!",
+            "escapeStart": "%1이(가) 도망가기 시작했습니다!",
+            "escapeFailure": "그러나, 탈출할 수 없었습니다!",
+            "victory": "%1 이(가) 승리했습니다!",
+            "defeat": "%1 이(가) 패배했습니다.",
+            "obtainExp": "%1 의 %2 을(를) 획득하였습니다!",
+            "obtainGold": "%1\\G를 손에 넣었습니다!",
+            "obtainItem": "%1을(를) 손에 넣었습니다!",
+            "levelUp": "%1은(는) 이제 %2 %3입니다!",
+            "obtainSkill": "%1을(를) 습득하였습니다!",
+            "useItem": "%1이(가) %2을(를) 이용합니다!",
+            "criticalToEnemy": "회심의 일격!!",
+            "criticalToActor": "피눈물나는 강타!!",
+            "actorDamage": "%1은(는) %2의 피해를 입었습니다!",
+            "actorRecovery": "%1의 %2이(가) %3 회복됐습니다!",
+            "actorGain": "%1의 %2이(가) %3 증가했습니다!",
+            "actorLoss": "%1의 %2이(가) %3 감소했습니다!",
+            "actorDrain": "%1은(는) %2을(를) %3 빼앗겼습니다!",
+            "actorNoDamage": "%1은(는) 피해를 입지 않았습니다!",
+            "actorNoHit": "빗나갔습니다! %1은(는) 피해를 입지 않았습니다!",
+            "enemyDamage": "%1에게 %2의 피해를 입혔습니다!",
+            "enemyRecovery": "%1의 %2이(가) %3 회복됐습니다!",
+            "enemyGain": "%1의 %2이(가) %3 증가했습니다!",
+            "enemyLoss": "%1의 %2이(가) %3 감소했습니다!",
+            "enemyDrain": "%1의 %2을(를) %3 빼앗았습니다!",
+            "enemyNoDamage": "%1에게 피해를 입힐 수 없습니다!",
+            "enemyNoHit": "빗나갔습니다! %1에게 피해를 입힐 수 없습니다!",
+            "evasion": "%1이(가) 공격을 회피했습니다!",
+            "magicEvasion": "%1이(가) 마법을 무효화했습니다!",
+            "magicReflection": "%1이(가) 마법을 반사했습니다!",
+            "counterAttack": "%1이(가) 반격했습니다!",
+            "substitute": "%1이(가) %2을(를) 보호했습니다!",
+            "buffAdd": "%1의 %2이(가) 상승했습니다!",
+            "debuffAdd": "%1의 %2이(가) 감소했습니다!",
+            "buffRemove": "%1의 %2이(가) 정상으로 돌아왔습니다!",
+            "actionFailure": "%1에는 아무 영향이 없었습니다!",
         },
     }
 
@@ -392,9 +422,8 @@ def build_map_infos(map_specs: list[MapSpec], id_table: IdTable) -> list:
     max_id = 0
     entries: dict[int, dict] = {}
     for order, spec in enumerate(map_specs, start=1):
-        map_id = id_table.get_id("maps", spec.name)
-        if map_id is None:
-            continue
+        # spec.map_id 직접 사용 — id_table 이름 조회 시 None 반환으로 맵 누락되는 버그 방지
+        map_id = spec.map_id
         entries[map_id] = {
             "id": map_id,
             "expanded": order == 1,
@@ -412,21 +441,102 @@ def build_map_infos(map_specs: list[MapSpec], id_table: IdTable) -> list:
     return result
 
 
+# 맵 타입별 안전한 BGM 기본값 (audio/bgm/ 폴더에 실제 존재하는 파일)
+_SAFE_BGM: dict[str, str] = {
+    "town": "Town1",
+    "dungeon": "Dungeon1",
+    "boss": "Battle1",
+    "field": "Field1",
+}
+
+# 실제 존재하는 BGM 파일 목록 (확장자 제외)
+_VALID_BGM: frozenset[str] = frozenset(
+    [
+        "Battle1",
+        "Battle2",
+        "Battle3",
+        "Battle4",
+        "Battle5",
+        "Battle6",
+        "Battle7",
+        "Battle8",
+        "Castle1",
+        "Castle2",
+        "Dungeon1",
+        "Dungeon2",
+        "Dungeon3",
+        "Dungeon4",
+        "Dungeon5",
+        "Dungeon6",
+        "Dungeon7",
+        "Field1",
+        "Field2",
+        "Field3",
+        "Field4",
+        "Scene1",
+        "Scene2",
+        "Scene3",
+        "Scene4",
+        "Scene5",
+        "Scene6",
+        "Scene7",
+        "Scene8",
+        "Scene9",
+        "Ship1",
+        "Ship2",
+        "Ship3",
+        "Theme1",
+        "Theme2",
+        "Theme3",
+        "Theme4",
+        "Theme5",
+        "Theme6",
+        "Town1",
+        "Town2",
+        "Town3",
+        "Town4",
+        "Town5",
+        "Town6",
+        "Town7",
+        "Town8",
+    ]
+)
+
+
+def _resolve_bgm(spec: MapSpec) -> str:
+    """BGM 이름이 유효하지 않으면 맵 타입별 기본값으로 대체."""
+    if spec.bgm in _VALID_BGM:
+        return spec.bgm
+    fallback = _SAFE_BGM.get(spec.map_type, "Town1")
+    logger.warning(
+        "Map%d('%s') bgm='%s' — 존재하지 않는 파일, '%s'로 대체",
+        spec.map_id,
+        spec.name,
+        spec.bgm,
+        fallback,
+    )
+    return fallback
+
+
+def _build_encounter_list(spec: MapSpec, events: list[dict]) -> list[dict]:
+    """랜덤 인카운터 목록 — 항상 빈 배열 반환.
+
+    전투는 이벤트 기반(BattleEvent)으로만 진행하며, 랜덤 인카운터는 사용하지 않음.
+    """
+    return []
+
+
 def build_map_json(spec: MapSpec, tile_data: list[int], events: list[dict]) -> dict:
     """Map00N.json 단일 맵 파일 조립."""
-    # encounterList: town/boss → 빈 배열, dungeon/field → 기본 인카운터
-    encounter_list: list[dict] = []
-    if spec.map_type in ("dungeon", "field"):
-        encounter_list = [
-            {"troopId": 1, "weight": 10, "regionSet": []},
-        ]
+    encounter_list = _build_encounter_list(spec, events)
+    bgm_name = _resolve_bgm(spec)
 
     return {
-        "autoplayBgm": bool(spec.bgm),
+        "autoplayBgm": bool(bgm_name),
         "autoplayBgs": False,
         "battleback1Name": "",
         "battleback2Name": "",
-        "bgm": {"name": spec.bgm, "pan": 0, "pitch": 100, "volume": 90},
+        "bgm": {"name": bgm_name, "pan": 0, "pitch": 100, "volume": 90},
         "bgs": {"name": "", "pan": 0, "pitch": 100, "volume": 90},
         "data": tile_data,
         "displayName": spec.name,

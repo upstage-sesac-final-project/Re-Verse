@@ -15,7 +15,7 @@ class NpcEvent(BaseModel):
     name: str
     x: int
     y: int
-    trigger: str = "action_button"
+    trigger: Literal["action_button"] = "action_button"
     character_name: str = "People1"  # 맵 위 스프라이트 파일명 (확장자 제외)
     character_index: int = 0  # 스프라이트 시트 내 인덱스 (0-7)
     face_image: str = ""
@@ -31,7 +31,7 @@ class TransferEvent(BaseModel):
     name: str
     x: int
     y: int
-    trigger: str = "player_touch"
+    trigger: Literal["player_touch", "event_touch"] = "player_touch"
     to_map: str
     to_x: int
     to_y: int
@@ -68,7 +68,7 @@ class BattleEvent(BaseModel):
     name: str
     x: int
     y: int
-    trigger: str = "player_touch"
+    trigger: Literal["player_touch", "event_touch"] = "player_touch"
     troop: str
     escape_allowed: bool = True
     lose_condition: str = "game_over"
@@ -101,7 +101,7 @@ class ShopEvent(BaseModel):
     name: str
     x: int
     y: int
-    trigger: str = "action_button"
+    trigger: Literal["action_button"] = "action_button"
     dialogue: str = ""
     items: list[ShopItem]
     purchase_only: bool = False
