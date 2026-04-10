@@ -45,9 +45,21 @@ SCHEMA_MAP: dict[str, type[Any]] = {
 _SCHEMA_MAP_NORMALIZED = {name.lower(): model for name, model in SCHEMA_MAP.items()}
 _MAP_FILE_PATTERN = re.compile(r"map\d{3}\.json")
 _QUERY_ACTIONS = {"query", "query_by_id", "search"}
-_SUPPORTED_CONSISTENCY_ACTIONS = {
-    "Actors.json": {"create", "update"},
-    "Classes.json": {"create"},
+
+# 배열 구조 JSON 파일과 해당 파일의 엔티티 ID를 담는 changes_log 필드명 매핑.
+# System.json, 맵 파일 등 배열 구조가 아닌 파일은 포함하지 않는다.
+# 이 맵에 포함된 파일만 정합성 검증(final state 대조)을 수행한다.
+_FILE_ID_FIELD_MAP: dict[str, str] = {
+    "Actors.json": "actor_id",
+    "Animations.json": "animation_id",
+    "Armors.json": "armor_id",
+    "Classes.json": "class_id",
+    "Enemies.json": "enemy_id",
+    "Items.json": "item_id",
+    "Skills.json": "skill_id",
+    "States.json": "state_id",
+    "Troops.json": "troop_id",
+    "Weapons.json": "weapon_id",
 }
 
 
@@ -71,6 +83,7 @@ class ValidatorOutput(BaseModel):
 
 
 def to_jsonable(value: Any) -> Any:
+    """값을 JSON 직렬화 가능한 형태로 변환한다. dict/list는 재귀 처리하고, 직렬화 불가능한 값은 문자열로 변환한다."""
     if isinstance(value, dict):
         return {str(key): to_jsonable(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -83,6 +96,7 @@ def to_jsonable(value: Any) -> Any:
 
 
 def resolve_schema(file_name: str) -> type[Any] | None:
+    """파일명으로 대응하는 Pydantic 스키마 모델을 반환한다. map001.json 형태의 맵 파일은 MapFile로, 나머지는 SCHEMA_MAP에서 찾는다. 미지원 파일이면 None을 반환한다."""
     normalized_name = Path(file_name).name.strip().lower()
     if _MAP_FILE_PATTERN.fullmatch(normalized_name):
         return MapFile
@@ -92,6 +106,7 @@ def resolve_schema(file_name: str) -> type[Any] | None:
 def normalize_validation_errors(
     errors: list[dict[str, Any]] | list[ValidationErrorItem] | None = None,
 ) -> list[ValidationErrorItem]:
+    """다양한 형태의 에러 목록(dict, ValidationErrorItem, 문자열 등)을 ValidationErrorItem 리스트로 정규화한다."""
     normalized_errors: list[ValidationErrorItem] = []
     for error in errors or []:
         if isinstance(error, ValidationErrorItem):
@@ -115,6 +130,7 @@ def build_file_result(
     success: bool,
     errors: list[dict[str, Any]] | list[ValidationErrorItem] | None = None,
 ) -> FileValidationResult:
+    """단일 파일에 대한 FileValidationResult를 생성한다. errors는 자동으로 정규화된다."""
     return FileValidationResult(
         target=target,
         category=category,
@@ -129,6 +145,7 @@ def build_output(
     success: bool,
     retry_count: int,
 ) -> ValidatorOutput:
+    """validator 노드의 최종 출력 객체(ValidatorOutput)를 생성한다."""
     return ValidatorOutput(
         validation_results=validation_results,
         validation_summary=validation_summary,
@@ -138,6 +155,7 @@ def build_output(
 
 
 def build_validation_summary(validation_results: list[FileValidationResult]) -> str:
+    """검증 결과 목록을 받아 실패 건수를 category별로 집계한 한국어 요약 문자열을 반환한다. 전체 통과 시 성공 메시지를 반환한다."""
     failed_counts: dict[str, int] = {}
     for item in validation_results:
         if item.success:
@@ -164,6 +182,7 @@ def build_validation_summary(validation_results: list[FileValidationResult]) -> 
 
 
 def build_state_error(message: str, *, category: str = "query_consistency") -> ValidatorOutput:
+    """state 자체에 문제가 있어 검증을 시작할 수 없을 때 즉시 실패 결과를 반환한다. (예: modified_game_state 누락)"""
     logger.warning("[Validator] 조기 종료: %s", message)
     validation_results = [
         build_file_result(
@@ -187,12 +206,13 @@ def extract_validation_inputs(
     dict[str, Any],
     dict[str, Any],
     list[dict[str, Any]],
-    list[dict[str, Any]],
     int,
 ]:
+    """AgentState에서 validator에 필요한 입력값을 추출하고 타입을 정규화해 반환한다.
+    반환 순서: current_game_state, modified_game_state, changes_log, retry_count
+    """
     current_game_state = state.get("current_game_state", {})
     modified_game_state = state.get("modified_game_state", {})
-    execution_plan = state.get("execution_plan", [])
     changes_log = state.get("changes_log", [])
     retry_count = state.get("retry_count", 0)
 
@@ -200,11 +220,8 @@ def extract_validation_inputs(
         current_game_state = {}
     if not isinstance(modified_game_state, dict):
         modified_game_state = {}
-    if not isinstance(execution_plan, list):
-        execution_plan = []
     if not isinstance(changes_log, list):
         changes_log = []
-    execution_plan = [item for item in execution_plan if isinstance(item, dict)]
     changes_log = [item for item in changes_log if isinstance(item, dict)]
     try:
         retry_count = int(retry_count)
@@ -214,13 +231,15 @@ def extract_validation_inputs(
     return (
         current_game_state,
         modified_game_state,
-        execution_plan,
         changes_log,
         retry_count,
     )
 
 
 def load_validation_payload(file_name: str, value: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """게임 state의 단일 파일 항목(snapshot 경로 또는 payload)을 로드한다.
+    성공 시 (payload, []) 반환. 실패 시 (None, [에러 dict]) 반환.
+    """
     payload = load_snapshot_payload(value)
     if isinstance(payload, dict) and payload.get("_snapshot_error"):
         logger.warning("[Validator] 스냅샷 로드 실패: target=%s err=%s", file_name, payload)
@@ -231,6 +250,9 @@ def load_validation_payload(file_name: str, value: Any) -> tuple[Any, list[dict[
 def load_validation_entries(
     game_state: dict[str, Any],
 ) -> dict[str, tuple[Any, list[dict[str, Any]]]]:
+    """game_state(파일명 → snapshot 경로/payload 맵)를 받아 각 파일의 payload를 로드한 결과를 반환한다.
+    반환값: { 파일명: (payload, 에러 목록) }
+    """
     entries: dict[str, tuple[Any, list[dict[str, Any]]]] = {}
     for file_name, value in game_state.items():
         entries[file_name] = load_validation_payload(file_name, value)
@@ -240,6 +262,7 @@ def load_validation_entries(
 def select_validation_targets(
     modified_entries: dict[str, tuple[Any, list[dict[str, Any]]]],
 ) -> list[tuple[str, Any, list[dict[str, Any]]]]:
+    """로드된 modified_entries에서 스키마 검증 대상 목록을 (파일명, payload, 에러목록) 튜플 리스트로 반환한다."""
     return [
         (file_name, payload, payload_errors)
         for file_name, (payload, payload_errors) in modified_entries.items()
@@ -247,15 +270,18 @@ def select_validation_targets(
 
 
 def calculate_retry_count(retry_count: int, success: bool) -> int:
+    """검증 성공이면 retry_count를 유지하고, 실패면 1 증가시켜 반환한다."""
     return retry_count if success else retry_count + 1
 
 
 def finalize_output(result: ValidatorOutput) -> dict[str, Any]:
+    """ValidatorOutput을 JSON 직렬화 가능한 dict로 변환해 반환한다. AgentState에 저장되는 최종 형태다."""
     validated_result = ValidatorOutput.model_validate(result.model_dump(mode="python"))
     return validated_result.model_dump(mode="json")
 
 
 def _coerce_step_id(value: Any) -> int | None:
+    """값을 step_id용 int로 변환한다. 변환 불가능하면 None을 반환한다."""
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -263,54 +289,17 @@ def _coerce_step_id(value: Any) -> int | None:
 
 
 def _coerce_int(value: Any) -> int | None:
+    """값을 int로 변환한다. 변환 불가능하면 None을 반환한다."""
     try:
         return int(value)
     except (TypeError, ValueError):
         return None
 
 
-def _normalize_step_id_list(value: Any) -> list[int]:
-    if not isinstance(value, list):
-        return []
-    normalized: list[int] = []
-    seen: set[int] = set()
-    for item in value:
-        step_id = _coerce_step_id(item)
-        if step_id is None or step_id in seen:
-            continue
-        normalized.append(step_id)
-        seen.add(step_id)
-    return normalized
-
-
-def _normalize_id_list(value: Any) -> list[int]:
-    if not isinstance(value, list):
-        return []
-    normalized: list[int] = []
-    for item in value:
-        coerced = _coerce_int(item)
-        if coerced is not None:
-            normalized.append(coerced)
-    return normalized
-
-
-def _normalize_string_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item) for item in value if str(item).strip()]
-
-
-def build_plan_step_map(execution_plan: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
-    by_id: dict[int, dict[str, Any]] = {}
-    for step in execution_plan:
-        step_id = _coerce_step_id(step.get("step_id"))
-        if step_id is None:
-            continue
-        by_id[step_id] = step
-    return by_id
-
-
 def build_latest_step_log_map(changes_log: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    """changes_log(retry로 누적된 전체 로그)에서 step_id별 최신 로그 항목만 추출해 { step_id: log } 맵으로 반환한다.
+    같은 step_id가 여러 번 등장하면 마지막 항목이 최신으로 덮어씌워진다.
+    """
     latest: dict[int, dict[str, Any]] = {}
     for entry in changes_log:
         step_id = _coerce_step_id(entry.get("step_id"))
@@ -320,355 +309,15 @@ def build_latest_step_log_map(changes_log: list[dict[str, Any]]) -> dict[int, di
     return latest
 
 
-def _normalize_action_name(step: dict[str, Any] | None, log: dict[str, Any]) -> str:
-    action = str(log.get("action") or (step or {}).get("action_type") or "").strip().lower()
-    return "update" if action == "update_actor" else action
-
-
 def _is_query_action_name(action: str) -> bool:
+    """action이 read-only query 계열(query, query_by_id, search)인지 확인한다."""
     return action in _QUERY_ACTIONS
 
 
-def _normalize_query_result(
-    query_result: dict[str, Any],
-    *,
-    default_query_type: str,
-    default_query: dict[str, Any],
-) -> dict[str, Any]:
-    matched_ids = _normalize_id_list(query_result.get("matched_ids"))
-    hit_count = _coerce_int(query_result.get("hit_count"))
-    if hit_count is None:
-        hit_count = len(matched_ids)
-    not_found = query_result.get("not_found")
-    if not isinstance(not_found, bool):
-        not_found = hit_count == 0 and not matched_ids
-
-    normalized = {
-        "query_type": str(query_result.get("query_type") or default_query_type or "query"),
-        "query": query_result.get("query")
-        if isinstance(query_result.get("query"), dict)
-        else default_query,
-        "hit_count": max(hit_count, 0),
-        "matched_ids": matched_ids,
-        "not_found": bool(not_found),
-    }
-    matched_names = _normalize_string_list(query_result.get("matched_names"))
-    if matched_names:
-        normalized["matched_names"] = matched_names
-    return normalized
-
-
-def _build_legacy_query_result(
-    target_file: str,
-    action: str,
-    log: dict[str, Any],
-    step: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    if target_file == "Actors.json":
-        actor_id = _coerce_int(log.get("actor_id"))
-        if actor_id is None and action == "query_by_id":
-            actor_id = _coerce_int(((step or {}).get("target_info") or {}).get("actor_id"))
-        exists = log.get("exists")
-        if not isinstance(exists, bool):
-            return None
-        matched_ids = [actor_id] if actor_id is not None and exists else []
-        hit_count = len(matched_ids) if matched_ids else (1 if exists else 0)
-        return _normalize_query_result(
-            {
-                "query_type": action,
-                "query": (step or {}).get("target_info") or {},
-                "hit_count": hit_count,
-                "matched_ids": matched_ids,
-                "not_found": not exists,
-            },
-            default_query_type=action,
-            default_query=(step or {}).get("target_info") or {},
-        )
-
-    if target_file == "Classes.json":
-        class_id = _coerce_int(log.get("class_id"))
-        exists = log.get("exists")
-        if not isinstance(exists, bool):
-            return None
-        matched_ids = [class_id] if class_id is not None and exists else []
-        hit_count = len(matched_ids) if matched_ids else (1 if exists else 0)
-        return _normalize_query_result(
-            {
-                "query_type": action,
-                "query": (step or {}).get("target_info") or {},
-                "hit_count": hit_count,
-                "matched_ids": matched_ids,
-                "not_found": not exists,
-            },
-            default_query_type=action,
-            default_query=(step or {}).get("target_info") or {},
-        )
-
-    return None
-
-
-def extract_query_result(
-    log: dict[str, Any], step: dict[str, Any] | None = None
-) -> dict[str, Any] | None:
-    target_file = str(log.get("target_file") or (step or {}).get("target_file") or "").strip()
-    action = _normalize_action_name(step, log)
-    query_result = log.get("query_result")
-
-    if isinstance(query_result, dict):
-        return _normalize_query_result(
-            query_result,
-            default_query_type=action or "query",
-            default_query=(step or {}).get("target_info") or {},
-        )
-
-    if not target_file or not _is_query_action_name(action):
-        return None
-    return _build_legacy_query_result(target_file, action, log, step)
-
-
-def _normalize_name(value: Any) -> str:
-    return str(value or "").strip()
-
-
-def _extract_step_target_identity(
-    target_file: str,
-    step: dict[str, Any],
-    log: dict[str, Any],
-) -> tuple[int | None, str]:
-    target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
-
-    if target_file == "Actors.json":
-        actor_id = _coerce_int(log.get("actor_id"))
-        if actor_id is None:
-            actor_id = _coerce_int(target_info.get("actor_id") or target_info.get("actorId"))
-        return actor_id, _extract_actor_name(step, log)
-
-    if target_file == "Classes.json":
-        class_id = _coerce_int(log.get("class_id"))
-        if class_id is None:
-            class_id = _coerce_int(target_info.get("class_id") or target_info.get("classId"))
-        return class_id, _extract_class_name(step, log)
-
-    return None, ""
-
-
-def _extract_query_identity(
-    target_file: str,
-    query_result: dict[str, Any],
-) -> tuple[int | None, list[int], set[str]]:
-    query = query_result.get("query") if isinstance(query_result.get("query"), dict) else {}
-    matched_ids = _normalize_id_list(query_result.get("matched_ids"))
-    matched_names = {
-        _normalize_name(item) for item in _normalize_string_list(query_result.get("matched_names"))
-    }
-    matched_names.discard("")
-
-    if target_file == "Actors.json":
-        query_id = _coerce_int(query.get("actor_id") or query.get("actorId"))
-        query_name = _normalize_name(query.get("actor_name") or query.get("name"))
-    elif target_file == "Classes.json":
-        query_id = _coerce_int(query.get("class_id") or query.get("classId"))
-        query_name = _normalize_name(query.get("class_name") or query.get("name"))
-    else:
-        query_id = None
-        query_name = ""
-
-    if query_name:
-        matched_names.add(query_name)
-    return query_id, matched_ids, matched_names
-
-
-def _query_reference_match_score(
-    target_file: str,
-    step: dict[str, Any],
-    log: dict[str, Any],
-    query_result: dict[str, Any],
-) -> int:
-    target_id, target_name = _extract_step_target_identity(target_file, step, log)
-    if target_id is None and not target_name:
-        return 0
-
-    query_id, matched_ids, matched_names = _extract_query_identity(target_file, query_result)
-    score = 0
-
-    if target_id is not None:
-        if query_id is not None:
-            if query_id != target_id:
-                return 0
-            score += 3
-        if matched_ids:
-            if target_id not in matched_ids:
-                return 0
-            score += 2
-
-    if target_name:
-        if matched_names:
-            if target_name not in matched_names:
-                return 0
-            score += 1
-
-    return score
-
-
-def _resolve_best_query_candidate(
-    step: dict[str, Any],
-    log: dict[str, Any],
-    latest_logs: dict[int, dict[str, Any]],
-    plan_steps: dict[int, dict[str, Any]],
-    candidate_ids: list[int],
-    *,
-    allow_zero_score: bool = False,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    target_file = str(log.get("target_file") or step.get("target_file") or "").strip()
-    if not target_file:
-        return None, None
-
-    best_score = 0
-    best_id: int | None = None
-    best_log: dict[str, Any] | None = None
-    best_result: dict[str, Any] | None = None
-    fallback_id: int | None = None
-    fallback_log: dict[str, Any] | None = None
-    fallback_result: dict[str, Any] | None = None
-
-    for candidate_id in candidate_ids:
-        candidate_log = latest_logs.get(candidate_id)
-        candidate_step = plan_steps.get(candidate_id)
-        query_result = extract_query_result(candidate_log or {}, candidate_step)
-        if candidate_log is None or query_result is None:
-            continue
-
-        if allow_zero_score and (fallback_id is None or candidate_id > fallback_id):
-            fallback_id = candidate_id
-            fallback_log = candidate_log
-            fallback_result = query_result
-
-        score = _query_reference_match_score(target_file, step, log, query_result)
-        if score <= 0:
-            continue
-        if score > best_score or (
-            score == best_score and (best_id is None or candidate_id > best_id)
-        ):
-            best_score = score
-            best_id = candidate_id
-            best_log = candidate_log
-            best_result = query_result
-
-    if best_log is not None and best_result is not None:
-        return best_log, best_result
-    if allow_zero_score:
-        return fallback_log, fallback_result
-    return best_log, best_result
-
-
-def _find_fallback_query_step_id(
-    step: dict[str, Any],
-    log: dict[str, Any],
-    latest_logs: dict[int, dict[str, Any]],
-    plan_steps: dict[int, dict[str, Any]],
-) -> int | None:
-    step_id = _coerce_step_id(step.get("step_id")) or _coerce_step_id(log.get("step_id")) or -1
-    target_file = str(log.get("target_file") or step.get("target_file") or "").strip()
-    if not target_file:
-        return None
-
-    best_score = 0
-    best_id: int | None = None
-    for candidate_id in sorted(latest_logs, reverse=True):
-        if candidate_id >= step_id:
-            continue
-        candidate_log = latest_logs[candidate_id]
-        candidate_step = plan_steps.get(candidate_id)
-        candidate_target = str(
-            candidate_log.get("target_file") or (candidate_step or {}).get("target_file") or ""
-        ).strip()
-        if candidate_target != target_file:
-            continue
-        query_result = extract_query_result(candidate_log, candidate_step)
-        if query_result is None:
-            continue
-        score = _query_reference_match_score(target_file, step, log, query_result)
-        if score > best_score:
-            best_score = score
-            best_id = candidate_id
-    return best_id
-
-
-def resolve_query_reference(
-    step: dict[str, Any],
-    log: dict[str, Any],
-    latest_logs: dict[int, dict[str, Any]],
-    plan_steps: dict[int, dict[str, Any]],
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    current_query_result = extract_query_result(log, step)
-    target_file = str(log.get("target_file") or step.get("target_file") or "").strip()
-    if (
-        isinstance(log.get("query_result"), dict)
-        and current_query_result is not None
-        and _query_reference_match_score(target_file, step, log, current_query_result) > 0
-    ):
-        return log, current_query_result
-
-    decision_basis = (
-        log.get("decision_basis") if isinstance(log.get("decision_basis"), dict) else {}
-    )
-    source_ids = _normalize_step_id_list(decision_basis.get("source_query_step_ids"))
-    if source_ids:
-        query_log, query_result = _resolve_best_query_candidate(
-            step,
-            log,
-            latest_logs,
-            plan_steps,
-            source_ids,
-            allow_zero_score=True,
-        )
-        if query_log is not None and query_result is not None:
-            return query_log, query_result
-
-    dep_source_ids: list[int] = []
-    for dep_id in _normalize_step_id_list(step.get("depends_on")):
-        dep_step = plan_steps.get(dep_id)
-        dep_log = latest_logs.get(dep_id)
-        dep_action = _normalize_action_name(dep_step, dep_log or {})
-        if extract_query_result(dep_log or {}, dep_step) is not None or _is_query_action_name(
-            dep_action
-        ):
-            dep_source_ids.append(dep_id)
-
-    if dep_source_ids:
-        query_log, query_result = _resolve_best_query_candidate(
-            step,
-            log,
-            latest_logs,
-            plan_steps,
-            dep_source_ids,
-            allow_zero_score=True,
-        )
-        if query_log is not None and query_result is not None:
-            return query_log, query_result
-
-    fallback_step_id = _find_fallback_query_step_id(step, log, latest_logs, plan_steps)
-    if fallback_step_id is None:
-        return None, None
-
-    fallback_log = latest_logs.get(fallback_step_id)
-    fallback_step = plan_steps.get(fallback_step_id)
-    fallback_result = extract_query_result(fallback_log or {}, fallback_step)
-    if fallback_log is not None and fallback_result is not None:
-        return fallback_log, fallback_result
-    return None, None
-
-
-def _query_is_not_found(query_result: dict[str, Any]) -> bool:
-    return bool(query_result.get("not_found"))
-
-
-def _query_single_match_id(query_result: dict[str, Any]) -> int | None:
-    matched_ids = _normalize_id_list(query_result.get("matched_ids"))
-    return matched_ids[0] if len(matched_ids) == 1 else None
-
-
 def _get_array_entry_by_id(payload: Any, item_id: int | None) -> dict[str, Any] | None:
+    """RPGMaker JSON 배열(인덱스 0은 null)에서 item_id에 해당하는 항목을 반환한다.
+    payload가 리스트가 아니거나 범위를 벗어나면 None을 반환한다.
+    """
     if item_id is None or not isinstance(payload, list):
         return None
     if item_id < 1 or item_id >= len(payload):
@@ -678,6 +327,9 @@ def _get_array_entry_by_id(payload: Any, item_id: int | None) -> dict[str, Any] 
 
 
 def _find_array_id_by_name(payload: Any, name: str | None) -> int | None:
+    """RPGMaker JSON 배열에서 name 필드가 일치하는 항목의 인덱스를 반환한다.
+    찾지 못하면 None을 반환한다.
+    """
     if not isinstance(payload, list) or not name:
         return None
     normalized_name = name.strip()
@@ -691,6 +343,7 @@ def _find_array_id_by_name(payload: Any, name: str | None) -> int | None:
 
 
 def _build_query_consistency_failure(target: str, message: str) -> FileValidationResult:
+    """정합성 검증 실패 결과를 생성한다. category는 'query_consistency'로 고정된다."""
     return build_file_result(
         target=target,
         category="query_consistency",
@@ -700,6 +353,7 @@ def _build_query_consistency_failure(target: str, message: str) -> FileValidatio
 
 
 def _build_executor_capability_failure(target: str, message: str) -> FileValidationResult:
+    """executor가 해당 step을 아예 지원하지 않아 실패한 경우의 결과를 생성한다. category는 'executor_capability'로 고정된다."""
     return build_file_result(
         target=target,
         category="executor_capability",
@@ -708,257 +362,188 @@ def _build_executor_capability_failure(target: str, message: str) -> FileValidat
     )
 
 
-def _extract_actor_name(step: dict[str, Any], log: dict[str, Any]) -> str:
-    target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
-    return str(
-        log.get("actor_name")
-        or target_info.get("actor_name")
-        or target_info.get("name")
-        or target_info.get("new_name")
-        or ""
-    ).strip()
-
-
-def _extract_class_name(step: dict[str, Any], log: dict[str, Any]) -> str:
-    target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
-    return str(
-        log.get("class_name") or target_info.get("class_name") or target_info.get("name") or ""
-    ).strip()
-
-
-def validate_actors_create_consistency(
-    step: dict[str, Any],
+def validate_create_consistency(
     log: dict[str, Any],
-    query_result: dict[str, Any],
+    target_file: str,
     modified_entries: dict[str, tuple[Any, list[dict[str, Any]]]],
 ) -> FileValidationResult | None:
-    actor_name = _extract_actor_name(step, log)
-    modified_payload = modified_entries.get("Actors.json", (None, []))[0]
-    is_skip = bool(log.get("skipped"))
-
-    if is_skip:
-        if _query_is_not_found(query_result):
-            return _build_query_consistency_failure(
-                "Actors.json",
-                "query 결과는 not_found인데 create를 skip했습니다.",
-            )
-        if actor_name and _find_array_id_by_name(modified_payload, actor_name) is None:
-            return _build_query_consistency_failure(
-                "Actors.json",
-                f"query 결과상 이미 존재해서 create를 skip했지만 final state에 actor '{actor_name}'가 없습니다.",
-            )
+    """create 성공 후 final state에 해당 엔티티가 실제로 존재하는지 확인한다.
+    _FILE_ID_FIELD_MAP을 참조해 파일별 ID 필드를 동적으로 결정한다.
+    ID 또는 name으로 탐색하며, 존재하지 않으면 실패 결과를 반환한다.
+    지원되지 않는 파일(id_field 없음)이면 None을 반환한다.
+    """
+    id_field = _FILE_ID_FIELD_MAP.get(target_file)
+    if id_field is None:
         return None
 
-    if _query_is_not_found(query_result) is False:
-        return _build_query_consistency_failure(
-            "Actors.json",
-            "query 결과상 이미 존재하는 actor인데 create를 진행했습니다.",
-        )
+    entity_id = _coerce_int(log.get(id_field))
+    prefix = id_field.replace("_id", "")
+    entity_name = str(log.get(f"{prefix}_name") or log.get("name") or "").strip()
 
-    actor_id = _coerce_int(log.get("actor_id"))
-    created_actor = _get_array_entry_by_id(modified_payload, actor_id)
-    if created_actor is None and actor_name:
-        created_actor_id = _find_array_id_by_name(modified_payload, actor_name)
-        created_actor = _get_array_entry_by_id(modified_payload, created_actor_id)
+    modified_payload = modified_entries.get(target_file, (None, []))[0]
+    created_entity = _get_array_entry_by_id(modified_payload, entity_id)
+    if created_entity is None and entity_name:
+        found_id = _find_array_id_by_name(modified_payload, entity_name)
+        created_entity = _get_array_entry_by_id(modified_payload, found_id)
 
-    if created_actor is None:
-        label = actor_name or "target actor"
+    if created_entity is None:
+        label = entity_name or str(entity_id) or "unknown"
         return _build_query_consistency_failure(
-            "Actors.json",
-            f"query 결과는 not_found라서 create를 진행했지만 final state에 actor '{label}'가 없습니다.",
+            target_file,
+            f"create 실행 후 final state에 '{label}'가 없습니다.",
         )
     return None
 
 
-def validate_classes_create_consistency(
-    step: dict[str, Any],
+def validate_update_consistency(
     log: dict[str, Any],
-    query_result: dict[str, Any],
+    target_file: str,
     modified_entries: dict[str, tuple[Any, list[dict[str, Any]]]],
 ) -> FileValidationResult | None:
-    class_name = _extract_class_name(step, log)
-    modified_payload = modified_entries.get("Classes.json", (None, []))[0]
-    is_skip = bool(log.get("skipped"))
-
-    if is_skip:
-        if _query_is_not_found(query_result):
-            return _build_query_consistency_failure(
-                "Classes.json",
-                "query 결과는 not_found인데 create를 skip했습니다.",
-            )
-        if class_name and _find_array_id_by_name(modified_payload, class_name) is None:
-            return _build_query_consistency_failure(
-                "Classes.json",
-                f"query 결과상 이미 존재해서 create를 skip했지만 final state에 class '{class_name}'가 없습니다.",
-            )
+    """update 성공 후 final state에 해당 엔티티가 여전히 존재하는지 확인한다.
+    _FILE_ID_FIELD_MAP을 참조해 파일별 ID 필드를 동적으로 결정한다.
+    ID를 log에서 확인할 수 없거나 지원되지 않는 파일이면 검증을 skip(None 반환)한다.
+    """
+    id_field = _FILE_ID_FIELD_MAP.get(target_file)
+    if id_field is None:
         return None
 
-    if _query_is_not_found(query_result) is False:
+    entity_id = _coerce_int(log.get(id_field))
+    if entity_id is None:
+        return None
+
+    modified_payload = modified_entries.get(target_file, (None, []))[0]
+    final_entity = _get_array_entry_by_id(modified_payload, entity_id)
+
+    if final_entity is None:
         return _build_query_consistency_failure(
-            "Classes.json",
-            "query 결과상 이미 존재하는 class인데 create를 진행했습니다.",
+            target_file,
+            f"update 실행 후 final state에 {id_field}={entity_id}가 없습니다.",
         )
-
-    class_id = _coerce_int(log.get("class_id"))
-    created_class = _get_array_entry_by_id(modified_payload, class_id)
-    if created_class is None and class_name:
-        created_class_id = _find_array_id_by_name(modified_payload, class_name)
-        created_class = _get_array_entry_by_id(modified_payload, created_class_id)
-
-    if created_class is None:
-        label = class_name or "target class"
-        return _build_query_consistency_failure(
-            "Classes.json",
-            f"query 결과는 not_found라서 create를 진행했지만 final state에 class '{label}'가 없습니다.",
-        )
-    return None
-
-
-def validate_actors_update_consistency(
-    step: dict[str, Any],
-    log: dict[str, Any],
-    query_result: dict[str, Any],
-    modified_entries: dict[str, tuple[Any, list[dict[str, Any]]]],
-) -> FileValidationResult | None:
-    if _query_is_not_found(query_result):
-        return _build_query_consistency_failure(
-            "Actors.json",
-            "query 결과가 대상을 찾지 못했는데 update를 진행했습니다.",
-        )
-
-    target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
-    matched_ids = _normalize_id_list(query_result.get("matched_ids"))
-    expected_actor_id = _query_single_match_id(query_result)
-    target_actor_id = _coerce_int(log.get("actor_id"))
-    if target_actor_id is None:
-        target_actor_id = _coerce_int(target_info.get("actor_id") or target_info.get("actorId"))
-
-    if (
-        expected_actor_id is not None
-        and target_actor_id is not None
-        and expected_actor_id != target_actor_id
-    ):
-        return _build_query_consistency_failure(
-            "Actors.json",
-            f"query 결과는 actor_id={expected_actor_id}인데 후속 update는 actor_id={target_actor_id}를 대상으로 했습니다.",
-        )
-
-    if matched_ids and target_actor_id is not None and target_actor_id not in matched_ids:
-        return _build_query_consistency_failure(
-            "Actors.json",
-            f"query 결과의 matched_ids={matched_ids}인데 후속 update는 actor_id={target_actor_id}를 대상으로 했습니다.",
-        )
-
-    final_actor_id = target_actor_id or expected_actor_id
-    final_actor = _get_array_entry_by_id(
-        modified_entries.get("Actors.json", (None, []))[0], final_actor_id
-    )
-    if final_actor is None:
-        target_label = final_actor_id if final_actor_id is not None else "unknown"
-        return _build_query_consistency_failure(
-            "Actors.json",
-            f"query 결과가 가리킨 actor_id={target_label}에 대한 final state 반영을 확인할 수 없습니다.",
-        )
-
-    class_id = _coerce_int(log.get("class_id"))
-    if class_id is None:
-        class_id = _coerce_int(target_info.get("class_id") or target_info.get("classId"))
-    if class_id is not None and _coerce_int(final_actor.get("classId")) != class_id:
-        return _build_query_consistency_failure(
-            "Actors.json",
-            f"query 결과가 가리킨 actor_id={final_actor_id}의 classId가 final state에서 {class_id}로 반영되지 않았습니다.",
-        )
-
-    updates = target_info.get("updates") if isinstance(target_info.get("updates"), dict) else {}
-    for field, expected_value in updates.items():
-        if final_actor.get(field) != expected_value:
-            return _build_query_consistency_failure(
-                "Actors.json",
-                f"query 결과가 가리킨 actor_id={final_actor_id}의 field '{field}'가 final state에 올바르게 반영되지 않았습니다.",
-            )
-
-    new_name = str(target_info.get("new_name") or "").strip()
-    if new_name and str(final_actor.get("name") or "").strip() != new_name:
-        return _build_query_consistency_failure(
-            "Actors.json",
-            f"query 결과가 가리킨 actor_id={final_actor_id}의 이름 변경이 final state에 반영되지 않았습니다.",
-        )
-
     return None
 
 
 def validate_query_consistency(
-    execution_plan: list[dict[str, Any]],
     changes_log: list[dict[str, Any]],
     schema_results: list[FileValidationResult],
     modified_entries: dict[str, tuple[Any, list[dict[str, Any]]]],
 ) -> list[FileValidationResult]:
+    """changes_log의 각 step을 순회하며 정합성을 검증한다.
+
+    판단 기준:
+    - skipped=True인 step → 통과 (executor가 판단한 정당한 skip)
+    - success=False인 step → 실패 리포트 (query 실패 포함, 실패한 query는 downstream skip을 유발하므로 반드시 잡아야 함)
+    - success=True + query action → 통과 (read-only)
+    - success=True + write action → _FILE_ID_FIELD_MAP에 있는 배열 파일이면 final state 대조 검증 수행 (create/update)
+
+    스키마 검증이 이미 실패한 파일은 정합성 검증을 skip한다.
+    """
     failures: list[FileValidationResult] = []
     latest_logs = build_latest_step_log_map(changes_log)
-    plan_steps = build_plan_step_map(execution_plan)
     schema_failed_targets = {item.target for item in schema_results if not item.success}
 
-    for step_id in sorted(latest_logs):
-        log = latest_logs[step_id]
-        step = plan_steps.get(step_id)
-        target_file = str(
-            log.get("target_file") or (step or {}).get("target_file") or "state"
-        ).strip()
-        if log.get("success") is True:
-            continue
-
-        message = str(log.get("stderr") or log.get("error") or "executor step failed").strip()
-        if "[UNSUPPORTED_STRUCTURED_STEP]" in message:
-            failures.append(_build_executor_capability_failure(target_file, message))
-            continue
-        failures.append(_build_query_consistency_failure(target_file, message))
+    logger.debug("[Validator] 정합성 검증 시작: steps=%d", len(latest_logs))
 
     for step_id in sorted(latest_logs):
         log = latest_logs[step_id]
-        step = plan_steps.get(step_id, {})
+        target_file = str(log.get("target_file") or "").strip()
+        action = str(log.get("action") or "").strip().lower()
 
-        target_file = str(log.get("target_file") or step.get("target_file") or "").strip()
-        action = _normalize_action_name(step, log)
-
-        if target_file in schema_failed_targets:
-            continue
-        if target_file not in _SUPPORTED_CONSISTENCY_ACTIONS:
-            continue
-        if action not in _SUPPORTED_CONSISTENCY_ACTIONS[target_file]:
-            continue
-        if log.get("success") is not True and not log.get("skipped"):
-            continue
-
-        _query_log, query_result = resolve_query_reference(
-            step,
-            log,
-            latest_logs,
-            plan_steps,
-        )
-        if query_result is None:
-            failures.append(
-                _build_query_consistency_failure(
-                    target_file,
-                    f"query 기반 판단이 필요한 {action}인데 참조 가능한 query_result 근거 로그가 없습니다.",
-                )
+        # skipped → 정당한 skip, 통과
+        if log.get("skipped"):
+            logger.debug(
+                "[Validator] [정합성] step %s: skip (skipped=true, reason=%s)",
+                step_id,
+                log.get("skip_reason", ""),
             )
             continue
 
+        # 실패 step → 실패 리포트 (query 포함 — 실패한 query는 downstream skip을 유발)
+        if log.get("success") is not True:
+            message = str(log.get("stderr") or log.get("error") or "executor step failed").strip()
+            logger.warning(
+                "[Validator] [실행확인] step %s: 실패 (target=%s, msg=%s)",
+                step_id,
+                target_file,
+                message[:200],
+            )
+            if "[UNSUPPORTED_STRUCTURED_STEP]" in message:
+                failures.append(_build_executor_capability_failure(target_file, message))
+            else:
+                failures.append(_build_query_consistency_failure(target_file, message))
+            continue
+
+        logger.debug(
+            "[Validator] [실행확인] step %s: 성공 (target=%s, action=%s)",
+            step_id,
+            target_file,
+            action,
+        )
+
+        # 성공한 query → read-only, 통과
+        if _is_query_action_name(action):
+            logger.debug("[Validator] [정합성] step %s: skip (query 성공, read-only)", step_id)
+            continue
+
+        # 성공한 write step → final state 반영 확인
+        if target_file in schema_failed_targets:
+            logger.debug(
+                "[Validator] [정합성] step %s: skip (스키마 이미 실패한 target=%s)",
+                step_id,
+                target_file,
+            )
+            continue
+        if target_file not in _FILE_ID_FIELD_MAP:
+            logger.debug(
+                "[Validator] [정합성] step %s: skip (배열 구조 아닌 target=%s)",
+                step_id,
+                target_file,
+            )
+            continue
+        if action not in {"create", "update"}:
+            logger.debug(
+                "[Validator] [정합성] step %s: skip (미지원 action=%s, target=%s)",
+                step_id,
+                action,
+                target_file,
+            )
+            continue
+
+        logger.debug(
+            "[Validator] [정합성] step %s: 검증 중 (target=%s, action=%s)",
+            step_id,
+            target_file,
+            action,
+        )
+
         failure: FileValidationResult | None = None
-        if target_file == "Actors.json" and action == "create":
-            failure = validate_actors_create_consistency(step, log, query_result, modified_entries)
-        elif target_file == "Actors.json" and action == "update":
-            failure = validate_actors_update_consistency(step, log, query_result, modified_entries)
-        elif target_file == "Classes.json" and action == "create":
-            failure = validate_classes_create_consistency(step, log, query_result, modified_entries)
+        if action == "create":
+            failure = validate_create_consistency(log, target_file, modified_entries)
+        elif action == "update":
+            failure = validate_update_consistency(log, target_file, modified_entries)
 
         if failure is not None:
+            logger.warning(
+                "[Validator] [정합성] step %s: 실패 (target=%s, action=%s) → %s",
+                step_id,
+                target_file,
+                action,
+                _format_first_error(failure.errors) if failure.errors else "unknown",
+            )
             failures.append(failure)
+        else:
+            logger.debug(
+                "[Validator] [정합성] step %s: 통과 (target=%s, action=%s)",
+                step_id,
+                target_file,
+                action,
+            )
 
     return failures
 
 
 def _format_first_error(errors: list[dict[str, Any]] | list[ValidationErrorItem]) -> str:
+    """에러 목록에서 첫 번째 에러를 'loc=..., msg=...' 형태의 문자열로 반환한다. 로그 출력용."""
     normalized_errors = normalize_validation_errors(errors)
     if not normalized_errors:
         return "unknown error"
@@ -972,6 +557,13 @@ def validate_single_file(
     payload: Any,
     payload_errors: list[dict[str, Any]] | None = None,
 ) -> FileValidationResult:
+    """단일 파일의 payload를 Pydantic 스키마로 검증한다.
+
+    - payload_errors가 있으면 로드 실패로 즉시 path_issue 반환
+    - 스키마 미지원 파일이면 즉시 schema 실패 반환
+    - Pydantic ValidationError 발생 시 전체 에러 목록을 로그에 출력하고 schema 실패 반환
+    - 통과 시 schema 성공 반환
+    """
     model = resolve_schema(file_name)
     if model is None:
         logger.warning("[Validator] 미지원 스키마: target=%s", file_name)
@@ -995,10 +587,18 @@ def validate_single_file(
     except ValidationError as error:
         validation_errors = to_jsonable(error.errors())
         logger.warning(
-            "[Validator] 검증 실패: target=%s, error=%s",
+            "[Validator] 스키마 실패: target=%s, errors=%d건",
             file_name,
-            _format_first_error(validation_errors),
+            len(validation_errors),
         )
+        for i, err in enumerate(validation_errors):
+            logger.warning(
+                "[Validator]   [%d/%d] loc=%s | msg=%s",
+                i + 1,
+                len(validation_errors),
+                err.get("loc"),
+                err.get("msg"),
+            )
         return build_file_result(
             target=file_name,
             category="schema",
@@ -1006,6 +606,7 @@ def validate_single_file(
             errors=validation_errors,
         )
 
+    logger.debug("[Validator] 스키마 통과: target=%s", file_name)
     return build_file_result(
         target=file_name,
         category="schema",
@@ -1015,10 +616,19 @@ def validate_single_file(
 
 
 async def validator(state: AgentState) -> dict[str, Any]:
+    """LangGraph validator 노드 진입점.
+
+    실행 순서:
+    1. AgentState에서 입력값 추출
+    2. modified_game_state의 각 파일에 대해 스키마 검증 수행
+    3. changes_log 기반으로 정합성 검증 수행 (executor 실행 결과 vs final state 대조)
+    4. 결과를 합산해 success 판정 및 retry_count 갱신 후 반환
+
+    반환값은 AgentState에 병합된다: validation_results, validation_summary, success, retry_count
+    """
     (
         current_game_state,
         modified_game_state,
-        execution_plan,
         changes_log,
         retry_count,
     ) = extract_validation_inputs(state)
@@ -1034,18 +644,45 @@ async def validator(state: AgentState) -> dict[str, Any]:
         modified_entries = load_validation_entries(modified_game_state)
         validation_targets = select_validation_targets(modified_entries)
 
+        target_names = [file_name for file_name, _, _ in validation_targets]
+        logger.info("[Validator] 스키마 검증 시작: %s", target_names)
         schema_results = [
             validate_single_file(file_name, payload, payload_errors)
             for file_name, payload, payload_errors in validation_targets
         ]
+        schema_failed = [r for r in schema_results if not r.success]
+        logger.info(
+            "[Validator] 스키마 검증 완료: total=%d, failed=%d",
+            len(schema_results),
+            len(schema_failed),
+        )
+        for r in schema_failed:
+            first_err = _format_first_error(r.errors) if r.errors else "no error detail"
+            logger.warning("[Validator]   스키마 실패 파일: %s | %s", r.target, first_err)
+
         consistency_results = validate_query_consistency(
-            execution_plan,
             changes_log,
             schema_results,
             modified_entries,
         )
+        consistency_failed = [r for r in consistency_results if not r.success]
+        logger.info(
+            "[Validator] 정합성 검증 완료: total=%d, failed=%d",
+            len(consistency_results),
+            len(consistency_failed),
+        )
+        for r in consistency_failed:
+            first_err = _format_first_error(r.errors) if r.errors else "no error detail"
+            logger.warning("[Validator] 정합성 실패: %s | %s", r.target, first_err)
+
         final_results = schema_results + consistency_results
         success = all(item.success for item in final_results)
+        logger.info(
+            "[Validator] 최종 판정: success=%s (스키마 실패=%d, 정합성 실패=%d)",
+            success,
+            len(schema_failed),
+            len(consistency_failed),
+        )
         result = build_output(
             validation_results=final_results,
             validation_summary=build_validation_summary(final_results),
