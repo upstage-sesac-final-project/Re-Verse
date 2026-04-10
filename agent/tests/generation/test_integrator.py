@@ -54,7 +54,7 @@ def test_build_map_json_events_index_zero_null() -> None:
 
 
 def test_build_map_json_dungeon_has_encounter_list() -> None:
-    """dungeon 타입 맵은 battle 이벤트(code=301)가 있을 때 encounterList에 등록되어야 함."""
+    """전투는 이벤트 기반으로만 진행하므로 encounterList는 항상 빈 배열."""
     spec = _make_map_spec("dungeon")
     tile_data = [0] * (17 * 13 * 6)
     battle_event = {
@@ -69,8 +69,8 @@ def test_build_map_json_dungeon_has_encounter_list() -> None:
     }
     result = build_map_json(spec, tile_data, [battle_event])
 
-    assert len(result["encounterList"]) > 0
-    assert result["encounterList"][0]["troopId"] == 3
+    # _build_encounter_list는 의도적으로 빈 배열 반환 (랜덤 인카운터 미사용)
+    assert result["encounterList"] == []
 
 
 def test_build_map_json_dungeon_no_battle_empty_encounter_list() -> None:

@@ -268,6 +268,28 @@ events:
       - set_switch: 고블린_battle_01
     one_time: true
     battle_switch: 고블린_battle_01
+
+## 스위치 연동 규칙
+
+### 스위치 이름 규칙
+- 사전 할당된 스위치를 **우선** 사용할 것 (아래 목록 참조)
+- 새 스위치 생성 시: `{목적}_{대상}` 형식 (예: `quest_elder_talked`)
+- **절대 같은 개념에 다른 이름을 쓰지 말 것** (예: `고블린_battle_01`과 `고블린_배틀_01`은 다른 스위치)
+- 같은 스위치 이름은 맵이 달라도 동일한 게임 상태를 의미함 — 글로벌 범위
+
+### 스위치 연동 패턴
+**패턴 1: 보스 처치 → NPC 대화 변경**
+- battle의 on_win에서 set_switch로 스위치 ON
+- npc의 condition_switch로 같은 스위치를 참조, alt_dialogue로 대체 대사
+
+**패턴 2: NPC 대화 → 다른 이벤트 활성화**
+- npc의 set_switch로 스위치 ON
+- 다른 이벤트의 condition_switch로 같은 스위치를 참조
+
+### 금지 사항
+- NPC의 set_switch에 `chest_` 접두어 스위치를 쓰지 말 것 (보물상자 스위치 오염)
+- 전투 battle_switch와 on_win.set_switch에 같은 이름을 쓰지 말 것
+- 이 맵에서 사용하지 않을 스위치를 임의로 만들지 말 것
 """
 
 
@@ -449,7 +471,9 @@ def _describe_required_events(
             "2. 전투 이벤트 2~3개 (player_touch, one_time=true)\n"
             "3. 보물 상자 1~2개 (chest 타입)\n"
             "4. 선택: 경고 NPC 1개\n"
-            "⚠️ 금지: ending 이벤트 생성 금지 — 엔딩은 boss 맵 전용"
+            "⚠️ 금지: ending 이벤트 생성 금지 — 엔딩은 boss 맵 전용\n"
+            "⚠️ 스위치: 전투 battle_switch는 맵 고유 이름 사용 "
+            "(예: {맵이름}_고블린_battle). 다른 맵과 절대 중복 금지"
         )
     elif spec.map_type == "boss":
         boss_enemies = [e for e in game_spec.enemies if e.tier == "boss"]
