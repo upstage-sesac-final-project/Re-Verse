@@ -798,6 +798,13 @@ async def definition(state: AgentState) -> dict:
             next_id_cache[target] += 1
 
     logger.info("[Definition] 노드 완료 - 생성된 modification 수: %d", len(strictly_formatted_mods))
+
+    # operation IR 변환 (planner_v2 가 소비)
+    operation_tuples = _to_operation_ir(
+        strictly_formatted_mods, final_extracted_ids
+    )
+    logger.info("[Definition] operation IR 변환 완료: %d tuples", len(operation_tuples))
+
     # 최종 결과 반환
     result = {
         "target_files": resolved_target_files,
@@ -805,6 +812,7 @@ async def definition(state: AgentState) -> dict:
         "extracted_ids": final_extracted_ids,
         "params_sufficient": resolved_params_sufficient,
         "message_for_user": resolved_message_for_user,
+        "operation_tuples": operation_tuples,
     }
     logger.info(
         "─── ✅ Definition END (elapsed=%.2fs, targets=%d, mods=%d, ids=%d, params_ok=%s) ──",
@@ -815,3 +823,252 @@ async def definition(state: AgentState) -> dict:
         resolved_params_sufficient,
     )
     return result
+
+
+# ──────────────────────────────────────────────
+# Operation IR 변환 — modifications → operation_tuples
+# planner_v2 가 소비하는 정규화된 IR 형식
+# ──────────────────────────────────────────────
+
+# target(category) → file 매핑
+_TARGET_TO_FILE: dict[str, str] = {
+    "actor": "Actors.json",
+    "enemy": "Enemies.json",
+    "item": "Items.json",
+    "skill": "Skills.json",
+    "weapon": "Weapons.json",
+    "armor": "Armors.json",
+    "class": "Classes.json",
+    "state": "States.json",
+    "element": "System.json",
+    "system": "System.json",
+}
+
+# 배열 필드와 그에 어울리는 array_op match_hint 추론
+_ARRAY_FIELDS = frozenset({
+    "traits", "effects", "actions", "dropItems", "learnings", "equips",
+})
+
+# trait code → 의미 매핑 (intake match_hint 와 동일)
+_TRAIT_CODE_TO_HINT: dict[int, str] = {
+    11: "속성 내성",
+    13: "상태 내성",
+    21: "능력치 보정",
+    22: "추가 능력치",
+    31: "공격 속성",
+    32: "공격 상태",
+    41: "스킬 유형 추가",
+    42: "스킬 유형 봉인",
+    43: "스킬 추가",
+    44: "스킬 봉인",
+    51: "무기 유형 장비",
+    52: "방어구 유형 장비",
+}
+
+
+def _to_operation_ir(
+    modifications: list[dict],
+    extracted_ids: dict,
+) -> list[dict]:
+    """기존 modifications 를 operation_tuples (operation IR) 로 변환.
+
+    modification 형식 (참고):
+        {
+            "type": "create" | "update" | "delete" | "query",
+            "target": "actor" | "enemy" | ...,
+            "params": {
+                # create: {"name": ..., "description": ..., ...}
+                # update: {"selector": {...}, "updates": {...}}
+                # query: {"searchTerm": ...}
+            }
+        }
+
+    operation IR 형식:
+        {
+            "op": "create" | "update" | "delete" | "read",
+            "file": "Actors.json",
+            "subject": {"name": str|None, "id": int|None, "scope": "single"|"all"},
+            "field": str|None,
+            "value": {kind, ref, new_value, type_hint, array_op, match_hint} | None,
+        }
+    """
+    op_type_map = {
+        "create": "create",
+        "update": "update",
+        "delete": "delete",
+        "query": "read",
+        "read": "read",
+    }
+
+    result: list[dict] = []
+    for mod in modifications:
+        mod_type = (mod.get("type") or "").lower()
+        target = (mod.get("target") or "").lower()
+        params = mod.get("params") or {}
+
+        op = op_type_map.get(mod_type)
+        file = _TARGET_TO_FILE.get(target)
+        if not op or not file:
+            continue
+
+        if op == "create":
+            tuples = _create_to_ir(file, target, params, extracted_ids)
+        elif op == "update":
+            tuples = _update_to_ir(file, target, params, extracted_ids)
+        elif op == "delete":
+            tuples = _delete_to_ir(file, target, params, extracted_ids)
+        elif op == "read":
+            tuples = _read_to_ir(file, target, params)
+        else:
+            tuples = []
+
+        result.extend(tuples)
+
+    return result
+
+
+def _create_to_ir(
+    file: str, target: str, params: dict, extracted_ids: dict,
+) -> list[dict]:
+    """create modification → operation IR.
+
+    profiler 가 세부 필드를 채우므로, IR 은 name 만 담는다.
+    """
+    name = params.get("name") or params.get(f"{target}_name") or ""
+    return [{
+        "op": "create",
+        "file": file,
+        "subject": {"name": name, "id": None, "scope": "single"} if name else None,
+        "field": None,
+        "value": None,
+    }]
+
+
+def _update_to_ir(
+    file: str, target: str, params: dict, extracted_ids: dict,
+) -> list[dict]:
+    """update modification → operation IR.
+
+    selector(대상) + updates(변경 필드) 를 분해하여 필드별로 1개씩 만든다.
+    """
+    selector = params.get("selector") or {}
+    updates = params.get("updates") or {}
+
+    # selector 분해
+    if isinstance(selector, dict):
+        scope = "all" if selector.get("mode") == "all" else "single"
+        sub_name = selector.get("name")
+        sub_id = selector.get("id")
+    else:
+        scope = "single"
+        sub_name = params.get("name")
+        sub_id = None
+
+    # extracted_ids 에서 id 보완
+    if sub_id is None and sub_name:
+        sub_id = extracted_ids.get(sub_name)
+
+    subject = None
+    if scope == "all":
+        subject = {"name": None, "id": None, "scope": "all"}
+    elif sub_name or sub_id:
+        subject = {"name": sub_name, "id": sub_id, "scope": "single"}
+
+    # updates 가 비어 있으면 selector 만 있는 경우 → 무시
+    if not updates or not isinstance(updates, dict):
+        return []
+
+    tuples: list[dict] = []
+    for field, value in updates.items():
+        ir_value = _build_ir_value(field, value, target)
+        tuples.append({
+            "op": "update",
+            "file": file,
+            "subject": subject,
+            "field": field,
+            "value": ir_value,
+        })
+    return tuples
+
+
+def _delete_to_ir(
+    file: str, target: str, params: dict, extracted_ids: dict,
+) -> list[dict]:
+    selector = params.get("selector") or {}
+    if isinstance(selector, dict):
+        sub_name = selector.get("name") or params.get("name")
+        sub_id = selector.get("id")
+    else:
+        sub_name = params.get("name")
+        sub_id = None
+    if sub_id is None and sub_name:
+        sub_id = extracted_ids.get(sub_name)
+
+    return [{
+        "op": "delete",
+        "file": file,
+        "subject": {"name": sub_name, "id": sub_id, "scope": "single"},
+        "field": None,
+        "value": None,
+    }]
+
+
+def _read_to_ir(file: str, target: str, params: dict) -> list[dict]:
+    name = params.get("searchTerm") or params.get("name")
+    return [{
+        "op": "read",
+        "file": file,
+        "subject": {"name": name, "id": None, "scope": "single"} if name else None,
+        "field": None,
+        "value": None,
+    }]
+
+
+def _build_ir_value(field: str, value, target: str) -> dict:
+    """field/value → operation IR value 구조.
+
+    배열 필드는 array_op 으로, 일반 필드는 new_value 로.
+    """
+    # 배열 필드 — 통째 교체 케이스만 처리 (세밀한 array_op 은 planner 가 추론)
+    if field in _ARRAY_FIELDS:
+        if isinstance(value, list):
+            # 통째 교체 — value 전체를 raw 로 전달, planner 가 처리
+            return {
+                "kind": "array",
+                "ref": None,
+                "new_value": None,
+                "type_hint": None,
+                "array_op": "replace",
+                "match_hint": None,
+                "raw_array": value,
+            }
+        # 단일 값이 들어온 경우 → 추가
+        return {
+            "kind": "array",
+            "ref": str(value) if value else None,
+            "new_value": None,
+            "type_hint": None,
+            "array_op": "add",
+            "match_hint": None,
+        }
+
+    # 참조 필드 — equips 등은 위에서 처리됨. classId 등은 ref 필요
+    if field == "classId":
+        return {
+            "kind": "class",
+            "ref": str(value) if value else None,
+            "new_value": value if isinstance(value, int) else None,
+            "type_hint": None,
+            "array_op": None,
+            "match_hint": None,
+        }
+
+    # 일반 필드 — new_value 로
+    return {
+        "kind": "param",
+        "ref": None,
+        "new_value": value,
+        "type_hint": None,
+        "array_op": None,
+        "match_hint": None,
+    }

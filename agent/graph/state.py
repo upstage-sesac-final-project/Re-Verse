@@ -34,6 +34,10 @@ class AgentState(TypedDict, total=False):
     extracted_ids: dict  # 이름→ID 매핑 (예: {"enemy_id": 1})
     params_sufficient: bool  # 파라미터 충분 여부
 
+    # ── 2.5단계 Operation IR (definition_v2 → game_index_resolve → planner_v2) ──
+    operation_tuples: list[dict]  # 정규화된 operation IR
+    plan_meta: dict  # planner_v2 → validator (op_idx → step_ids 역매핑)
+
     # ── 3단계 Planner ───────────────────────────────────────
     game_context: dict  # 플래너 프롬프트에 주입할 현재 게임 데이터
     # 단계별 실행 명령. 레거시: [{"task": "..."}]. 구조화(3단계): step_id, action_type,
