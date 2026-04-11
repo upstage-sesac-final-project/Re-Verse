@@ -5,7 +5,7 @@ from langgraph.graph import END, START, StateGraph
 from agent.graph.nodes.definition import definition
 from agent.graph.nodes.executor import executor
 from agent.graph.nodes.game_index_resolve import game_index_resolve
-from agent.graph.nodes.planner import planner
+from agent.graph.nodes.planner_v2 import planner_v2
 from agent.graph.nodes.reader import reader
 from agent.graph.nodes.router import router
 from agent.graph.nodes.synthesizer import synthesizer
@@ -37,7 +37,7 @@ def build_graph() -> StateGraph:
     builder.add_node("reader", reader)
     builder.add_node("definition", definition)
     builder.add_node("game_index_resolve", game_index_resolve)
-    builder.add_node("planner", planner)
+    builder.add_node("planner", planner_v2)
     builder.add_node("executor", executor)
     builder.add_node("validator", validator)
     builder.add_node("synthesizer", synthesizer)
