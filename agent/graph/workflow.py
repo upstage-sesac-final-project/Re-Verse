@@ -6,12 +6,20 @@ from agent.graph.nodes.definition import definition
 from agent.graph.nodes.executor import executor
 from agent.graph.nodes.game_index_resolve import game_index_resolve
 from agent.graph.nodes.planner_v2 import planner_v2
+from agent.graph.nodes.profiler import profiler
 from agent.graph.nodes.reader import reader
 from agent.graph.nodes.router import router
 from agent.graph.nodes.synthesizer import synthesizer
 from agent.graph.nodes.validator import validator
 from agent.graph.routing import route_after_definition, route_after_router, route_after_validator
 from agent.graph.state import AgentState
+
+
+def _route_after_planner(state: AgentState) -> str:
+    """plan 에 create step 이 있으면 profiler, 없으면 executor 직행."""
+    plan = state.get("execution_plan", []) or []
+    has_create = any(s.get("_needs_profiling") for s in plan)
+    return "profiler" if has_create else "executor"
 
 
 def build_graph() -> StateGraph:
@@ -38,6 +46,7 @@ def build_graph() -> StateGraph:
     builder.add_node("definition", definition)
     builder.add_node("game_index_resolve", game_index_resolve)
     builder.add_node("planner", planner_v2)
+    builder.add_node("profiler", profiler)
     builder.add_node("executor", executor)
     builder.add_node("validator", validator)
     builder.add_node("synthesizer", synthesizer)
@@ -63,9 +72,16 @@ def build_graph() -> StateGraph:
         {"synthesizer": "synthesizer", "executor": "executor"},
     )
 
+    # planner → profiler 또는 executor (조건부)
+    builder.add_conditional_edges(
+        "planner",
+        _route_after_planner,
+        {"profiler": "profiler", "executor": "executor"},
+    )
+
     # ── 선형 엣지 ──────────────────────────────────────────
     builder.add_edge("reader", END)
-    builder.add_edge("planner", "executor")
+    builder.add_edge("profiler", "executor")
     builder.add_edge("executor", "validator")
     builder.add_edge("synthesizer", END)
 
