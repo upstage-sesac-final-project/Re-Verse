@@ -15,11 +15,11 @@ FLAG_IMP_DOWN = 0x01  # 아래쪽 통행 불가
 FLAG_IMP_LEFT = 0x02  # 왼쪽 통행 불가
 FLAG_IMP_RIGHT = 0x04  # 오른쪽 통행 불가
 FLAG_IMP_UP = 0x08  # 위쪽 통행 불가
-FLAG_IMP_ALL = 0x10  # 전방향 통행 불가 (벽/장애물)
-FLAG_BUSH = 0x40  # 숲 (반투명 처리)
+FLAG_STAR = 0x10  # 플레이어 위로 표시 (천장/숲 상단 등)
+FLAG_LADDER = 0x20  # 사다리
+FLAG_BUSH = 0x40  # 숲/풀숲 (캐릭터 하단 반투명)
 FLAG_COUNTER = 0x80  # 카운터 (상점 테이블 등)
 FLAG_DAMAGE = 0x100  # 데미지 바닥 (독늪, 용암 등)
-FLAG_LADDER = 0x20  # 사다리
 
 
 def is_walkable(
@@ -41,7 +41,7 @@ def is_walkable(
     region_id = get_tile(data, x, y, width, height, 5)
     if blocked_regions and region_id in blocked_regions:
         return False
-    if region_id == 1:
+    if region_id == 1:  # Region 1은 명시적 통행 불가로 약속
         return False
 
     # 2. Tilesets.json의 flags 기반 판정
@@ -57,32 +57,37 @@ def is_walkable(
                 )
 
             found_base = False
+            # MZ 표준: 상위 레이어(3)부터 하위 레이어(0)로 내려가며 확인
             for layer in [3, 2, 1, 0]:
                 tile_id = get_tile(data, x, y, width, height, layer)
-                if tile_id == 0:
+                if tile_id == 0:  # 투명 타일은 무시하고 아래 레이어 확인
                     continue
 
                 if tile_id < len(flags):
                     f = flags[tile_id]
 
-                    # 0x10 비트는 'Star' (Overhead) 타일을 의미함.
-                    if f & 0x10:
-                        # Star 타일 아래에 땅이 있는지 계속 확인
+                    # 0x10 (FLAG_STAR)가 켜져 있으면 '천장'이므로
+                    # 통행 판정(막힘)에 영향을 주지 않고 아래 레이어를 확인합니다.
+                    if f & FLAG_STAR:
                         continue
 
-                    # 레이어 0 또는 1에 타일이 있다면 바닥이 있는 것으로 간주
+                    # 레이어 0 또는 1에 타일이 있다면 바닥이 있는 것으로 간주 (A 레이어)
                     if layer <= 1:
                         found_base = True
 
                     # 데미지 타일 확인 (0x100)
                     if avoid_damage and (f & FLAG_DAMAGE):
+                        logger.info("is_walkable: (x:%d, y:%d) 데미지 타일 감지 (0x%X)", x, y, f)
                         return False
 
-                    # 0x0F (전방향 차단) 확인
+                    # 통행 가능성 판정 (하위 4비트)
+                    # 0x01~0x08 중 하나라도 켜져 있으면 해당 방향으로 못 감.
+                    # 시작 좌표로는 4방향 모두 열려있는(0x00) 타일이 가장 안전함.
                     if (f & 0x0F) > 0:
+                        # logger.debug("is_walkable: (x:%d, y:%d) 막힌 타일 감지 (Layer %d, Flag 0x%X)", x, y, layer, f)
                         return False
 
-                    # 통과 가능한 타일을 찾았음
+                    # 여기까지 왔다면 이 타일이 최종 통행 결정 타일 (통과 가능)
                     return True
 
             # 모든 레이어를 돌았는데 유효한 바닥이 없거나(전부 0),
@@ -90,15 +95,23 @@ def is_walkable(
             if not found_base:
                 return False
     else:
-        # tilesets가 None이거나 인덱스가 유효하지 않은 경우
+        # tilesets가 None이거나 인덱스가 유효하지 않은 경우 (로그 출력)
         if not tilesets:
-            logger.warning("is_walkable: tilesets 데이터가 None입니다! 정확한 판정이 불가능합니다.")
+            logger.warning(
+                "is_walkable(x=%d, y=%d): tilesets 데이터가 None입니다! (폴백 로직 수행)", x, y
+            )
         else:
             logger.warning(
-                "is_walkable: tileset_id(%d)가 범위를 벗어났습니다 (len=%d).",
+                "is_walkable(x=%d, y=%d): tileset_id(%d)가 범위를 벗어났습니다 (len=%d).",
+                x,
+                y,
                 tileset_id,
                 len(tilesets),
             )
+
+    # 3. 폴백 (알고리즘 생성 맵용)
+    val_l5 = get_tile(data, x, y, width, height, 5)
+    return val_l5 == 0
 
     # 3. 폴백 (알고리즘 생성 맵용)
     val_l5 = get_tile(data, x, y, width, height, 5)

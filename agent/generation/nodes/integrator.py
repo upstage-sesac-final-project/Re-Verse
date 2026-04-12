@@ -624,6 +624,14 @@ async def integrator(state: GenerationState) -> dict:
         if fname in assets:
             final_project[fname] = assets[fname]
 
+    # 4. base_game에서 상속받는 고정 파일들 로드 (tilesets를 먼저 확보)
+    final_project["States.json"] = _load_base_game_file("States.json")
+    final_project["Animations.json"] = _load_base_game_file("Animations.json")
+    final_project["CommonEvents.json"] = _load_base_game_file("CommonEvents.json")
+
+    tilesets = load_base_tilesets()
+    final_project["Tilesets.json"] = tilesets
+
     # 2. System.json — startPos: 첫 번째 town 맵의 walkable 타일 (BFS)
     start_map_id = min(id_table.maps.values(), default=1)
     start_x, start_y = 0, 0
@@ -633,13 +641,21 @@ async def integrator(state: GenerationState) -> dict:
             map_specs[0],
         )
         start_map_id = start_spec.map_id
-        if start_spec.original_file_name:
-            # 샘플맵: sample_map_selector에서 이미 Tilesets.json flags 기반으로 계산됨
-            start_x, start_y = start_spec.spawn_point
+        tile_data = map_tiles.get(start_map_id)
+
+        if tile_data:
+            # 기존 좌표가 샘플 맵에서 왔든 LLM이 정했든,
+            # Integrator 단계에서 실제 Tilesets.json flags를 기준으로 최종 재검증합니다.
+            logger.info(
+                "Integrator: 플레이어 시작 좌표 최종 검증 시작 (MapID: %d, Tilesets 유무: %s)",
+                start_map_id,
+                tilesets is not None,
+            )
+            start_x, start_y = calculate_spawn_point(start_spec, tile_data, tilesets=tilesets)
+            logger.info("Integrator: 플레이어 시작 좌표 확정 (%d, %d)", start_x, start_y)
         else:
-            tile_data = map_tiles.get(start_map_id)
-            if tile_data:
-                start_x, start_y = calculate_spawn_point(start_spec, tile_data)
+            # 타일 데이터가 없는 예외 케이스
+            start_x, start_y = start_spec.spawn_point
 
     final_project["System.json"] = build_system_json_phase2(
         game_spec,
@@ -687,14 +703,6 @@ async def integrator(state: GenerationState) -> dict:
                 "scrollY": 0,
             }
         }
-
-    # 4. base_game에서 상속받는 고정 파일들
-    final_project["States.json"] = _load_base_game_file("States.json")
-    final_project["Animations.json"] = _load_base_game_file("Animations.json")
-    final_project["CommonEvents.json"] = _load_base_game_file("CommonEvents.json")
-
-    # Tilesets.json: base_game에서 가져온 표준 6종 데이터 사용
-    final_project["Tilesets.json"] = load_base_tilesets()
 
     logger.info("integrator 완료: %d개 파일", len(final_project))
 
