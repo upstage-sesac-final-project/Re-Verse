@@ -16,10 +16,12 @@ from agent.core.llm_client import invoke_llm
 from agent.generation.compilers.dsl_models import (
     BattleEvent,
     DslEvent,
+    GateEvent,
     NpcEvent,
+    QuestChestEvent,
     TransferEvent,
 )
-from agent.generation.models import GameSpec, MapConnectionInfo, MapSpec, MapStoryScript
+from agent.generation.models import GameSpec, MapConnectionInfo, MapScreenplay, MapSpec
 from agent.generation.progress import publish_progress
 from agent.generation.prompts.event_planner_prompt import build_event_planner_prompt
 from agent.generation.rag_context import get_event_planner_context
@@ -58,7 +60,7 @@ async def event_planner(state: GenerationState) -> dict:
         },
     )
 
-    story_script: dict[int, MapStoryScript] = state.get("story_script") or {}
+    story_script: dict[int, MapScreenplay] = state.get("story_script") or {}
 
     tasks = [
         _plan_single_map(
@@ -79,6 +81,22 @@ async def event_planner(state: GenerationState) -> dict:
         if isinstance(result, Exception):
             logger.error("Map%d 이벤트 기획 실패: %s", spec.map_id, result)
             result = _fallback_events(spec, id_table)
+
+        screenplay = story_script.get(spec.map_id)
+        conn = connection_info.get(spec.map_id, _empty_connection(spec.map_id))
+        # LLM 생성 이동 이벤트 제거 → 코드로 재생성
+        result = _strip_llm_move_events(result, spec.map_id)
+        # 이 맵 screenplay에 없는 quest_chest 제거 (LLM이 다른 맵 아이템 생성하는 것 방지)
+        result = _filter_extra_quest_chests(result, screenplay, spec.map_id)
+        # acquisition 누락 보완 (quest_chest 미생성 시 자동 삽입)
+        result = _ensure_acquisition_events(result, screenplay, spec, switch_table)
+        # battle quest_chest quest_switch ↔ NPC set_switch 충돌 수정 (NPC 대화로 배틀 우회 방지)
+        result = _fix_battle_quest_switch_collision(result, spec.map_id, switch_table)
+        # NpcEvent condition_switch 검증: 존재하지 않는 _defeated 스위치 자동 교체
+        result = _fix_npc_defeated_conditions(result, switch_table, spec.map_id)
+        # 이동 이벤트 코드 생성 (condition = acquisitions.chest_switch)
+        result = result + _build_move_events(screenplay, conn, id_table, spec)
+
         event_dsl[spec.map_id] = result
 
     logger.info("event_planner 완료: %d개 맵", len(event_dsl))
@@ -104,7 +122,7 @@ async def _plan_single_map(
     switch_table: SwitchTable,
     connection_info: MapConnectionInfo,
     troop_to_sprite: dict[str, tuple[str, int]],
-    map_story: MapStoryScript | None = None,
+    map_story: MapScreenplay | None = None,
 ) -> list:
     rag_context = get_event_planner_context(map_spec.map_type)
     for attempt in range(3):
@@ -124,6 +142,7 @@ async def _plan_single_map(
                 logger.warning("Map%d DSL 파싱 실패 (시도 %d)", map_spec.map_id, attempt + 1)
                 continue
             valid = _validate_coords(events, map_spec)
+            valid = _validate_duplicate_names(valid, map_spec.map_id)
             valid = _validate_name_refs(valid, id_table, switch_table)
             valid = _validate_event_types(valid, map_spec)
             valid = _validate_npc_names(valid, id_table, map_story=map_story)
@@ -178,6 +197,23 @@ def _validate_coords(events: list, spec: MapSpec) -> list:
                 e.x,
                 e.y,
             )
+    return valid
+
+
+def _validate_duplicate_names(events: list, map_id: int) -> list:
+    """이벤트 이름 중복 제거 (첫 번째만 유지)."""
+    seen: set[str] = set()
+    valid = []
+    for e in events:
+        if e.name in seen:
+            logger.warning(
+                "Map%d 이벤트 '%s' 이름 중복 → 제거 (첫 번째만 유지)",
+                map_id,
+                e.name,
+            )
+        else:
+            seen.add(e.name)
+            valid.append(e)
     return valid
 
 
@@ -241,7 +277,7 @@ def _validate_name_refs(events: list, id_table: IdTable, switch_table: SwitchTab
                     "transfer 이벤트 '%s': to_map '%s' 존재하지 않음 → 제거", e.name, e.to_map
                 )
                 continue
-            if hasattr(e, "troop") and e.troop not in all_troop_names:
+            if hasattr(e, "troop") and e.troop is not None and e.troop not in all_troop_names:
                 corrected = _correct_troop_name(e.troop, all_troop_names)
                 if corrected:
                     logger.info(
@@ -268,17 +304,17 @@ def _validate_name_refs(events: list, id_table: IdTable, switch_table: SwitchTab
 
 # 맵 타입별 생성 금지 이벤트 타입
 _FORBIDDEN_EVENT_TYPES: dict[str, set[str]] = {
-    "town": {"battle", "ending"},  # 마을/안전지역 — 전투·엔딩 이벤트 금지
-    "boss": set(),  # 보스맵 — 제한 없음
-    "dungeon": {"ending"},  # 던전 — 엔딩 이벤트 금지 (보스맵 전용)
-    "field": {"ending"},  # 필드 — 엔딩 이벤트 금지
+    "town": {"battle", "ending", "transfer"},  # 마을 — 전투·엔딩·transfer 금지, 출구는 gate 전용
+    "boss": {"gate", "transfer"},  # 보스맵 — gate/transfer 금지, 엔딩으로만 종료
+    "dungeon": {"ending"},  # 던전 — 엔딩 금지
+    "field": {"ending"},  # 필드 — 엔딩 금지
 }
 
 
 def _validate_npc_names(
     events: list,
     id_table: IdTable,
-    map_story: MapStoryScript | None = None,
+    map_story: MapScreenplay | None = None,
 ) -> list:
     """NPC 이름이 액터(주인공 파티) 이름과 겹치면 role 기반으로 자동 수정.
 
@@ -606,3 +642,484 @@ def _fallback_events(spec: MapSpec, id_table: IdTable) -> list:
 
 def _empty_connection(map_id: int) -> MapConnectionInfo:
     return MapConnectionInfo(map_id=map_id, exit_tiles=[], entry_tiles=[])
+
+
+# ── 구조 이벤트 코드 직접 조립 ───────────────────────────────────────────────
+#
+# 역할 분리:
+#   _strip_llm_move_events      LLM 생성 gate/transfer 제거
+#   _ensure_acquisition_events  quest_chest 누락 보완 (아이템 획득 이벤트)
+#   _build_move_events          gate/transfer 코드 생성 (condition = chest_switches)
+
+
+def _strip_llm_move_events(events: list, map_id: int) -> list:
+    """LLM이 생성한 gate/transfer 이벤트를 모두 제거한다.
+
+    이동 이벤트는 _build_move_events가 코드로 직접 생성하므로 LLM 생성본은 사용하지 않는다.
+    """
+    _MOVE_TYPES = {"gate", "transfer"}
+    stripped = [e for e in events if e.type not in _MOVE_TYPES]
+    removed = len(events) - len(stripped)
+    if removed:
+        logger.info("Map%d LLM 이동 이벤트 %d개 제거 (코드 대체)", map_id, removed)
+    return stripped
+
+
+def _filter_extra_quest_chests(
+    events: list,
+    screenplay: MapScreenplay | None,
+    map_id: int,
+) -> list:
+    """이 맵의 screenplay.acquisitions에 없는 quest_chest 이벤트를 제거한다.
+
+    LLM이 체크리스트를 무시하고 다른 맵 아이템의 quest_chest를 생성하는 것을 방지한다.
+    screenplay가 없으면 전체 통과 (폴백 맵은 그대로 유지).
+    """
+    if not screenplay:
+        return events
+
+    valid_chest_switches = {acq.chest_switch for acq in screenplay.acquisitions}
+
+    filtered = []
+    for e in events:
+        if e.type == "quest_chest":
+            chest_sw = getattr(e, "chest_switch", None)
+            if chest_sw not in valid_chest_switches:
+                logger.warning(
+                    "Map%d quest_chest '%s' (chest_switch=%s) — 이 맵 acquisitions에 없음 → 제거",
+                    map_id,
+                    e.name,
+                    chest_sw,
+                )
+                continue
+        filtered.append(e)
+    return filtered
+
+
+def _ensure_acquisition_events(
+    events: list,
+    screenplay: MapScreenplay | None,
+    spec: MapSpec,
+    switch_table: SwitchTable | None = None,
+) -> list:
+    """screenplay.acquisitions 중 quest_chest가 누락된 항목을 자동으로 보완한다.
+
+    게이트 조건이 chest_switch 기반이므로, quest_chest가 없으면 게이트가 영원히 잠긴다.
+    LLM이 정상 생성했으면 이 함수는 아무것도 추가하지 않는다.
+
+    quest_type 결정 규칙:
+    - boss맵: npc (boss_defeated_switch 사용)
+    - town맵: npc (npc_set_switch 사용)
+    - dungeon/field맵: battle ({item}_battle_won 스위치 사용, switch_table에 있으면)
+    """
+    if not screenplay or not screenplay.acquisitions:
+        return events
+
+    # 이미 생성된 quest_chest / chest 이벤트의 chest_switch 수집
+    # quest_type=battle이면서 troop 없는 것은 컴파일 실패 예정 → 미존재로 처리
+    existing_chest_switches: set[str] = set()
+    for e in events:
+        if e.type == "chest" and getattr(e, "chest_switch", None):
+            # 일반 chest도 같은 chest_switch를 사용하면 중복 삽입 방지
+            existing_chest_switches.add(e.chest_switch)
+        elif e.type == "quest_chest" and getattr(e, "chest_switch", None):
+            if getattr(e, "quest_type", "npc") == "battle" and not getattr(e, "troop", None):
+                continue  # troop 없는 battle quest_chest는 재삽입 대상
+            existing_chest_switches.add(e.chest_switch)
+
+    # NPC set_switch 목록
+    npc_set_switches = [npc.set_switch for npc in screenplay.npcs if npc.set_switch]
+
+    # 보스맵: 아이템은 보스 격파 후 획득 → boss_defeated를 quest_switch로 사용
+    boss_defeated_switch: str | None = None
+    if screenplay.has_boss and screenplay.boss_name:
+        boss_defeated_switch = f"{screenplay.boss_name}_defeated"
+
+    # 맵 타입별 기본 quest_type
+    is_battle_map = spec.map_type in ("dungeon", "field") and not boss_defeated_switch
+    valid_switches = set(switch_table.switches.keys()) if switch_table else set()
+
+    # 이 맵의 전투 이벤트에서 사용 가능한 troop 목록 수집 (battle quest_chest 자동 삽입 시 재사용)
+    available_troops: list[str] = [
+        e.troop for e in events if e.type == "battle" and getattr(e, "troop", None)
+    ]
+
+    cx, cy = spec.spawn_point
+    added: list = []
+    offset = 2
+
+    for acq in screenplay.acquisitions:
+        if acq.chest_switch in existing_chest_switches:
+            continue  # 이미 생성됨
+
+        # quest_switch + quest_type + troop 결정
+        troop_for_battle: str | None = None
+        if boss_defeated_switch:
+            # 보스맵: boss 처치 후 npc 타입 상자
+            quest_switch = boss_defeated_switch
+            quest_type = "npc"
+            q_dialogue = ["보스를 물리쳤군요!", "이 보물을 가져가세요."]
+        elif is_battle_map:
+            # 던전/필드: {item}_battle_won 독립 스위치 사용
+            battle_won_sw = f"{acq.item_name}_battle_won"
+            if battle_won_sw in valid_switches and available_troops:
+                # 맵에 전투 이벤트가 있으면 → battle 타입 + troop 임베드
+                troop_for_battle = available_troops[len(added) % len(available_troops)]
+                quest_switch = battle_won_sw
+                quest_type = "battle"
+                q_dialogue = ["적을 물리쳐야만 이 보물이 열린다."]
+            else:
+                # troop이 없거나 battle_won 스위치 미할당 → npc 타입 폴백
+                quest_switch = (
+                    npc_set_switches[len(added)]
+                    if len(added) < len(npc_set_switches)
+                    else (npc_set_switches[0] if npc_set_switches else None)
+                )
+                quest_type = "npc"
+                q_dialogue = ["이 보물은 내가 지키고 있어.", "도움을 주면 열어줄게."]
+                logger.warning(
+                    "Map%d('%s') acquisition '%s': battle_won 스위치 미할당 또는 troop 없음 → npc 타입으로 폴백",
+                    spec.map_id,
+                    spec.name,
+                    acq.item_name,
+                )
+        else:
+            # town맵: NPC 대화 후 npc 타입 상자
+            quest_switch = (
+                npc_set_switches[len(added)]
+                if len(added) < len(npc_set_switches)
+                else (npc_set_switches[0] if npc_set_switches else None)
+            )
+            quest_type = "npc"
+            q_dialogue = ["이 보물은 내가 지키고 있어.", "도움을 주면 열어줄게."]
+
+        # 좌표 충돌 방지: 기존 이벤트 좌표 집합에서 비어있는 곳 탐색
+        used_coords = {(getattr(e, "x", -1), getattr(e, "y", -1)) for e in events + added}
+        px, py = cx + offset, cy
+        while (px, py) in used_coords:
+            offset += 1
+            px = cx + offset
+
+        added.append(
+            QuestChestEvent(
+                type="quest_chest",
+                name=f"{acq.item_name}_퀘스트상자",
+                x=px,
+                y=py,
+                quest_type=quest_type,
+                quest_switch=quest_switch or f"{acq.item_name}_quest",
+                quest_dialogue=q_dialogue,
+                troop=troop_for_battle,  # battle 타입: 기존 전투 이벤트 troop 재사용
+                item=acq.item_name,
+                item_type=acq.item_type,
+                chest_switch=acq.chest_switch,
+                dialogue_before="빛나는 상자가 나타났다!",
+                dialogue_after=f"{acq.item_name}을 손에 넣었다!",
+            )
+        )
+        offset += 2
+        logger.warning(
+            "Map%d('%s') acquisition '%s' quest_chest 누락 → 자동 삽입 (quest_type=%s, troop=%s, chest_switch=%s)",
+            spec.map_id,
+            spec.name,
+            acq.item_name,
+            quest_type,
+            troop_for_battle,
+            acq.chest_switch,
+        )
+
+    return events + added
+
+
+def _fix_battle_quest_switch_collision(
+    events: list,
+    map_id: int,
+    switch_table: SwitchTable | None = None,
+) -> list:
+    """battle quest_chest의 quest_switch를 NpcEvent가 ON시키는 충돌을 방지.
+
+    배틀 없이 NPC 대화만으로 quest_switch가 ON되면 battle quest_chest가 활성화되어
+    전투 없이 아이템 획득이 가능해지는 버그를 수정한다.
+
+    1차 수정: battle quest_chest.quest_switch가 NPC set_switch와 같으면,
+              quest_switch를 {item}_battle_won으로 교체 (switch_table에 존재하는 경우).
+    2차 수정: NPC set_switch가 battle quest_switch와 충돌하면 NPC set_switch 제거.
+    """
+    # battle quest_chest의 quest_switch 목록 수집 (item_name → quest_switch 매핑)
+    battle_quest_map: dict[str, str] = {}  # item_name → quest_switch
+    for e in events:
+        if (
+            e.type == "quest_chest"
+            and getattr(e, "quest_type", "npc") == "battle"
+            and getattr(e, "quest_switch", None)
+        ):
+            item_name = getattr(e, "item", None) or e.name
+            battle_quest_map[item_name] = e.quest_switch
+
+    if not battle_quest_map:
+        return events
+
+    # NPC set_switch 집합 수집
+    npc_set_switches: set[str] = {
+        e.set_switch for e in events if e.type == "npc" and getattr(e, "set_switch", None)
+    }
+
+    # 1차: battle quest_chest.quest_switch가 NPC set_switch와 충돌하면 _battle_won으로 교체
+    valid_switches = set(switch_table.switches.keys()) if switch_table else set()
+    fixed_events = []
+    for e in events:
+        if (
+            e.type == "quest_chest"
+            and getattr(e, "quest_type", "npc") == "battle"
+            and getattr(e, "quest_switch", None) in npc_set_switches
+        ):
+            item_name = getattr(e, "item", None) or e.name
+            battle_won_sw = f"{item_name}_battle_won"
+            if battle_won_sw in valid_switches:
+                logger.warning(
+                    "Map%d QuestChest '%s': quest_switch '%s'가 NPC set_switch와 충돌 "
+                    "→ '%s'로 교체 (독립 배틀 스위치 사용)",
+                    map_id,
+                    e.name,
+                    e.quest_switch,
+                    battle_won_sw,
+                )
+                e = e.model_copy(update={"quest_switch": battle_won_sw})
+                battle_quest_map[item_name] = battle_won_sw
+            else:
+                logger.warning(
+                    "Map%d QuestChest '%s': quest_switch '%s' 충돌, '%s' 미할당 → NPC set_switch 제거로 대응",
+                    map_id,
+                    e.name,
+                    e.quest_switch,
+                    battle_won_sw,
+                )
+        fixed_events.append(e)
+
+    # 2차: NPC set_switch가 (업데이트된) battle quest_switch와 여전히 충돌하면 제거
+    all_battle_switches = {
+        getattr(e, "quest_switch", None)
+        for e in fixed_events
+        if e.type == "quest_chest" and getattr(e, "quest_type", "npc") == "battle"
+    } - {None}
+
+    result = []
+    for e in fixed_events:
+        if e.type == "npc" and getattr(e, "set_switch", None) in all_battle_switches:
+            logger.warning(
+                "Map%d NpcEvent '%s': set_switch '%s'가 battle quest_chest의 quest_switch와 충돌 "
+                "→ NPC set_switch 제거 (배틀 없이 아이템 획득 방지)",
+                map_id,
+                e.name,
+                e.set_switch,
+            )
+            e = e.model_copy(update={"set_switch": None})
+        result.append(e)
+    return result
+
+
+def _fix_npc_defeated_conditions(
+    events: list,
+    switch_table: SwitchTable,
+    map_id: int,
+) -> list:
+    """NpcEvent의 condition_switch가 존재하지 않는 _defeated 스위치를 참조할 때 수정.
+
+    LLM이 잘못된 보스 이름의 _defeated 스위치를 condition_switch로 지정하는 경우를 처리.
+    - switch_table에 있는 _defeated 스위치 목록에서 가장 적합한 것으로 교체
+    - _defeated 스위치가 전혀 없으면 condition_switch/alt_dialogue를 None으로 제거
+    """
+    valid_switches = switch_table.switches
+    # switch_table에 실제 존재하는 _defeated 스위치 목록
+    valid_defeated = [sw for sw in valid_switches if sw.endswith("_defeated")]
+
+    fixed = []
+    for e in events:
+        if (
+            e.type == "npc"
+            and getattr(e, "condition_switch", None)
+            and e.condition_switch.endswith("_defeated")
+            and e.condition_switch not in valid_switches
+        ):
+            if valid_defeated:
+                # 존재하지 않는 defeated 스위치 → 실제 존재하는 것으로 교체
+                correct = valid_defeated[0]
+                logger.warning(
+                    "Map%d NpcEvent '%s': condition_switch '%s' 미존재 → '%s'로 교체",
+                    map_id,
+                    e.name,
+                    e.condition_switch,
+                    correct,
+                )
+                e = e.model_copy(update={"condition_switch": correct})
+            else:
+                # defeated 스위치 자체가 없음 → condition_switch/alt_dialogue 제거
+                logger.warning(
+                    "Map%d NpcEvent '%s': condition_switch '%s' 미존재, defeated 스위치 없음 → 제거",
+                    map_id,
+                    e.name,
+                    e.condition_switch,
+                )
+                e = e.model_copy(update={"condition_switch": None, "alt_dialogue": None})
+        fixed.append(e)
+    return fixed
+
+
+def _build_move_events(
+    screenplay: MapScreenplay | None,
+    conn: MapConnectionInfo,
+    id_table: IdTable,
+    spec: "MapSpec | None" = None,
+) -> list:
+    """screenplay.moves를 읽어 gate/transfer 이벤트를 코드로 직접 생성한다.
+
+    gate의 condition_switches: LLM 지정값을 사용하지 않고
+    이 맵의 acquisitions[].chest_switch 목록으로 코드가 강제 구성한다.
+    acquisitions가 없으면 NPC talked_switches를 gate 조건으로 대체 사용.
+    (town 맵이거나 조건이 전혀 없으면 조건 없는 transfer로 폴백)
+    """
+    if not screenplay or not screenplay.moves:
+        return []
+
+    # 게이트 조건 = 이 맵 모든 acquisitions의 chest_switch
+    chest_switches = [acq.chest_switch for acq in screenplay.acquisitions]
+    map_type = spec.map_type if spec else "dungeon"
+
+    # map_name → map_id 역매핑
+    name_to_id: dict[str, int] = {name: mid for name, mid in id_table.maps.items()}
+
+    # exit_tiles를 to_map_id → (x, y) 로 인덱싱
+    tile_by_dest: dict[int, tuple[int, int]] = {}
+    for tile in conn.exit_tiles:
+        dest_id = tile.get("to_map_id")
+        if dest_id is not None:
+            tile_by_dest[dest_id] = (tile.get("x", 1), tile.get("y", 1))
+
+    _fallback_hint = "아직 조건이 충족되지 않았습니다."
+    events: list = []
+
+    for move in screenplay.moves:
+        dest_id = name_to_id.get(move.to_map_name)
+        if dest_id is None:
+            logger.warning(
+                "_build_move_events: 맵 이름 '%s' id_table에 없음 → 스킵", move.to_map_name
+            )
+            continue
+
+        tile_xy = tile_by_dest.get(dest_id)
+        if tile_xy is None:
+            logger.warning(
+                "_build_move_events: '%s'(id=%d)로 향하는 exit_tile 없음 → 스킵",
+                move.to_map_name,
+                dest_id,
+            )
+            continue
+
+        ex, ey = tile_xy
+
+        if move.direction == "forward":
+            if not chest_switches:
+                # acquisitions가 없을 때: NPC talked_switches를 게이트 조건으로 대체
+                npc_talked_switches = (
+                    [npc.set_switch for npc in screenplay.npcs if npc.set_switch]
+                    if screenplay
+                    else []
+                )
+
+                if npc_talked_switches and map_type not in {"town"}:
+                    # 비 town 맵: NPC 대화 완료를 gate 조건으로 사용
+                    gate_switches = npc_talked_switches[:2]  # 최대 2개
+                    gate_dialogues = [
+                        (
+                            move.stage_dialogues[i]
+                            if i < len(move.stage_dialogues)
+                            else _fallback_hint
+                        )
+                        for i in range(len(gate_switches))
+                    ]
+                    logger.info(
+                        "_build_move_events: '%s' acquisitions 없음 → NPC talked_switches로 gate 생성 (%s)",
+                        move.to_map_name,
+                        gate_switches,
+                    )
+                    events.append(
+                        GateEvent(
+                            type="gate",
+                            name=f"{move.to_map_name}_게이트",
+                            x=ex,
+                            y=ey,
+                            to_map=move.to_map_name,
+                            to_x=ex,
+                            to_y=1,
+                            direction="retain",
+                            keeper_character_name="People1",
+                            keeper_character_index=6,
+                            condition_switches=gate_switches,
+                            stage_dialogues=gate_dialogues,
+                            gate_character_name="!Crystal",
+                            gate_character_index=2,
+                        )
+                    )
+                else:
+                    # town 맵이거나 NPC도 없으면 조건 없는 transfer
+                    logger.info(
+                        "_build_move_events: '%s' acquisitions/NPC 없음 → 조건 없는 transfer 생성",
+                        move.to_map_name,
+                    )
+                    events.append(
+                        TransferEvent(
+                            type="transfer",
+                            name=f"{move.to_map_name}_이동",
+                            x=ex,
+                            y=ey,
+                            to_map=move.to_map_name,
+                            to_x=ex,
+                            to_y=1,
+                            character_name="!Crystal",
+                            character_index=2,
+                        )
+                    )
+                continue
+
+            # stage_dialogues 수를 chest_switches 수에 맞게 보정
+            n = len(chest_switches)
+            dialogues = [
+                (move.stage_dialogues[i] if i < len(move.stage_dialogues) else _fallback_hint)
+                for i in range(n)
+            ]
+
+            events.append(
+                GateEvent(
+                    type="gate",
+                    name=f"{move.to_map_name}_게이트",
+                    x=ex,
+                    y=ey,
+                    to_map=move.to_map_name,
+                    to_x=ex,
+                    to_y=1,
+                    direction="retain",
+                    keeper_character_name="People1",
+                    keeper_character_index=6,
+                    condition_switches=chest_switches,
+                    stage_dialogues=dialogues,
+                    gate_character_name="!Crystal",
+                    gate_character_index=2,
+                )
+            )
+
+        elif move.direction == "backward":
+            events.append(
+                TransferEvent(
+                    type="transfer",
+                    name=f"{move.to_map_name}_이동",
+                    x=ex,
+                    y=ey,
+                    to_map=move.to_map_name,
+                    to_x=ex,
+                    to_y=1,
+                    character_name="!Crystal",
+                    character_index=4,
+                )
+            )
+
+    return events

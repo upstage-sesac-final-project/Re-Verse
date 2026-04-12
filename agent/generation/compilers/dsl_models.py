@@ -39,6 +39,8 @@ class TransferEvent(BaseModel):
     set_switch: str | None = None
     character_name: str = "!Crystal"  # 워프 스프라이트 (기본: 크리스탈 포털)
     character_index: int = 0
+    condition_switch: str | None = None  # 이 스위치 ON일 때만 이동 허용
+    blocked_message: str = ""  # 조건 미충족 시 표시할 메시지
 
 
 class ChestEvent(BaseModel):
@@ -55,6 +57,7 @@ class ChestEvent(BaseModel):
     dialogue_after: str = ""
     character_name: str = "!Chest"  # 보물상자 스프라이트
     character_index: int = 0
+    condition_switch: str | None = None  # 이 스위치 ON일 때만 chest 등장
 
 
 class BattleOnWinAction(BaseModel):
@@ -120,7 +123,75 @@ class EndingEvent(BaseModel):
     action: Literal["title", "gameover"] = "title"
 
 
+class GateEvent(BaseModel):
+    """NPC 문지기 → 워프 전환 이벤트.
+
+    조건 스위치가 모두 ON 되기 전까지는 NPC로 표시되어 힌트를 주고,
+    모두 충족되면 자동으로 워프 스프라이트로 바뀌어 이동을 허용한다.
+    """
+
+    type: Literal["gate"]
+    name: str
+    x: int
+    y: int
+    to_map: str
+    to_x: int
+    to_y: int
+    direction: str = "retain"
+    # 조건 미충족 시 표시할 NPC 스프라이트
+    keeper_character_name: str = "People1"
+    keeper_character_index: int = 0
+    # 조건별 힌트 대사 (len = len(condition_switches))
+    condition_switches: list[str]  # 1~2개 스위치
+    stage_dialogues: list[str]  # 조건 미충족 단계별 대사
+    # 조건 충족 시 표시할 워프 스프라이트
+    gate_character_name: str = "!Crystal"
+    gate_character_index: int = 0
+
+
+class QuestChestEvent(BaseModel):
+    """퀘스트(NPC 대화 또는 몬스터 처치) 완료 후 보물상자로 전환되는 이벤트.
+
+    quest_type="npc":    NPC 대화 → quest_switch ON → 보물상자 등장
+    quest_type="battle": 몬스터 전투 → 승리 시만 quest_switch ON → 보물상자 등장
+                         (도망/패배 시 quest_switch 미변경 → 몬스터 유지)
+    """
+
+    type: Literal["quest_chest"]
+    name: str
+    x: int
+    y: int
+    quest_type: Literal["npc", "battle"]
+    quest_switch: str  # 퀘스트 완료 시 ON할 스위치
+    # NPC 퀘스트 전용
+    quest_dialogue: list[str] = []
+    quest_character_name: str = "People1"
+    quest_character_index: int = 0
+    # 몬스터 전투 전용
+    troop: str | None = None
+    escape_allowed: bool = True
+    lose_condition: str = "game_over"  # "game_over" | "continue"
+    battle_character_name: str = "Monster"
+    battle_character_index: int = 0
+    # 보물상자 (공통)
+    item: str
+    item_type: str = "item"  # "item" | "weapon" | "armor"
+    amount: int = 1
+    chest_switch: str  # 상자 열림 one_time 스위치
+    dialogue_before: str = ""
+    dialogue_after: str = ""
+    chest_character_name: str = "!Chest"
+    chest_character_index: int = 0
+
+
 DslEvent = Annotated[
-    NpcEvent | TransferEvent | ChestEvent | BattleEvent | ShopEvent | EndingEvent,
+    NpcEvent
+    | TransferEvent
+    | ChestEvent
+    | BattleEvent
+    | ShopEvent
+    | EndingEvent
+    | GateEvent
+    | QuestChestEvent,
     Field(discriminator="type"),
 ]
