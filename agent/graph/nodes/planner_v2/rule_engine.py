@@ -751,6 +751,10 @@ def _build_updates_dict(
 
     배열 조작이 필요한 필드는 커스텀 키(_equip, _array_op 등)를 생성.
     """
+    # raw_updates — definition 에서 updates dict 통째로 넘어온 경우
+    if value.get("raw_updates") and isinstance(value["raw_updates"], dict):
+        return dict(value["raw_updates"])
+
     # 범용 배열 요소 조작 — array_op 이 설정되어 있으면 우선 처리
     if value.get("array_op") and field in _ARRAY_FIELDS and data_path is not None:
         op = resolve_array_op(target_file, field, value, data_path)

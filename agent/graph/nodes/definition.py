@@ -949,7 +949,8 @@ def _update_to_ir(
 ) -> list[dict]:
     """update modification → operation IR.
 
-    selector(대상) + updates(변경 필드) 를 분해하여 필드별로 1개씩 만든다.
+    updates 전체를 1개 operation 으로 변환한다.
+    필드별 분해는 planner_v2 가 처리.
     """
     selector = params.get("selector") or {}
     updates = params.get("updates") or {}
@@ -974,21 +975,25 @@ def _update_to_ir(
     elif sub_name or sub_id:
         subject = {"name": sub_name, "id": sub_id, "scope": "single"}
 
-    # updates 가 비어 있으면 selector 만 있는 경우 → 무시
     if not updates or not isinstance(updates, dict):
         return []
 
-    tuples: list[dict] = []
-    for field, value in updates.items():
-        ir_value = _build_ir_value(field, value, target)
-        tuples.append({
-            "op": "update",
-            "file": file,
-            "subject": subject,
-            "field": field,
-            "value": ir_value,
-        })
-    return tuples
+    # updates 전체를 1개 operation 으로. 필드 분해하지 않음.
+    return [{
+        "op": "update",
+        "file": file,
+        "subject": subject,
+        "field": None,
+        "value": {
+            "kind": "updates",
+            "ref": None,
+            "new_value": None,
+            "type_hint": None,
+            "array_op": None,
+            "match_hint": None,
+            "raw_updates": updates,
+        },
+    }]
 
 
 def _delete_to_ir(
