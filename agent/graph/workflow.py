@@ -3,7 +3,7 @@
 from langgraph.graph import END, START, StateGraph
 
 from agent.graph.nodes.definition import definition
-from agent.graph.nodes.executor import executor
+from agent.graph.nodes.executor_v2 import executor as executor_v2
 from agent.graph.nodes.game_index_resolve import game_index_resolve
 from agent.graph.nodes.planner_v2 import planner_v2
 from agent.graph.nodes.profiler import profiler
@@ -47,7 +47,7 @@ def build_graph() -> StateGraph:
     builder.add_node("game_index_resolve", game_index_resolve)
     builder.add_node("planner", planner_v2)
     builder.add_node("profiler", profiler)
-    builder.add_node("executor", executor)
+    builder.add_node("executor", executor_v2)
     builder.add_node("validator", validator)
     builder.add_node("synthesizer", synthesizer)
 
