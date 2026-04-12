@@ -92,13 +92,19 @@ def load_base_tilesets() -> list[dict]:
                     for ts in tilesets
                     if ts is None or (isinstance(ts, dict) and ts.get("id", 0) <= 6)
                 ]
-                logger.info("base_game에서 Tilesets.json 로드 성공 (ID 1-6)")
+                logger.info(
+                    "Tilesets.json 로드 성공: %d개의 타일셋 데이터를 읽어왔습니다.", len(filtered)
+                )
                 return filtered
         except Exception as e:
-            logger.error("base_game Tilesets.json 로드 실패: %s", e)
+            logger.error("Tilesets.json 파일은 존재하지만 읽기 실패: %s", e)
+    else:
+        logger.error("Tilesets.json 파일을 찾을 수 없습니다: %s", base_path)
 
     # 2. 로드 실패 시 표준 폴백 (MZ 기본 구성)
-    logger.warning("Tilesets.json 로드 실패 -> 표준 폴백 사용")
+    logger.warning(
+        "CRITICAL: Tilesets.json 로드 실패! 모든 타일의 flags가 0(통행 가능)으로 초기화된 위험한 폴백 데이터를 사용합니다."
+    )
     return [
         None,
         {
@@ -107,7 +113,7 @@ def load_base_tilesets() -> list[dict]:
             "mode": 0,
             "tilesetNames": ["World_A1", "World_A2", "World_B", "World_C", "", "", "", "", ""],
             "flags": [0] * 8192,
-            "note": "",
+            "note": "FALLBACK-DATA",
         },
         {
             "id": 2,
@@ -125,7 +131,7 @@ def load_base_tilesets() -> list[dict]:
                 "",
             ],
             "flags": [0] * 8192,
-            "note": "",
+            "note": "FALLBACK-DATA",
         },
         {
             "id": 3,
@@ -143,7 +149,7 @@ def load_base_tilesets() -> list[dict]:
                 "",
             ],
             "flags": [0] * 8192,
-            "note": "",
+            "note": "FALLBACK-DATA",
         },
         {
             "id": 4,
@@ -161,7 +167,7 @@ def load_base_tilesets() -> list[dict]:
                 "",
             ],
             "flags": [0] * 8192,
-            "note": "",
+            "note": "FALLBACK-DATA",
         },
         {
             "id": 5,
@@ -179,7 +185,7 @@ def load_base_tilesets() -> list[dict]:
                 "",
             ],
             "flags": [0] * 8192,
-            "note": "",
+            "note": "FALLBACK-DATA",
         },
         {
             "id": 6,
@@ -197,7 +203,7 @@ def load_base_tilesets() -> list[dict]:
                 "",
             ],
             "flags": [0] * 8192,
-            "note": "",
+            "note": "FALLBACK-DATA",
         },
     ]
 
