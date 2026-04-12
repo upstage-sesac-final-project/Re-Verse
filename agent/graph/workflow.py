@@ -1,4 +1,16 @@
-"""LangGraph StateGraph — Re:Verse 에이전트 워크플로우."""
+"""LangGraph StateGraph — Re:Verse 에이전트 워크플로우 v2.
+
+8노드:
+  router → reader(조회) → END
+  router → definition → game_index_resolve → planner_v2 → [profiler] → executor_v2 → validator_v2 → synthesizer → END
+
+v2 변경사항:
+  - game_index_resolve: 엔티티/참조 ID 를 GameIndex 로 결정론적 확정
+  - planner_v2: rule-engine 기반 (LLM 0회)
+  - profiler: create step 빈 필드 의미적 채우기
+  - executor_v2: RPGMakerCRUD + array_op
+  - validator_v2: schema 검증 + semantic judge + partial retry (backedge 없음)
+"""
 
 from langgraph.graph import END, START, StateGraph
 
@@ -32,11 +44,10 @@ def build_graph() -> StateGraph:
                ├→ reader → END
                └→ definition
                     ├→ (params 불충분) → END
-                    └→ planner
-                         └→ executor
-                              └→ validator
-                                   ├→ (실패 + retry < 2) → executor
-                                   └→ synthesizer → END
+                    └→ game_index_resolve → planner_v2
+                         ├→ (create step 있음) → profiler → executor_v2
+                         └→ (create 없음) → executor_v2
+                              └→ validator_v2 → synthesizer → END
     """
     builder = StateGraph(AgentState)
 
