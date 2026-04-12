@@ -10,8 +10,8 @@ from agent.graph.nodes.profiler import profiler
 from agent.graph.nodes.reader import reader
 from agent.graph.nodes.router import router
 from agent.graph.nodes.synthesizer import synthesizer
-from agent.graph.nodes.validator import validator
-from agent.graph.routing import route_after_definition, route_after_router, route_after_validator
+from agent.graph.nodes.validator_v2 import validator as validator_v2
+from agent.graph.routing import route_after_definition, route_after_router
 from agent.graph.state import AgentState
 
 
@@ -48,7 +48,7 @@ def build_graph() -> StateGraph:
     builder.add_node("planner", planner_v2)
     builder.add_node("profiler", profiler)
     builder.add_node("executor", executor_v2)
-    builder.add_node("validator", validator)
+    builder.add_node("validator", validator_v2)
     builder.add_node("synthesizer", synthesizer)
 
     # ── 진입점 ─────────────────────────────────────────────
@@ -66,11 +66,8 @@ def build_graph() -> StateGraph:
         {"planner": "game_index_resolve", "__end__": END},
     )
     builder.add_edge("game_index_resolve", "planner")
-    builder.add_conditional_edges(
-        "validator",
-        route_after_validator,
-        {"synthesizer": "synthesizer", "executor": "executor"},
-    )
+    # validator_v2 는 내부에서 partial retry 처리. backedge 없이 항상 synthesizer 로.
+    builder.add_edge("validator", "synthesizer")
 
     # planner → profiler 또는 executor (조건부)
     builder.add_conditional_edges(

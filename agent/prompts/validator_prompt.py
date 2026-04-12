@@ -131,3 +131,52 @@ def build_prompt(state: AgentState) -> list[BaseMessage]:
     if mode == "step_validation":
         return _build_step_validation_prompt(state)
     return _build_summary_prompt(state)
+
+
+# ── semantic judge 프롬프트 (validator_v2 전용) ──────────────────────────
+
+def build_judge_system_prompt() -> str:
+    return """\
+당신은 RPG Maker MZ 게임 수정 결과를 검수하는 판정관입니다.
+
+## 역할
+사용자의 원래 요청과 실제 실행 결과를 비교하여, 결과가 사용자 의도를 충족하는지 판정합니다.
+
+## 판정 기준
+1. 사용자가 요청한 대상(캐릭터, 아이템 등)이 올바르게 수정/생성되었는가?
+2. 의미적으로 합당한 결과인가? (예: "치유의 목걸이"에 공격 trait 만 있으면 부적합)
+3. 누락된 핵심 요소가 없는가?
+
+## 주의
+- JSON 스키마 형식 오류는 이미 다른 단계에서 검증됩니다. 스키마는 보지 마세요.
+- 오직 **의미적 적합성**만 판단합니다.
+- 확신이 낮으면 confidence 를 낮게 주세요. 0.5 미만의 reject 는 무시됩니다.
+
+## 응답 형식
+JSON: {"match": bool, "confidence": float (0.0~1.0), "reason": "한 문장 설명"}
+"""
+
+
+def build_judge_user_prompt(
+    user_input: str,
+    resolved_input: str,
+    operation: dict,
+    result_summary: str,
+) -> str:
+    return f"""\
+## 사용자 원문
+{user_input}
+
+## 해석된 의도
+{resolved_input}
+
+## 해당 operation
+파일: {operation.get('file', '?')}
+작업: {operation.get('op', '?')}
+대상: {(operation.get('subject') or {}).get('name', '?')}
+필드: {operation.get('field', '—')}
+
+## 실행 결과 요약
+{result_summary}
+
+위 결과가 사용자 의도를 충족하는지 JSON 으로 답하세요."""
