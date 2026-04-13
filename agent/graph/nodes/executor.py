@@ -1628,6 +1628,46 @@ async def _execute_one_structured_step(
         logger.debug("[Executor] action 정규화: %s → %s (step %d)", raw_action, action, sid)
 
     try:
+        # ── 커스텀 명령 guard: _equip, _add_learning 등은 MCP가 처리 못함 ──
+        # updates에 _ 접두사 키가 있으면 MCP를 skip하고 executor_v2 dispatch로 직행.
+        _custom_update_keys = frozenset(
+            {
+                "_equip",
+                "_add_learning",
+                "_add_action",
+                "_add_drop_item",
+                "_remove_learning",
+                "_remove_action",
+                "_remove_equip",
+            }
+        )
+        _updates = target_info.get("updates")
+        _has_custom = isinstance(_updates, dict) and bool(
+            _custom_update_keys & set(_updates.keys())
+        )
+        if _has_custom:
+            logger.info(
+                "[Executor] 커스텀 업데이트 키 감지 → MCP skip, executor_v2 dispatch 직행 (step %d, keys=%s)",
+                sid,
+                sorted(_custom_update_keys & set(_updates.keys())),
+            )
+            async with game_locks[game_id]:
+                r = await asyncio.to_thread(
+                    dispatch_step, data_path, action, target_file, target_info
+                )
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": f"structured_{target_file.replace('.json', '').lower()}_{action}",
+                "success": bool(r.get("success", False)),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "entity_id": r.get("entity_id"),
+                "modified_files": r.get("modified_files", []),
+                "structured": True,
+                "timestamp": ts,
+            }
+
         # ── MCP 인터셉터: 켜져 있고 (파일, 액션) 매핑이 있으면 stdio MCP 우선 ──
         # 성공 시 즉시 반환. 실패·미설정 시 아래 Class/Actor/System 매니저로 폴백한다.
         if is_mcp_enabled():

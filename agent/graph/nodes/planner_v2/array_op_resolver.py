@@ -14,22 +14,18 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
-# ──────────────────────────────────────────────
-# trait code 의미 매핑
-# ──────────────────────────────────────────────
-
 from agent.constants import (
     MATCH_HINT_TO_EFFECT_CODE,
     MATCH_HINT_TO_TRAIT_CODE,
     TRAIT_DATAID_SOURCE,
 )
 
+logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────
 # 이름 → ID 해석 유틸
 # ──────────────────────────────────────────────
+
 
 def _load_json(data_path: Path, filename: str) -> Any:
     fp = data_path / filename
@@ -90,7 +86,9 @@ def _find_entity_id(data_path: Path, filename: str, name: str) -> int | None:
 
 
 def _resolve_ref_for_trait(
-    code: int, ref: str, data_path: Path,
+    code: int,
+    ref: str,
+    data_path: Path,
 ) -> int | None:
     """trait code 에 맞는 소스에서 ref 이름을 숫자 ID 로 변환."""
     source = TRAIT_DATAID_SOURCE.get(code)
@@ -132,6 +130,7 @@ def _fuzzy_match_hint(hint: str, table: dict[str, int]) -> int | None:
 # 공개 API
 # ──────────────────────────────────────────────
 
+
 def resolve_array_op(
     target_file: str,
     field: str,
@@ -170,7 +169,11 @@ def resolve_array_op(
 
 
 def _resolve_trait_op(
-    op: str, match_hint: str, ref: str, new_value: Any, data_path: Path,
+    op: str,
+    match_hint: str,
+    ref: str,
+    new_value: Any,
+    data_path: Path,
 ) -> dict[str, Any] | None:
     code = _fuzzy_match_hint(match_hint, MATCH_HINT_TO_TRAIT_CODE)
     if code is None:
@@ -198,7 +201,12 @@ def _resolve_trait_op(
         if resolved_id is not None:
             set_fields["dataId"] = resolved_id
         elif ref or (isinstance(new_value, str) and new_value):
-            logger.warning("[array_op] trait ref 해석 실패: ref='%s', new_value='%s' (code=%d)", ref, new_value, code)
+            logger.warning(
+                "[array_op] trait ref 해석 실패: ref='%s', new_value='%s' (code=%d)",
+                ref,
+                new_value,
+                code,
+            )
             return None
         # new_value 가 숫자면 value 필드 (내성률 등)
         if isinstance(new_value, (int, float)):
@@ -209,7 +217,11 @@ def _resolve_trait_op(
 
 
 def _resolve_effect_op(
-    op: str, match_hint: str, ref: str, new_value: Any, data_path: Path,
+    op: str,
+    match_hint: str,
+    ref: str,
+    new_value: Any,
+    data_path: Path,
 ) -> dict[str, Any] | None:
     code = _fuzzy_match_hint(match_hint, MATCH_HINT_TO_EFFECT_CODE)
     if code is None:
@@ -240,7 +252,10 @@ def _resolve_effect_op(
 
 
 def _resolve_actions_op(
-    op: str, ref: str, new_value: Any, data_path: Path,
+    op: str,
+    ref: str,
+    new_value: Any,
+    data_path: Path,
 ) -> dict[str, Any] | None:
     result: dict[str, Any] = {"array_field": "actions", "op": op}
     skill_id = _find_entity_id(data_path, "Skills.json", ref) if ref else None
@@ -264,7 +279,10 @@ def _resolve_actions_op(
 
 
 def _resolve_drop_items_op(
-    op: str, ref: str, new_value: Any, data_path: Path,
+    op: str,
+    ref: str,
+    new_value: Any,
+    data_path: Path,
 ) -> dict[str, Any] | None:
     result: dict[str, Any] = {"array_field": "dropItems", "op": op}
     item_id = _find_entity_id(data_path, "Items.json", ref) if ref else None
@@ -281,7 +299,10 @@ def _resolve_drop_items_op(
 
 
 def _resolve_learnings_op(
-    op: str, ref: str, new_value: Any, data_path: Path,
+    op: str,
+    ref: str,
+    new_value: Any,
+    data_path: Path,
 ) -> dict[str, Any] | None:
     result: dict[str, Any] = {"array_field": "learnings", "op": op}
     skill_id = _find_entity_id(data_path, "Skills.json", ref) if ref else None

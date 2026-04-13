@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from agent.utils.game_data_io import get_game_data_dir
@@ -17,7 +18,6 @@ try:
     from agent.schemas.classes import ClassesFile
     from agent.schemas.enemies import EnemiesFile
     from agent.schemas.items import ItemsFile
-    from agent.schemas.maps import MapFile
     from agent.schemas.skills import SkillsFile
     from agent.schemas.states import StatesFile
     from agent.schemas.system import System
@@ -38,7 +38,6 @@ except ImportError:
     SCHEMA_MAP = {}
     logger.warning("[schema_check] agent.schemas 를 import 할 수 없습니다. Schema 검증 비활성화.")
 
-import re
 _MAP_PATTERN = re.compile(r"^Map\d{3}\.json$", re.IGNORECASE)
 
 
@@ -54,6 +53,7 @@ def validate_changed_files(
         return []
 
     from pathlib import Path
+
     data_path = Path(get_game_data_dir(game_id))
     results: list[dict[str, Any]] = []
 
