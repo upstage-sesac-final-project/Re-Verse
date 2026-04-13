@@ -1633,6 +1633,37 @@ async def generate_enemies(spec: GameSpec, id_table: IdTable) -> list:
                     )
             d["actions"] = actions
 
+        # note + tier별 actions 배정
+        enemy_spec = spec_by_name.get(d.get("name", ""))
+        if enemy_spec:
+            d["note"] = f"tier:{enemy_spec.tier} location:{enemy_spec.location}"
+            # tier별 적 스킬 배정 (id=1 "공격" 기본 + 적 전용 스킬)
+            from agent.generation.nodes.asset_planner import _ENEMY_SKILL_TEMPLATES
+
+            tier_skills = _ENEMY_SKILL_TEMPLATES.get(enemy_spec.tier, [])
+            actions = [
+                {
+                    "conditionParam1": 0,
+                    "conditionParam2": 0,
+                    "conditionType": 0,
+                    "rating": 5,
+                    "skillId": 1,
+                }
+            ]  # 기본 공격
+            for sname in tier_skills:
+                sid = id_table.skills.get(sname)
+                if sid:
+                    actions.append(
+                        {
+                            "conditionParam1": 0,
+                            "conditionParam2": 0,
+                            "conditionType": 0,
+                            "rating": 4,
+                            "skillId": sid,
+                        }
+                    )
+            d["actions"] = actions
+
         # battlerName 유효성 확인
         if d.get("battlerName") not in VALID_BATTLER_NAMES:
             logger.warning(

@@ -24,6 +24,14 @@ _MAX_MAPS = 6  # 5~10분 게임에 적합
 async def game_designer(state: GenerationState) -> dict:
     """A 노드: 사용자 입력 → GameSpec."""
     gen_id = state["generation_id"]
+    options = state.get("options", {})
+    playtime_minutes = options.get("playtime_minutes", 7)
+
+    # 목표 맵 개수 계산 (5분→3개, 10분→6개, 15분→9개)
+    target_n_maps = (playtime_minutes * 3) // 5
+    logger.info(
+        "game_designer 시작: playtime=%d분, target_n_maps=%d", playtime_minutes, target_n_maps
+    )
 
     await publish_progress(
         gen_id,
@@ -31,13 +39,21 @@ async def game_designer(state: GenerationState) -> dict:
             "type": "progress",
             "phase": "spec",
             "progress": 2,
-            "message": "게임 기획 중...",
+            "message": f"게임 기획 중... (목표 맵 개수: {target_n_maps}개)",
         },
+    )
+
+    # 플레이 시간 및 정확한 맵 개수 지시
+    user_input = state["user_input"]
+    full_user_prompt = (
+        f"목표 플레이 시간: {playtime_minutes}분\n"
+        f"요구사항: 반드시 정확히 **{target_n_maps}개**의 맵을 기획하십시오. (부족하거나 넘치지 않게 주의)\n"
+        f"설명: {user_input}"
     )
 
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=state["user_input"]),
+        HumanMessage(content=full_user_prompt),
     ]
 
     spec = cast(
