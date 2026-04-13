@@ -88,9 +88,8 @@ class EventCompiler:
 
     def resolve_switch_id(self, name: str) -> int:
         """스위치 이름 → ID. 없으면 새로 할당 (SwitchTable 불변, model_copy 패턴)."""
-        if name not in self.switch_table.switches:
-            self.switch_table, _ = self.switch_table.allocate_switch(name)
-        return self.switch_table.switches[name]
+        self.switch_table, sw_id = self.switch_table.allocate_switch(name)
+        return sw_id
 
     # ── 진입점 ───────────────────────────────────────────────────────────────
 
