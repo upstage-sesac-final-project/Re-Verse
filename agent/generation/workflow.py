@@ -2,8 +2,7 @@
 
 Phase 2: A→B→C→(skip)→H→I→J (에셋 생성, phase_limit="assets")
 Phase 3: A→B→C→D→E→H→I→J (맵 생성 포함, phase_limit="maps")
-Phase 4: A→B→C→D→E→F→G1→G2→H→I→J (이벤트 포함, phase_limit=None)
-         G1=event_scaffolder, G2=event_filler
+Phase 4: A→B→C→D→E→F→G→H→I→J (이벤트 포함, phase_limit=None)
 
 canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §1, §10
 canonical: docs/The_world/workflow_implementation.md
@@ -18,13 +17,14 @@ from langgraph.graph import END, START, StateGraph
 from agent.generation.nodes.asset_generator import asset_generator
 from agent.generation.nodes.asset_planner import asset_planner
 from agent.generation.nodes.event_compiler_node import event_compiler_node
+from agent.generation.nodes.event_planner import event_planner
 from agent.generation.nodes.game_designer import game_designer
 from agent.generation.nodes.generation_responder import generation_responder
 from agent.generation.nodes.generation_validator import generation_validator, route_after_validation
 from agent.generation.nodes.integrator import integrator
 from agent.generation.nodes.map_designer import map_designer
 from agent.generation.nodes.sample_map_selector import sample_map_selector
-from agent.generation.nodes.screenplay_node import screenplay_node
+from agent.generation.nodes.story_planner import story_planner
 from agent.generation.nodes.tile_generator import tile_generator
 from agent.generation.state import GenerationState
 
@@ -54,7 +54,7 @@ def build_generation_graph() -> Any:
 
     phase_limit="assets"  → A→B→C→H→I→J
     phase_limit="maps"    → A→B→C→D→E→H→I→J
-    phase_limit=None      → A→B→C→D→E→F→G1→G2→H→I→J  (G1=scaffolder, G2=filler)
+    phase_limit=None      → A→B→C→D→E→F→G→H→I→J
     """
     builder: StateGraph = StateGraph(GenerationState)
 
@@ -65,7 +65,8 @@ def build_generation_graph() -> Any:
     builder.add_node("map_designer", map_designer)
     builder.add_node("tile_generator", tile_generator)
     builder.add_node("sample_map_selector", sample_map_selector)
-    builder.add_node("screenplay", screenplay_node)
+    builder.add_node("story_planner", story_planner)
+    builder.add_node("event_planner", event_planner)
     builder.add_node("event_compiler", event_compiler_node)
     builder.add_node("integrator", integrator)
     builder.add_node("validator", generation_validator)
@@ -97,11 +98,12 @@ def build_generation_graph() -> Any:
         _route_after_tile_generator,
         {
             "skip_to_integrate": "integrator",
-            "story_phase": "screenplay",
+            "story_phase": "story_planner",
         },
     )
 
-    builder.add_edge("screenplay", "event_compiler")
+    builder.add_edge("story_planner", "event_planner")
+    builder.add_edge("event_planner", "event_compiler")
     builder.add_edge("event_compiler", "integrator")
     builder.add_edge("integrator", "validator")
 
@@ -112,7 +114,7 @@ def build_generation_graph() -> Any:
         {
             "respond": "responder",
             "retry_assets": "asset_generator",
-            "retry_events": "screenplay",
+            "retry_events": "event_planner",
         },
     )
 

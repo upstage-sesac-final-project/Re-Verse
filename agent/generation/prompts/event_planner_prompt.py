@@ -6,7 +6,7 @@ canonical: docs/The_world/game_ending_design.md
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
-from agent.generation.models import GameSpec, MapConnectionInfo, MapSpec, MapStoryScript
+from agent.generation.models import GameSpec, MapConnectionInfo, MapScreenplay, MapSpec
 from agent.generation.registry.id_table import IdTable
 from agent.generation.registry.switch_table import SwitchTable
 
@@ -28,11 +28,15 @@ _SYSTEM = """\
     - "대사 1"
     - "대사 2"
   condition_switch: {스위치 이름}  # 선택 (이 스위치 ON일 때 alt_dialogue 사용)
+    # ⚠️ condition_switch는 반드시 set_switch와 다른 값을 사용하세요.
+    # ⚠️ set_switch와 같은 값이면 대화 즉시 alt_dialogue가 표시됩니다 (의도치 않은 동작).
+    # ⚠️ 보스 처치 후 대사를 보여주려면: condition_switch: "{보스_이름}_defeated"
+    # 예시: NPC가 "보스를 물리쳐 오세요"라고 하고, 보스 처치 후 "해냈군요!"를 보여주려면
+    #   set_switch: "지역명_npc1_talked"  ← 대화 후 켜지는 퀘스트 수락 스위치
+    #   condition_switch: "보스이름_defeated"  ← 보스 처치 후에만 alt_dialogue 표시
   alt_dialogue:                    # 선택 (condition_switch가 ON일 때 대체 대사)
     - "대체 대사 1"
   set_switch: {스위치 이름}        # 선택 (대화 후 ON)
-  required_item: {아이템 이름}       # 선택 (이 아이템 소지 시 alt_dialogue 사용)
-  consume_item: true               # 선택 (true면 대화 후 아이템 1개 소비)
 
 **character_name + character_index 선택 가이드 (반드시 아래 목록에서만 선택):**
 
@@ -86,10 +90,10 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
   to_y: {정수}
   direction: retain  # retain | down | left | right | up
   set_switch: {스위치 이름}  # 선택
-  condition_switch: {스위치 이름}   # 선택 (이 스위치 ON일 때만 이동 가능)
-  blocked_dialogue: "아직 갈 수 없습니다."  # 선택 (조건 미충족 시 표시 메시지)
   character_name: "!Crystal"  # 워프 마커 스프라이트 (아래 가이드 참고)
   character_index: 0          # 스프라이트 인덱스
+  condition_switch: {스위치 이름}  # 선택 — 이 스위치 ON일 때만 이동 허용 (진입 조건)
+  blocked_message: "아직 갈 수 없다."  # 선택 — condition_switch 미충족 시 표시 메시지
 
 **transfer character_name 선택 가이드 (직접 이미지 확인 기준):**
 - `!Crystal` index 0=빨강, 1=주황, 2=초록, 3=보라, 4=흰색, 5=파랑 크리스탈
@@ -125,9 +129,9 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
   chest_switch: {스위치 이름}
   dialogue_before: "상자 발견 대사"
   dialogue_after: "아이템 획득 대사"
-  condition_switch: {스위치 이름}   # 선택 (이 스위치 ON일 때만 보물상자 출현)
   character_name: "!Chest"  # 보물상자 스프라이트 (!Chest 고정)
   character_index: 0        # 0=빨강(기본), 1=금색(귀중품), 2=초록(자연·던전), 3=파랑(마법·특별)
+  condition_switch: {스위치 이름}  # 선택 — 이 스위치 ON일 때만 보물 상자 등장
 
 ### battle (전투)
 - x: {정수}
@@ -157,10 +161,70 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
   items:
     - { item: {아이템 이름}, item_type: item }
     - { item: {무기 이름}, item_type: weapon }
-  condition_switch: {스위치 이름}   # 선택 (이 스위치 ON일 때만 상점 오픈)
   character_name: People1  # 상점 NPC 스프라이트 — index로 외형 선택
   character_index: 0       # 추천: People4/4=쾌활상인·여관주인, People4/0=학자형상점주인,
   # People2/6=모험가상인, People2/7=발명가상인, People1/4=중년상인남
+
+### gate (NPC 문지기 → 워프 전환, 맵 이동 조건 게이트)
+- x: {정수}
+  y: {정수}
+  name: {게이트 이름}  # 예: "던전_입구_게이트", "마을_출구_문지기"
+  type: gate
+  to_map: {맵 이름}
+  to_x: {정수}
+  to_y: {정수}
+  direction: retain
+  keeper_character_name: People1  # 조건 미충족 시 NPC 스프라이트
+  keeper_character_index: 6
+  condition_switches:           # 1~2개 스위치 (모두 ON이어야 워프 활성화)
+    - {스위치1 이름}
+    - {스위치2 이름}
+  stage_dialogues:              # 조건별 힌트 대사 (condition_switches 수만큼)
+    - "아직 준비가 안 됐어. 먼저 안내를 받아."
+    - "아이템을 획득해야 이곳을 통과할 수 있어."
+  gate_character_name: "!Crystal"  # 조건 충족 시 워프 스프라이트
+  gate_character_index: 0
+
+**gate 사용 규칙:**
+- 맵 이동 출구에는 반드시 gate 타입을 사용하세요 (transfer 대신).
+- condition_switches는 스토리 스크립트의 departure_conditions 목록을 그대로 사용하세요.
+- stage_dialogues 수는 condition_switches 수와 반드시 동일하게 작성하세요 (더 많거나 적으면 안 됨).
+  예: condition_switches 2개 → stage_dialogues 2개 (초과 작성 금지)
+
+### quest_chest (퀘스트 완료 → 보물상자 전환)
+- x: {정수}
+  y: {정수}
+  name: {보물상자 이름}
+  type: quest_chest
+  quest_type: npc  # npc | battle
+  quest_switch: {퀘스트 완료 스위치}  # 퀘스트 완료 시 ON되는 스위치
+  # NPC 퀘스트 (quest_type: npc)
+  quest_dialogue:
+    - "이 보물은 내가 지키고 있어. 도움을 주면 열어줄게."
+  quest_character_name: People1
+  quest_character_index: 3
+  # 몬스터 퀘스트 (quest_type: battle) — 승리 시에만 보물상자 등장
+  # quest_type: battle
+  # troop: {적 그룹 이름}
+  # escape_allowed: true   # 도망가면 몬스터 유지
+  # lose_condition: game_over  # 패배해도 몬스터 유지
+  # battle_character_name: Monster
+  # battle_character_index: 3
+  # 보물상자 공통
+  item: {아이템/무기/방어구 이름}
+  item_type: weapon  # item | weapon | armor
+  amount: 1
+  chest_switch: {상자_열림_스위치}  # one_time 처리용
+  dialogue_before: "빛나는 상자가 나타났다!"
+  dialogue_after: "검을 손에 넣었다!"
+  chest_character_name: "!Chest"
+  chest_character_index: 1
+
+**quest_chest 사용 규칙:**
+- 무기/방어구/핵심 아이템은 반드시 quest_chest로 지급하세요 (chest 타입 대신).
+- quest_type: npc → NPC가 퀘스트를 주고 대화 후 보물상자로 전환
+- quest_type: battle → 몬스터를 처치해야 보물상자 등장 (도망/패배 시 몬스터 유지)
+- quest_switch는 게이트(gate)의 condition_switches로 연결하여 진행 조건으로 활용하세요.
 
 ### ending (엔딩, 보스 맵 전용)
 - x: {정수}
@@ -200,13 +264,8 @@ name은 이벤트의 실제 기능과 타입을 반영해야 합니다.
 - 형식: "{적이름}_battle_{번호}" (예: "고블린_battle_01", "고블린_battle_02")
 - 여러 battle 이벤트가 같은 battle_switch를 공유하면 안 됩니다
 
-## 이벤트 수 제한
-
-맵당 이벤트는 **최소 5개, 최대 10개**로 제한합니다. 초과 생성 금지.
-
 ## 절대 금지 사항
 
-- 이벤트를 10개 초과 생성 금지 — 맵당 5~10개 엄수
 - 스위치·아이템·맵을 번호(숫자)로 지정 금지 → 반드시 이름(문자열) 사용
 - x, y 좌표가 맵 크기를 벗어나는 것 금지
 - 동일한 (x, y)에 이벤트 2개 배치 금지
@@ -223,7 +282,10 @@ name은 이벤트의 실제 기능과 타입을 반영해야 합니다.
 
 ## 출력 형식
 
-YAML만 출력하세요. 설명 불필요. 반드시 아래 형식으로:
+YAML만 출력하세요. 설명 불필요.
+- type 필드는 반드시 첫 번째로 작성
+- dialogue, on_win 등 중첩 리스트 항목은 상위 필드보다 2칸 들여쓰기
+반드시 아래 형식으로:
 
 events:
   - type: npc
@@ -279,32 +341,6 @@ events:
       - set_switch: 고블린_battle_01
     one_time: true
     battle_switch: 고블린_battle_01
-
-## 스위치 연동 규칙
-
-### 스위치 이름 규칙
-- 사전 할당된 스위치를 **우선** 사용할 것 (아래 목록 참조)
-- 새 스위치 생성 시: `{목적}_{대상}` 형식 (예: `quest_elder_talked`)
-- **절대 같은 개념에 다른 이름을 쓰지 말 것** (예: `고블린_battle_01`과 `고블린_배틀_01`은 다른 스위치)
-- 같은 스위치 이름은 맵이 달라도 동일한 게임 상태를 의미함 — 글로벌 범위
-
-### 스위치 연동 패턴
-**패턴 1: 보스 처치 → NPC 대화 변경**
-- battle의 on_win에서 set_switch로 스위치 ON
-- npc의 condition_switch로 같은 스위치를 참조, alt_dialogue로 대체 대사
-
-**패턴 2: NPC 대화 → 다른 이벤트 활성화**
-- npc의 set_switch로 스위치 ON
-- 다른 이벤트의 condition_switch로 같은 스위치를 참조
-
-**패턴 3: 아이템 전달 퀘스트**
-- chest에서 아이템 획득 후 set_switch로 NPC 대화 변경
-- npc의 required_item으로 아이템 소지 확인, consume_item: true로 아이템 소비
-
-### 금지 사항
-- NPC의 set_switch에 `chest_` 접두어 스위치를 쓰지 말 것 (보물상자 스위치 오염)
-- 전투 battle_switch와 on_win.set_switch에 같은 이름을 쓰지 말 것
-- 이 맵에서 사용하지 않을 스위치를 임의로 만들지 말 것
 """
 
 
@@ -315,9 +351,18 @@ def build_event_planner_prompt(
     switch_table: SwitchTable,
     connection_info: MapConnectionInfo,
     rag_context: str = "",
-    map_story: MapStoryScript | None = None,
+    map_story: MapScreenplay | None = None,
 ) -> list[BaseMessage]:
-    exit_lines: list[str] = []
+    # 목적지 맵 타입 조회용 (game_spec.maps 기반)
+    game_map_types: dict[str, str] = {gm.name: gm.type for gm in game_spec.maps}
+
+    # 출구를 forward/backward로 분류
+    # forward: town→dungeon/field/boss, dungeon/field→dungeon/field/boss
+    # backward: dungeon/field→town
+    _forward_types = {"dungeon", "field", "boss"}
+    forward_exits: list[tuple[int, int, str]] = []  # (x, y, to_name)
+    backward_exits: list[tuple[int, int, str]] = []  # (x, y, to_name)
+
     for tile in connection_info.exit_tiles:
         to_map_id = tile.get("to_map_id")
         ex, ey = tile.get("x", 0), tile.get("y", 0)
@@ -325,11 +370,37 @@ def build_event_planner_prompt(
             (name for name, mid in id_table.maps.items() if mid == to_map_id),
             f"Map{to_map_id}",
         )
-        # 목적지 spawn 정보 조회 (entry_tiles에서 확인 불가 → 대략적 힌트만)
-        exit_lines.append(
-            f"- 출구 좌표: ({ex}, {ey}) → '{to_name}' 맵으로 이동\n"
-            f"  to_map: {to_name}, to_x: {ex}, to_y: 1"
-        )
+        to_type = game_map_types.get(to_name, "dungeon")
+        if to_type in _forward_types:
+            forward_exits.append((ex, ey, to_name))
+        else:
+            backward_exits.append((ex, ey, to_name))
+
+    # 출구 안내 구성 — forward 1개만 gate, backward는 transfer(조건 없음)
+    exit_lines: list[str] = []
+
+    if map_spec.map_type == "boss":
+        exit_lines.append("없음 — boss 맵은 엔딩으로 종료, 맵 이동 이벤트 생성 금지")
+    else:
+        # forward: 첫 번째만 gate 대상, 나머지는 무시
+        if forward_exits:
+            ex, ey, to_name = forward_exits[0]
+            exit_lines.append(
+                f"▶ [gate 필수, 1개만] 좌표 ({ex}, {ey}) → '{to_name}'\n"
+                f"  to_map: {to_name}, to_x: {ex}, to_y: 1\n"
+                f"  → departure_conditions 스위치 충족 시 이동하는 gate 이벤트 생성"
+            )
+            for ex, ey, to_name in forward_exits[1:]:
+                exit_lines.append(
+                    f"✗ [무시] 좌표 ({ex}, {ey}) → '{to_name}' — 이벤트 생성 금지 (gate 중복 불가)"
+                )
+        # backward: 조건 없는 transfer
+        for ex, ey, to_name in backward_exits:
+            exit_lines.append(
+                f"◀ [transfer 필수, 조건 없음] 좌표 ({ex}, {ey}) → '{to_name}'\n"
+                f"  to_map: {to_name}, to_x: {ex}, to_y: 1\n"
+                f"  → condition_switch 없이 항상 이동 가능한 transfer 이벤트 생성"
+            )
 
     landmarks_text = "\n".join(
         f"- {lm.name} ({lm.position_hint})" + (f" — NPC: {lm.npc}" if lm.npc else "")
@@ -340,7 +411,7 @@ def build_event_planner_prompt(
     filtered_troops = _filter_troops_for_map(map_spec.map_type, id_table, game_spec)
     actor_names = ", ".join(id_table.actors.keys()) if id_table.actors else "없음"
 
-    story_section = _build_story_section(map_story) if map_story else ""
+    story_section = _build_story_section(map_story, map_spec) if map_story else ""
 
     human = f"""\
 ## 맵 정보
@@ -352,7 +423,7 @@ def build_event_planner_prompt(
 ## 랜드마크
 {landmarks_text if landmarks_text else "없음"}
 
-## 맵 연결 정보 (transfer 이벤트에 반드시 이 좌표 사용)
+## 맵 연결 정보 — 반드시 아래 구분대로만 이벤트 생성
 {chr(10).join(exit_lines) if exit_lines else "없음 (이 맵은 출구 없음)"}
 {story_section}
 ## 주인공(플레이어 파티) 이름 목록 — NPC 이름으로 절대 사용 금지
@@ -380,46 +451,115 @@ YAML 출력:
     return [SystemMessage(content=_SYSTEM), HumanMessage(content=human)]
 
 
-def _build_story_section(map_story: MapStoryScript) -> str:
-    """MapStoryScript → 프롬프트 삽입용 스토리 섹션 텍스트."""
+def _build_story_section(map_story: MapScreenplay, map_spec: "MapSpec | None" = None) -> str:
+    """MapScreenplay → 프롬프트 삽입용 대본 섹션 텍스트.
+
+    대본(narrative) + 이벤트 체크리스트를 event_planner가 읽기 쉽게 변환한다.
+    체크리스트에 있는 항목만 이벤트로 구현하도록 명확히 지시한다.
+    """
     lines = [
         "",
-        "## 스토리 스크립트",
-        f"[현재 막: {map_story.act_index + 1}막]",
-        f"스토리 역할: {map_story.story_role}",
+        "## 대본 (Story Screenplay)",
+        f"{map_story.narrative}",
     ]
 
+    # ── NPC 체크리스트 ────────────────────────────────────────────────────────
     if map_story.npcs:
         lines.append("")
-        lines.append("### 이 맵의 NPC 목록 — 반드시 아래 이름과 역할로만 NPC 생성 (임의 이름 금지)")
+        lines.append("### [체크리스트 1] NPC — 아래 목록 그대로 생성 (임의 추가/이름 변경 금지)")
         for npc in map_story.npcs:
             lines.append(f"- 이름: {npc.name}  역할: {npc.role}")
-            if npc.before_dialogue:
-                lines.append(f"  기본 대사: {' / '.join(npc.before_dialogue)}")
-            if npc.after_dialogue and npc.condition_switch:
+            if npc.dialogues:
+                lines.append(f"  대사: {' / '.join(npc.dialogues)}")
+            if npc.set_switch:
                 lines.append(
-                    f"  조건 후 대사 ({npc.condition_switch} ON 시): "
-                    f"{' / '.join(npc.after_dialogue)}"
+                    f"  ★ set_switch: {npc.set_switch}  "
+                    f"← 대화 완료 후 이 스위치 ON"
+                    f" (아래 quest_chest의 quest_switch로 연결됨)"
                 )
 
-    if map_story.required_events:
+    # ── 아이템 획득 체크리스트 ────────────────────────────────────────────────
+    if map_story.acquisitions:
         lines.append("")
-        lines.append("### 반드시 포함할 이벤트")
-        for ev in map_story.required_events:
-            lines.append(f"- {ev}")
+        lines.append(
+            "### [체크리스트 2] 아이템 획득 — 아래 항목 전부 quest_chest로 생성 (생략 금지)"
+        )
+        lines.append("⚠️ chest_switch가 게이트 조건입니다. 이 이벤트 없으면 탈출 영구 불가")
 
-    if map_story.story_flags:
-        lines.append("")
-        lines.append(f"### 이 맵에서 ON해야 하는 스위치: {', '.join(map_story.story_flags)}")
+        # 맵 타입별 quest_type 결정:
+        # - boss맵: quest_type=npc, quest_switch={boss}_defeated
+        # - town맵: quest_type=npc, quest_switch={npc_set_switch}
+        # - dungeon/field맵: quest_type=battle, quest_switch={item}_battle_won (NPC set_switch와 분리!)
+        is_boss_map = map_story.has_boss and map_story.boss_name
+        map_type = map_spec.map_type if map_spec else "dungeon"
+        use_battle_type = not is_boss_map and map_type in ("dungeon", "field")
+        npc_set_switches = [npc.set_switch for npc in map_story.npcs if npc.set_switch]
 
-    if map_story.requires_switches:
-        lines.append("")
-        lines.append(f"### 이 맵이 요구하는 선행 스위치: {', '.join(map_story.requires_switches)}")
-        if map_story.gate_transfer:
+        if is_boss_map:
+            boss_defeated_sw = f"{map_story.boss_name}_defeated"
             lines.append(
-                "⚠️ 이 맵으로의 transfer 이벤트에 반드시 condition_switch를 설정하세요. "
-                f"condition_switch: {map_story.requires_switches[0]}"
+                f"⚠️ 보스맵 아이템: quest_switch = {boss_defeated_sw} (보스 격파 후 상자 등장)"
             )
+            lines.append("⚠️ quest_type: npc 사용 (battle 타입 사용 금지 — troop 필드 없음)")
+        elif use_battle_type:
+            lines.append("⚠️ 던전/필드 아이템: quest_type = battle 사용")
+            lines.append(
+                "⚠️ quest_switch = {아이템명}_battle_won 형식 사용 (NPC set_switch 재사용 금지!)"
+            )
+            lines.append("   → NPC set_switch와 별도 독립 스위치 — LLM이 임의로 변경 금지")
+        else:
+            lines.append("⚠️ quest_switch = 위 NPC의 set_switch 사용 (NPC 대화 후 상자 등장)")
+
+        for i, acq in enumerate(map_story.acquisitions):
+            if is_boss_map:
+                quest_sw = f"{map_story.boss_name}_defeated"
+                quest_type_hint = "npc"
+            elif use_battle_type:
+                quest_sw = f"{acq.item_name}_battle_won"
+                quest_type_hint = "battle"
+            else:
+                quest_sw = (
+                    npc_set_switches[i]
+                    if i < len(npc_set_switches)
+                    else (npc_set_switches[0] if npc_set_switches else "quest_완료")
+                )
+                quest_type_hint = "npc"
+            lines.append(
+                f"- item: {acq.item_name}  item_type: {acq.item_type}"
+                f"  quest_type: {quest_type_hint}"
+                f"  chest_switch: {acq.chest_switch}  ← 반드시 이 이름 그대로 사용"
+                f"  quest_switch: {quest_sw}  ← 반드시 이 이름 그대로 사용"
+            )
+
+    # ── 이동 체크리스트 ───────────────────────────────────────────────────────
+    forward_moves = [m for m in map_story.moves if m.direction == "forward"]
+    backward_moves = [m for m in map_story.moves if m.direction == "backward"]
+
+    if forward_moves or backward_moves:
+        lines.append("")
+        lines.append("### [체크리스트 3] 이동 이벤트 — 아래 항목만 생성 (추가 생성 금지)")
+
+    for mv in forward_moves:
+        lines.append(
+            f"- ▶ {mv.to_map_name}으로 이동 (gate) — 조건: 이 맵 아이템 획득 완료\n"
+            f"  ※ 이동 이벤트는 코드가 자동 생성합니다. 직접 생성하지 마세요."
+        )
+
+    for mv in backward_moves:
+        lines.append(
+            f"- ◀ {mv.to_map_name}으로 귀환 (transfer, 조건 없음)\n"
+            f"  ※ 이동 이벤트는 코드가 자동 생성합니다. 직접 생성하지 마세요."
+        )
+
+    # ── 보스 ─────────────────────────────────────────────────────────────────
+    if map_story.has_boss and map_story.boss_name:
+        lines.append("")
+        lines.append("### [체크리스트 4] 보스 전투 + 엔딩")
+        lines.append(f"- 보스: {map_story.boss_name}")
+        lines.append("  type: battle (보스 전투) + type: ending (보스 처치 후 자동 실행)")
+        lines.append(
+            "  ⚠️ gate/transfer 이벤트 생성 금지 — 이동 이벤트는 코드가 자동 생성, 직접 생성 금지"
+        )
 
     lines.append("")
     return "\n".join(lines)
@@ -456,13 +596,13 @@ def _filter_troops_for_map(
             if enemy_tier.get(_troop_enemy_name(t), "normal") in ("boss", "elite")
         ]
         label = "보스/엘리트급 (boss/elite 티어)"
-    elif map_type == "dungeon":
+    elif map_type in ("dungeon", "field"):
         filtered = [
             t
             for t in all_troops
             if enemy_tier.get(_troop_enemy_name(t), "normal") in ("weak", "normal", "elite")
         ]
-        label = "던전용 (weak/normal/elite 티어, boss 제외)"
+        label = "던전/필드용 (weak/normal/elite 티어, boss 제외)"
     else:
         filtered = all_troops
         label = "전체"
@@ -480,26 +620,29 @@ def _describe_required_events(
     game_spec: GameSpec,
     id_table: IdTable,
 ) -> str:
+    """맵 타입별 이벤트 생성 가이드. 대본 체크리스트를 보완하는 구현 규칙."""
     if spec.map_type == "town":
         return (
-            "⚠️ 이벤트 수: 5~8개 (초과 금지)\n"
-            "1. NPC 대화 최소 2개 (랜드마크마다 1개, 보스 처치 전후 조건부 대화 권장)\n"
-            "2. 상점 이벤트 (상점 랜드마크가 있으면)\n"
-            "3. 맵 이동 이벤트 (exits 수만큼, 위 좌표 정보 사용)\n"
-            "4. 선택: 보물 상자 1개\n"
-            "⚠️ 금지: battle 이벤트 생성 금지 — town은 안전 지역\n"
-            "⚠️ 금지: ending 이벤트 생성 금지 — 엔딩은 boss 맵 전용"
+            "## 구현 규칙 (대본 체크리스트 기준)\n"
+            "- [체크리스트 1] NPC → npc 타입 이벤트로 1:1 생성 (대사·set_switch 그대로)\n"
+            "- [체크리스트 2] 아이템 → quest_chest 타입으로 1:1 생성 (chest_switch 그대로)\n"
+            "  quest_type: npc (NPC 대화 → 보물상자 등장)\n"
+            "- 상점 이벤트 (상점 랜드마크 있으면 선택)\n"
+            "⚠️ 체크리스트에 없는 NPC/아이템 이벤트 추가 생성 금지\n"
+            "⚠️ gate/transfer/battle/ending 이벤트 직접 생성 금지\n"
+            "   — 이동 이벤트는 코드가 자동 생성하므로 YAML에 포함하지 마세요"
         )
-    elif spec.map_type == "dungeon":
+    elif spec.map_type in ("dungeon", "field"):
         return (
-            "⚠️ 이벤트 수: 5~8개 (초과 금지)\n"
-            "1. 맵 이동 이벤트 (입구/출구, 위 좌표 정보 사용)\n"
-            "2. 전투 이벤트 2~3개 (player_touch, one_time=true)\n"
-            "3. 보물 상자 1~2개 (chest 타입)\n"
-            "4. 선택: 경고 NPC 1개\n"
-            "⚠️ 금지: ending 이벤트 생성 금지 — 엔딩은 boss 맵 전용\n"
-            "⚠️ 스위치: 전투 battle_switch는 맵 고유 이름 사용 "
-            "(예: {맵이름}_고블린_battle). 다른 맵과 절대 중복 금지"
+            "## 구현 규칙 (대본 체크리스트 기준)\n"
+            "- [체크리스트 1] NPC → npc 타입 이벤트로 1:1 생성 (있는 경우)\n"
+            "- [체크리스트 2] 아이템 → quest_chest 타입으로 1:1 생성 (chest_switch 그대로)\n"
+            "  quest_type: battle 권장 (전투 승리 → 보물상자 등장)\n"
+            "  ⚠️ 이 이벤트 없으면 게이트 스위치 ON 불가 → 탈출 영구 불가\n"
+            "- 전투 이벤트 1~2개 추가 가능 (battle 타입, one_time=true)\n"
+            "⚠️ 체크리스트에 없는 NPC/아이템 이벤트 추가 생성 금지\n"
+            "⚠️ gate/transfer/ending 이벤트 직접 생성 금지\n"
+            "   — 이동 이벤트는 코드가 자동 생성하므로 YAML에 포함하지 마세요"
         )
     elif spec.map_type == "boss":
         boss_enemies = [e for e in game_spec.enemies if e.tier == "boss"]
@@ -510,14 +653,11 @@ def _describe_required_events(
                 (k for k in id_table.troops if boss_name in k), list(id_table.troops.keys())[-1]
             )
         return (
-            "⚠️ 이벤트 수: 5~7개 (초과 금지)\n"
-            f"1. 보스 전투 이벤트 필수 (type: battle, troop: {troop_key}, "
+            "## 구현 규칙 (대본 체크리스트 기준)\n"
+            f"- [체크리스트 4] 보스 전투 (type: battle, troop: {troop_key}, "
             f"lose_condition: game_over, battle_switch: {boss_name}_defeated)\n"
-            f"2. 엔딩 이벤트 필수 (type: ending, condition_switch: {boss_name}_defeated, "
-            f"action: title)\n"
-            "3. 맵 이동 이벤트 (탈출용)\n"
-            "4. 선택: NPC 1~2개, 보물 상자 1~2개\n"
-            "   ⚠️ battle 이벤트와 ending 이벤트의 x, y 좌표는 반드시 달라야 함\n"
-            "   ⚠️ 엔딩은 이 맵에만 1개 — 다른 맵에 엔딩 이벤트 중복 생성 금지"
+            f"- 엔딩 이벤트 (type: ending, condition_switch: {boss_name}_defeated, action: title)\n"
+            "⚠️ gate/transfer 이벤트 직접 생성 금지 — 이동 이벤트는 코드가 자동 생성\n"
+            "⚠️ battle과 ending의 x, y 좌표는 반드시 달라야 함"
         )
-    return "맵 타입에 맞는 이벤트 5~10개 (초과 금지)"
+    return "맵 타입에 맞는 이벤트 생성 (대본 체크리스트 참고)"

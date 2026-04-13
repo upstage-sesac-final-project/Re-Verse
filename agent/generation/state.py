@@ -5,13 +5,7 @@ canonical: docs/The_world/full_generation_plan.md
 
 from typing import Any, TypedDict
 
-from agent.generation.models import (
-    GameQuestPlan,
-    GameSpec,
-    MapConnectionInfo,
-    MapSpec,
-    MapStoryScript,
-)
+from agent.generation.models import GameSpec, MapConnectionInfo, MapScreenplay, MapSpec
 from agent.generation.registry.id_table import IdTable
 from agent.generation.registry.switch_table import SwitchTable
 
@@ -40,11 +34,7 @@ class GenerationState(TypedDict, total=False):
     connection_info: dict[int, MapConnectionInfo]
 
     # ── F 노드 (story_planner) 출력 ───────────────────────
-    story_script: dict[int, MapStoryScript] | None  # map_id → MapStoryScript
-    quest_plan: GameQuestPlan | None  # 퀘스트 계획 (story_planner 또는 fallback)
-
-    # ── F-2 노드 (event_scaffolder) 출력 ──────────────────
-    event_skeletons: dict[int, list]  # map_id → list[DslEvent] (scaffolded)
+    story_script: dict[int, MapScreenplay] | None  # map_id → MapScreenplay
 
     # ── G+H 노드 출력 ─────────────────────────────────────
     event_dsl: dict[int, list]
