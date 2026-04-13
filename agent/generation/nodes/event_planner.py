@@ -1112,12 +1112,25 @@ def _build_move_events(
 
         tile_xy = tile_by_dest.get(dest_id)
         if tile_xy is None:
-            logger.warning(
-                "_build_move_events: '%s'(id=%d)로 향하는 exit_tile 없음 → 스킵",
-                move.to_map_name,
-                dest_id,
-            )
-            continue
+            # exit_tile 없음 → 맵 경계 좌표로 폴백 (샘플 맵은 exits=[] 가능)
+            if spec:
+                fallback_x = spec.width // 2
+                fallback_y = spec.height - 2 if move.direction == "forward" else 1
+                tile_xy = (fallback_x, fallback_y)
+                logger.warning(
+                    "_build_move_events: '%s'(id=%d) exit_tile 없음 → 폴백 좌표 (%d, %d) 사용",
+                    move.to_map_name,
+                    dest_id,
+                    fallback_x,
+                    fallback_y,
+                )
+            else:
+                logger.warning(
+                    "_build_move_events: '%s'(id=%d) exit_tile 없음, spec 없음 → 스킵",
+                    move.to_map_name,
+                    dest_id,
+                )
+                continue
 
         ex, ey = tile_xy
 

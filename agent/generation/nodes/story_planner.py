@@ -41,6 +41,31 @@ def _is_forbidden_set_switch(sw: str) -> bool:
     return False
 
 
+def _align_map_types_with_game_spec(map_specs: list[MapSpec], game_spec: GameSpec) -> list[MapSpec]:
+    """game_spec.maps 순서에 맞춰 map_type을 보정한다.
+
+    샘플 맵 선택기는 map_type을 town/dungeon 두 가지만 구분하기 때문에
+    boss/field 타입이 game_spec에 명시되어 있어도 반영되지 않는다.
+    map_id 오름차순 = game_spec.maps 순서로 가정하고 보정한다.
+    """
+    sorted_specs = sorted(map_specs, key=lambda s: s.map_id)
+    corrected: list[MapSpec] = []
+    for i, ms in enumerate(sorted_specs):
+        if i < len(game_spec.maps):
+            game_type = game_spec.maps[i].type
+            if ms.map_type != game_type:
+                logger.info(
+                    "_align_map_types: map_id=%d '%s' 타입 보정 %s → %s",
+                    ms.map_id,
+                    ms.name,
+                    ms.map_type,
+                    game_type,
+                )
+                ms = ms.model_copy(update={"map_type": game_type})
+        corrected.append(ms)
+    return corrected
+
+
 async def story_planner(state: GenerationState) -> dict:
     """F 노드: GameSpec + MapSpec → 맵별 MapScreenplay."""
     gen_id = state["generation_id"]
@@ -48,6 +73,9 @@ async def story_planner(state: GenerationState) -> dict:
     map_specs: list[MapSpec] = state.get("map_specs") or []
     id_table: IdTable = state["id_table"]  # type: ignore[assignment]
     switch_table: SwitchTable = state["switch_table"]  # type: ignore[assignment]
+
+    # game_spec.maps 순서에 맞춰 map_type 보정 (샘플 맵 선택기는 boss/field 구분 못함)
+    map_specs = _align_map_types_with_game_spec(map_specs, game_spec)
 
     await publish_progress(
         gen_id,
@@ -92,7 +120,7 @@ async def story_planner(state: GenerationState) -> dict:
 
     completed = list(state.get("completed_phases", []))
     completed.append("story_plan")
-    return {"story_script": story_script, "completed_phases": completed}
+    return {"story_script": story_script, "map_specs": map_specs, "completed_phases": completed}
 
 
 def _validate_screenplay(
@@ -201,22 +229,37 @@ def _validate_screenplay(
         forward_count = 0
         backward_count = 0
 
-        # 이 맵에서 실제로 연결된 목적지 이름 집합 (map_spec.exits 기반)
         spec_obj = next((s for s in map_specs if s.map_id == ms.map_id), None)
+
+        # 이 맵의 sequential 인덱스 (map_id 오름차순)
+        sorted_map_ids = sorted(s.map_id for s in map_specs)
+        cur_idx = sorted_map_ids.index(ms.map_id) if ms.map_id in sorted_map_ids else -1
+
+        # 이 맵에서 이동 가능한 목적지: spec.exits 우선, 없으면 순서 기반(forward/backward)
         valid_exit_names: set[str] = set()
-        if spec_obj:
+        if spec_obj and spec_obj.exits:
             for ex in spec_obj.exits:
                 dest_name = map_id_to_name.get(ex.to_map_id)
                 if dest_name:
                     valid_exit_names.add(dest_name)
+        elif cur_idx >= 0:
+            # exits 없으면 순서 기반: 이전 맵(backward) + 다음 맵(forward)
+            if cur_idx > 0:
+                prev_name = map_id_to_name.get(sorted_map_ids[cur_idx - 1])
+                if prev_name:
+                    valid_exit_names.add(prev_name)
+            if cur_idx < len(sorted_map_ids) - 1:
+                next_name = map_id_to_name.get(sorted_map_ids[cur_idx + 1])
+                if next_name:
+                    valid_exit_names.add(next_name)
 
         _fallback_hint = "아직 조건이 충족되지 않았습니다."
         n_acquisitions = len(fixed_acq)  # stage_dialogues 기준 = acquisitions 수
         for move in ms.moves:
-            # move 목적지가 map_spec.exits에 없으면 제거 (exit_tile 없어서 배치 불가)
+            # move 목적지가 연결 가능한 맵에 없으면 제거
             if move.to_map_name not in valid_exit_names:
                 logger.warning(
-                    "story_planner: map_id=%d move to='%s' map_spec.exits에 없음 → 제거",
+                    "story_planner: map_id=%d move to='%s' 유효한 연결 맵 아님 → 제거",
                     ms.map_id,
                     move.to_map_name,
                 )
@@ -242,18 +285,12 @@ def _validate_screenplay(
                 backward_count += 1
 
         # ── forward move 누락 보완 ─────────────────────────────────────────────
-        # boss 맵이 아니고, map_spec.exits에 forward 목적지가 있는데 forward move가 없으면 자동 삽입
-        if map_type != "boss" and forward_count == 0 and spec_obj:
-            for ex in spec_obj.exits:
-                dest_name = map_id_to_name.get(ex.to_map_id)
-                dest_type = map_id_to_type.get(ex.to_map_id, "dungeon")
-                # map_id가 현재 맵보다 클 때만 forward (이미 지나온 맵은 backward)
-                if (
-                    dest_name
-                    and dest_type in {"dungeon", "field", "boss"}
-                    and ex.to_map_id > ms.map_id
-                ):
-                    # forward 목적지 발견 → 폴백 forward move 삽입
+        # boss 맵이 아니고, 마지막 맵이 아닌데 forward move가 없으면 순서 기반으로 자동 삽입
+        if map_type != "boss" and forward_count == 0 and cur_idx >= 0:
+            if cur_idx < len(sorted_map_ids) - 1:
+                next_id = sorted_map_ids[cur_idx + 1]
+                dest_name = map_id_to_name.get(next_id)
+                if dest_name:
                     fallback_dialogues = [_fallback_hint] * n_acquisitions
                     fallback_move = MoveScript(
                         direction="forward",
@@ -266,7 +303,6 @@ def _validate_screenplay(
                         ms.map_id,
                         dest_name,
                     )
-                    break  # forward는 최대 1개
 
         out[ms.map_id] = ms.model_copy(
             update={"npcs": fixed_npcs, "acquisitions": fixed_acq, "moves": fixed_moves}

@@ -96,23 +96,22 @@ def build_story_planner_prompt(
         for s in map_specs
     )
 
-    # 맵 연결 정보 (forward/backward 방향 힌트)
-    map_id_to_name: dict[int, str] = {s.map_id: s.name for s in map_specs}
-    map_id_to_type: dict[int, str] = {s.map_id: s.map_type for s in map_specs}
+    # 맵 연결 정보 (forward/backward 방향 힌트) — map_id 오름차순 기반
+    # 샘플 맵은 exits 정보가 없을 수 있으므로 순서(인덱스)로 연결 방향을 결정한다.
+    sorted_specs = sorted(map_specs, key=lambda s: s.map_id)
     connections_text_parts: list[str] = []
-    for s in map_specs:
-        exits = s.exits
-        if not exits:
-            connections_text_parts.append(f"  {s.name}({s.map_type}): 출구 없음")
-            continue
-        exit_strs: list[str] = []
-        for ex in exits:
-            to_name = map_id_to_name.get(ex.to_map_id, f"Map{ex.to_map_id}")
-            to_type = map_id_to_type.get(ex.to_map_id, "dungeon")
-            # map_id가 현재 맵보다 크면 forward (진행 방향), 작으면 backward (귀환)
-            direction = "forward" if ex.to_map_id > s.map_id else "backward"
-            exit_strs.append(f"{to_name}({to_type}, {direction})")
-        connections_text_parts.append(f"  {s.name}({s.map_type}): {', '.join(exit_strs)}")
+    for idx, s in enumerate(sorted_specs):
+        parts: list[str] = []
+        if idx > 0:
+            prev = sorted_specs[idx - 1]
+            parts.append(f"{prev.name}({prev.map_type}, backward)")
+        if idx < len(sorted_specs) - 1 and s.map_type != "boss":
+            nxt = sorted_specs[idx + 1]
+            parts.append(f"{nxt.name}({nxt.map_type}, forward)")
+        if parts:
+            connections_text_parts.append(f"  {s.name}({s.map_type}): {', '.join(parts)}")
+        else:
+            connections_text_parts.append(f"  {s.name}({s.map_type}): 출구 없음 (최종 맵)")
     connections_text = "\n".join(connections_text_parts)
 
     # 스위치를 카테고리별로 분류
