@@ -58,8 +58,9 @@ export default function GenerationProgress({ onDone }) {
   useEffect(() => {
     if (!generationId || !wsUrl) return
 
-    // WebSocket 연결
-    const ws = new WebSocket(`${WS_BASE}${wsUrl}`)
+    // WebSocket 연결 (브라우저 WS API는 Authorization 헤더 미지원 → 쿼리 파라미터로 토큰 전달)
+    const token = sessionStorage.getItem('access_token') ?? ''
+    const ws = new WebSocket(`${WS_BASE}${wsUrl}?token=${encodeURIComponent(token)}`)
     wsRef.current = ws
 
     ws.onmessage = (e) => {
