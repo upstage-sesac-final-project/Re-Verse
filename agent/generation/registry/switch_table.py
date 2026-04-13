@@ -6,7 +6,21 @@ LangGraph 체크포인트와의 호환성을 위해 직접 변경 금지.
 canonical: docs/The_world/switch_allocation.md
 """
 
+import re
+
 from pydantic import BaseModel
+
+
+def normalize_switch_name(name: str) -> str:
+    """스위치 이름 정규화: 공백→밑줄, 연속 밑줄 제거, 양쪽 밑줄 제거.
+
+    사전 할당 스위치(맵 이름에 공백 포함)와 LLM 출력(밑줄 사용)의
+    불일치를 방지한다.
+    예: "고대 유적_cleared" → "고대_유적_cleared"
+    """
+    normalized = name.replace(" ", "_")
+    normalized = re.sub(r"_+", "_", normalized)
+    return normalized.strip("_")
 
 
 class SwitchTable(BaseModel):
@@ -18,8 +32,9 @@ class SwitchTable(BaseModel):
     def allocate_switch(self, name: str) -> tuple["SwitchTable", int]:
         """스위치 이름으로 ID 할당. 불변 — 새 인스턴스 + ID 반환.
 
-        이미 존재하면 기존 ID, 없으면 새 ID 할당.
+        이름은 정규화 후 저장 (공백→밑줄). 이미 존재하면 기존 ID.
         """
+        name = normalize_switch_name(name)
         if name in self.switches:
             return self, self.switches[name]
         new_id = self.next_switch_id

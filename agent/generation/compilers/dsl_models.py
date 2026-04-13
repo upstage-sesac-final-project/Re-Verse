@@ -57,7 +57,7 @@ class ChestEvent(BaseModel):
     dialogue_after: str = ""
     character_name: str = "!Chest"  # 보물상자 스프라이트
     character_index: int = 0
-    condition_switch: str | None = None  # 이 스위치 ON일 때만 chest 등장
+    condition_switch: str | None = None  # 이 스위치 ON일 때만 보물상자 출현
 
 
 class BattleOnWinAction(BaseModel):

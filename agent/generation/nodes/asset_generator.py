@@ -728,6 +728,188 @@ _WEAPON_WTYPE_FALLBACK: dict[int, int] = {
 
 _ARMOR_ETYPE_FALLBACK: dict[int, int] = {2: 129, 3: 130, 4: 135, 5: 145}
 
+# ── 직업 traits (role_type → 스킬유형/무기유형/방어구유형 허용) ────────────────
+# base_game Classes.json 참조 — RPG Maker MZ 기본 직업과 동일 패턴
+# code 22: Attack Element (dataId=elementId, value=rate)
+# code 41: SType Add (dataId=stypeId: 1=마법, 2=필살기) — 스킬 타입 추가
+# code 51: Weapon Type (dataId=wtypeId: 1=단검, 2=검, 3=도끼, 4=지팡이, 5=활)
+# code 52: Armor Type (dataId=atypeId: 1=일반방어구, 2=마법방어구, 3=투구, 5=장신구)
+
+_CLASS_TRAITS: dict[str, list[dict]] = {
+    "warrior": [
+        {"code": 22, "dataId": 0, "value": 1},  # 물리 공격 속성
+        {"code": 22, "dataId": 1, "value": 0.05},
+        {"code": 41, "dataId": 2, "value": 0},  # 필살기 사용
+        {"code": 51, "dataId": 2, "value": 0},  # 검 장착
+        {"code": 51, "dataId": 1, "value": 0},  # 단검 장착
+        {"code": 52, "dataId": 1, "value": 0},  # 일반방어구
+        {"code": 52, "dataId": 3, "value": 0},  # 투구
+        {"code": 52, "dataId": 5, "value": 0},  # 장신구
+    ],
+    "mage": [
+        {"code": 22, "dataId": 0, "value": 1},
+        {"code": 22, "dataId": 1, "value": 0.05},
+        {"code": 41, "dataId": 1, "value": 0},  # 마법 사용
+        {"code": 51, "dataId": 4, "value": 0},  # 지팡이 장착
+        {"code": 52, "dataId": 1, "value": 0},  # 일반방어구
+        {"code": 52, "dataId": 2, "value": 0},  # 마법방어구
+    ],
+    "healer": [
+        {"code": 22, "dataId": 0, "value": 1},
+        {"code": 22, "dataId": 1, "value": 0.05},
+        {"code": 41, "dataId": 1, "value": 0},  # 마법 사용
+        {"code": 51, "dataId": 4, "value": 0},  # 지팡이 장착
+        {"code": 51, "dataId": 3, "value": 0},  # 도끼 (사제 보조무기)
+        {"code": 52, "dataId": 1, "value": 0},  # 일반방어구
+        {"code": 52, "dataId": 2, "value": 0},  # 마법방어구
+    ],
+    "thief": [
+        {"code": 22, "dataId": 0, "value": 0.95},
+        {"code": 22, "dataId": 1, "value": 0.05},
+        {"code": 41, "dataId": 2, "value": 0},  # 필살기 사용
+        {"code": 51, "dataId": 1, "value": 0},  # 단검 장착
+        {"code": 52, "dataId": 1, "value": 0},  # 일반방어구
+        {"code": 52, "dataId": 3, "value": 0},  # 투구
+    ],
+    "default": [
+        {"code": 22, "dataId": 0, "value": 1},
+        {"code": 22, "dataId": 1, "value": 0.05},
+        {"code": 41, "dataId": 1, "value": 0},  # 마법 사용
+        {"code": 41, "dataId": 2, "value": 0},  # 필살기 사용
+        {"code": 51, "dataId": 2, "value": 0},  # 검 장착
+        {"code": 52, "dataId": 1, "value": 0},  # 일반방어구
+    ],
+}
+
+# iconTag → wtypeId 매핑 (System.weaponTypes 범위 내)
+_ICON_TAG_TO_WTYPE: dict[str, int] = {
+    "dagger": 1,
+    "sword": 2,
+    "mace": 2,
+    "axe": 3,
+    "staff": 4,
+    "bow": 5,
+    "crossbow": 5,
+    "gun": 5,
+    "claw": 1,
+    "gauntlet": 1,
+    "spear": 2,
+}
+
+# System.weaponTypes 최대 인덱스
+_MAX_WTYPE_ID = 5
+
+# wtypeId → 기본 무기 이름/iconIndex (장착 가능 무기가 없을 때 자동 생성)
+_DEFAULT_WEAPON_BY_WTYPE: dict[int, tuple[str, int, str]] = {
+    1: ("단검", 96, "dagger"),  # 단검
+    2: ("철 검", 97, "sword"),  # 검
+    3: ("전투 도끼", 99, "axe"),  # 도끼
+    4: ("나무 지팡이", 101, "staff"),  # 지팡이
+    5: ("사냥 활", 102, "bow"),  # 활
+}
+
+# atypeId → 기본 방어구 이름/iconIndex/etypeId
+_DEFAULT_ARMOR_BY_ATYPE: dict[int, tuple[str, int, int]] = {
+    1: ("가죽 조끼", 135, 4),  # 일반방어구, 갑옷 슬롯
+    2: ("면 로브", 139, 4),  # 마법방어구, 갑옷 슬롯
+    3: ("구리 반지", 145, 5),  # 장신구, 장신구 슬롯
+}
+
+
+def _ensure_equippable_weapons(classes_json: list, weapons_json: list, id_table: IdTable) -> list:
+    """직업별로 장착 가능한 무기가 최소 1개 있는지 검증. 없으면 자동 추가."""
+    # 기존 무기의 wtypeId 집합
+    existing_wtypes: set[int] = set()
+    for w in weapons_json:
+        if w and isinstance(w, dict):
+            existing_wtypes.add(w.get("wtypeId", 0))
+
+    # 직업이 허용하는 wtypeId 수집
+    needed_wtypes: set[int] = set()
+    for cls in classes_json:
+        if cls and isinstance(cls, dict):
+            for trait in cls.get("traits", []):
+                if trait.get("code") == 51:  # Weapon Type 허용
+                    needed_wtypes.add(trait["dataId"])
+
+    # 부족한 wtypeId에 대해 기본 무기 생성
+    missing = needed_wtypes - existing_wtypes
+    if not missing:
+        return weapons_json
+
+    next_id = max((w["id"] for w in weapons_json if w and isinstance(w, dict)), default=0) + 1
+    for wtype in sorted(missing):
+        default = _DEFAULT_WEAPON_BY_WTYPE.get(wtype)
+        if default is None:
+            continue
+        name, icon_index, icon_tag = default
+        params, price = _calc_weapon_params(3, icon_tag)  # power=3 (초반 무기)
+        weapons_json.append(
+            {
+                "id": next_id,
+                "name": name,
+                "description": "",
+                "iconIndex": icon_index,
+                "wtypeId": wtype,
+                "etypeId": 1,
+                "params": params,
+                "price": price,
+                "traits": [],
+                "animationId": 0,
+                "note": "(auto-generated)",
+            }
+        )
+        logger.info("무기 자동 추가: [%d] %s (wtypeId=%d)", next_id, name, wtype)
+        next_id += 1
+
+    return weapons_json
+
+
+def _ensure_equippable_armors(classes_json: list, armors_json: list, id_table: IdTable) -> list:
+    """직업별로 장착 가능한 방어구가 최소 1개 있는지 검증. 없으면 자동 추가."""
+    existing_atypes: set[int] = set()
+    for a in armors_json:
+        if a and isinstance(a, dict):
+            existing_atypes.add(a.get("atypeId", 0))
+
+    needed_atypes: set[int] = set()
+    for cls in classes_json:
+        if cls and isinstance(cls, dict):
+            for trait in cls.get("traits", []):
+                if trait.get("code") == 52:  # Armor Type 허용
+                    needed_atypes.add(trait["dataId"])
+
+    missing = needed_atypes - existing_atypes
+    if not missing:
+        return armors_json
+
+    next_id = max((a["id"] for a in armors_json if a and isinstance(a, dict)), default=0) + 1
+    for atype in sorted(missing):
+        default = _DEFAULT_ARMOR_BY_ATYPE.get(atype)
+        if default is None:
+            continue
+        name, icon_index, etype_id = default
+        params, price = _calc_armor_params(3, etype_id)  # power=3 (초반 방어구)
+        armors_json.append(
+            {
+                "id": next_id,
+                "name": name,
+                "description": "",
+                "iconIndex": icon_index,
+                "atypeId": atype,
+                "etypeId": etype_id,
+                "params": params,
+                "price": price,
+                "traits": [],
+                "note": "(auto-generated)",
+            }
+        )
+        logger.info("방어구 자동 추가: [%d] %s (atypeId=%d)", next_id, name, atype)
+        next_id += 1
+
+    return armors_json
+
+
 # ── power(0~10) → params 변환 (밸런스 Phase 2) ──────────────────────────────
 # params 순서: [MHP, MMP, ATK, DEF, MAT, MDF, AGI, LUK]
 
@@ -1094,7 +1276,7 @@ async def generate_classes(spec: GameSpec, id_table: IdTable) -> list:
                 "expParams": _validate_exp_params(llm_cls.expParams),
                 "params": _build_params_2d(role),
                 "learnings": learnings,
-                "traits": [],
+                "traits": _CLASS_TRAITS.get(role, _CLASS_TRAITS["default"]),
                 "note": llm_cls.note,
             }
         )
@@ -1352,6 +1534,10 @@ async def generate_weapons(spec: GameSpec, id_table: IdTable) -> list:
         # iconTag → iconIndex 변환
         tag = d.pop("iconTag", "sword")
         d["iconIndex"] = _resolve_icon(tag, WEAPON_ICON_TAG, 0)
+        # iconTag → wtypeId 강제 매핑 (LLM이 범위 초과 wtypeId를 생성하는 문제 방지)
+        d["wtypeId"] = _ICON_TAG_TO_WTYPE.get(tag, 2)  # 매핑 없으면 검(2)
+        if d["wtypeId"] > _MAX_WTYPE_ID:
+            d["wtypeId"] = 2  # 범위 초과 시 검으로 폴백
         # power → params/price 알고리즘 (LLM params 무시)
         power = d.pop("power", 5)
         d["params"], d["price"] = _calc_weapon_params(power, tag)
@@ -1503,6 +1689,16 @@ async def generate_enemies(spec: GameSpec, id_table: IdTable) -> list:
             for t in d.get("traits", [])
             if t.get("code") in _VALID_TRAIT_CODES
         ]
+        # 적 기본 traits 보장: 명중률 90% + 공격 속성
+        has_hit = any(t["code"] == 22 and t["dataId"] == 0 for t in d["traits"])
+        if not has_hit:
+            d["traits"].extend(
+                [
+                    {"code": 22, "dataId": 0, "value": 0.9},  # 명중률 90%
+                    {"code": 22, "dataId": 1, "value": 0.05},  # 회피율 5%
+                    {"code": 31, "dataId": 1, "value": 0},  # 공격 속성: 물리
+                ]
+            )
 
         output.append(d)
     return _ensure_null_at_0(output)
@@ -1696,6 +1892,14 @@ async def asset_generator(state: GenerationState) -> dict:
 
     # 3단계: troops (알고리즘)
     assets["Troops.json"] = generate_troops(spec, id_table, assets["Enemies.json"])
+
+    # 4단계: 직업별 장착 가능 무기/방어구 보장
+    assets["Weapons.json"] = _ensure_equippable_weapons(
+        assets["Classes.json"], assets["Weapons.json"], id_table
+    )
+    assets["Armors.json"] = _ensure_equippable_armors(
+        assets["Classes.json"], assets["Armors.json"], id_table
+    )
 
     logger.info(
         "asset_generator 완료: actors=%d classes=%d skills=%d enemies=%d",

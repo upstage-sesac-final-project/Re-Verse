@@ -36,7 +36,7 @@ EFFECT_RULES = {
     13: {
         "name": "TP 회복",
         "dataId": {"type": "range", "min": 0},
-        "value1": {"type": "range", "min": 0, "max": 30},  # 원래는 max 10
+        "value1": {"type": "range", "min": 0, "max": 99},
         "value2": {"type": "range", "min": 0},
     },
     21: {

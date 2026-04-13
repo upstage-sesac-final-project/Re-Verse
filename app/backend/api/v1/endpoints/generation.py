@@ -13,18 +13,21 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     HTTPException,
+    Query,
     WebSocket,
     WebSocketDisconnect,
+    status,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.generation.progress import publish_progress, subscribe_generation_events
 from agent.generation.workflow import run_generation_workflow
 from app.backend.core.config import settings
-from app.backend.core.security import get_current_user
+from app.backend.core.security import decode_access_token, get_current_user
 from app.backend.db.session import get_db
 from app.backend.models.user import User
 from app.backend.repositories.project_repository import project_repository
+from app.backend.repositories.user_repository import user_repository
 from app.backend.schemas.generation import (
     GenerationRequest,
     GenerationStartResponse,
@@ -37,6 +40,9 @@ router = APIRouter()
 # 인메모리 상태 저장소 (Phase 2: DB 없이 메모리만 사용)
 # {generation_id: GenerationStatusResponse}
 _generation_states: dict[str, GenerationStatusResponse] = {}
+
+# 소유권 저장소: {generation_id: user_id}
+_generation_owners: dict[str, int] = {}
 
 
 async def _run_generation_in_background(
@@ -115,6 +121,7 @@ async def start_generation(
         raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
 
     generation_id = f"gen_{uuid4().hex[:8]}"
+    _generation_owners[generation_id] = current_user.id
     logger.info(
         "start_generation: user_id=%d project_id=%d game_id=%s gen_id=%s",
         current_user.id,
@@ -146,7 +153,7 @@ async def get_generation_status(
 ) -> GenerationStatusResponse:
     """진행 상황 폴링."""
     state = _generation_states.get(generation_id)
-    if state is None:
+    if state is None or _generation_owners.get(generation_id) != current_user.id:
         raise HTTPException(status_code=404, detail="생성 작업을 찾을 수 없습니다.")
     return state
 
@@ -157,7 +164,10 @@ async def cancel_generation(
     current_user: User = Depends(get_current_user),
 ) -> None:
     """생성 취소 (현재: 상태만 cancelled로 변경)."""
-    if generation_id not in _generation_states:
+    if (
+        generation_id not in _generation_states
+        or _generation_owners.get(generation_id) != current_user.id
+    ):
         raise HTTPException(status_code=404, detail="생성 작업을 찾을 수 없습니다.")
     _generation_states[generation_id] = GenerationStatusResponse(
         generation_id=generation_id,
@@ -170,10 +180,37 @@ async def cancel_generation(
 async def generation_websocket(
     websocket: WebSocket,
     generation_id: str,
+    token: str = Query(..., description="JWT access token"),
+    db: AsyncSession = Depends(get_db),
 ) -> None:
-    """생성 진행률 실시간 스트리밍 WebSocket."""
+    """생성 진행률 실시간 스트리밍 WebSocket.
+
+    브라우저 WebSocket API는 Authorization 헤더를 지원하지 않으므로
+    ?token=<access_token> 쿼리 파라미터로 인증합니다.
+    """
+    # 토큰 검증
+    payload = decode_access_token(token)
+    if payload is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    user_id = payload.get("sub")
+    if user_id is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    user = await user_repository.find_by_id(int(user_id), db)
+    if user is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # 소유권 확인
+    if _generation_owners.get(generation_id) != user.id:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await websocket.accept()
-    logger.info("WebSocket 연결: gen_id=%s", generation_id)
+    logger.info("WebSocket 연결: gen_id=%s user_id=%d", generation_id, user.id)
 
     try:
         async for event in subscribe_generation_events(generation_id):

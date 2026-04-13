@@ -31,8 +31,8 @@ async def _main() -> int:
     game_id = os.environ.get("GAME_ID", "game_001")
     data_path: Path = resolve_game_data_path(game_id)
 
-    # k4zuki 서버 list_tools 기준: create_actor(name 필수)
-    # targetDir(또는 MCP_PATH_ARG_NAME)에 data_path를 주입하는 건 call_mcp_tool이 처리.
+    # 통합 MCP(integration_MCP) 기준: create_actor(name 필수)
+    # tool-registry.json의 canonical 이름 사용 (add_actor는 별칭)
     result = await call_mcp_tool(
         tool_name="create_actor",
         arguments={"name": "ZZZ_MCP_SMOKE_ACTOR"},

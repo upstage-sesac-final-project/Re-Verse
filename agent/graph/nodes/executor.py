@@ -58,20 +58,18 @@ game_locks: defaultdict[str, asyncio.Lock] = defaultdict(lambda: asyncio.Lock())
 # MCP (k4zuki RPG Maker MZ Node 서버) — 구조화 스텝만 인터셉트
 # (target_file, action_type) → list_tools() 이름과 동일. 맵 전용 툴(get_map*, *map_event*, add_event_command)은 제외.
 #
-# 없는 것: Classes.json / Enemies.json 등 — 이 MCP 리포에 해당 툴이 없음(액터·아이템·스킬·시스템 일부만).
-# Actors.json `update`는 레거시(ActorManager 클래스 변경)용이므로 MCP `update_actor`는 action `update_actor`로 구분.
+# 통합 MCP (integration_MCP / @rein634/rpg-maker-mz-mcp) 기준 툴 매핑.
+# 4개 리포를 하나로 합친 서버가 제공하는 tool 이름에 맞춤.
 # ────────────────────────────────────────────────────────────
 MCP_TOOL_MAP: dict[tuple[str, str], dict[str, Any]] = {
-    # (선택) "mcp_server": "MCP_SERVERS_JSON" 키 — 없으면 .env 의 MCP_SERVER_BY_TOOL_JSON /
-    # MCP_SERVER_BY_TARGET_FILE_JSON → MCP_DEFAULT_SERVER 순으로 결정.
     # Actors.json
-    ("Actors.json", "list"): {"tool": "get_actors", "backup_files": []},
+    ("Actors.json", "list"): {"tool": "list_actors", "backup_files": []},
     ("Actors.json", "search"): {"tool": "search_actors", "backup_files": []},
     ("Actors.json", "query_by_id"): {"tool": "get_actor", "backup_files": []},
     ("Actors.json", "create"): {"tool": "create_actor", "backup_files": ["Actors.json"]},
     ("Actors.json", "update_actor"): {"tool": "update_actor", "backup_files": ["Actors.json"]},
     # Skills.json
-    ("Skills.json", "list"): {"tool": "get_skills", "backup_files": []},
+    ("Skills.json", "list"): {"tool": "list_skills", "backup_files": []},
     ("Skills.json", "query"): {"tool": "get_skill", "backup_files": []},
     ("Skills.json", "search"): {"tool": "search_skills", "backup_files": []},
     ("Skills.json", "create"): {"tool": "create_skill", "backup_files": ["Skills.json"]},
@@ -90,13 +88,31 @@ MCP_TOOL_MAP: dict[tuple[str, str], dict[str, Any]] = {
     },
     ("Skills.json", "update"): {"tool": "update_skill", "backup_files": ["Skills.json"]},
     # Items.json
-    ("Items.json", "list"): {"tool": "get_items", "backup_files": []},
+    ("Items.json", "list"): {"tool": "list_items", "backup_files": []},
     ("Items.json", "search"): {"tool": "search_items", "backup_files": []},
+    ("Items.json", "create"): {"tool": "create_item", "backup_files": ["Items.json"]},
     ("Items.json", "update"): {"tool": "update_item", "backup_files": ["Items.json"]},
-    # Weapons.json / Armors.json (MCP는 조회만 제공)
-    ("Weapons.json", "list"): {"tool": "get_weapons", "backup_files": []},
-    ("Armors.json", "list"): {"tool": "get_armors", "backup_files": []},
-    # System.json (맵 편집 툴 제외, 시작 위치·타이틀·변수·스위치 이름 등)
+    # Weapons.json
+    ("Weapons.json", "list"): {"tool": "list_weapons", "backup_files": []},
+    ("Weapons.json", "create"): {"tool": "create_weapon", "backup_files": ["Weapons.json"]},
+    ("Weapons.json", "update"): {"tool": "update_weapon", "backup_files": ["Weapons.json"]},
+    # Armors.json
+    ("Armors.json", "list"): {"tool": "list_armors", "backup_files": []},
+    ("Armors.json", "create"): {"tool": "create_armor", "backup_files": ["Armors.json"]},
+    ("Armors.json", "update"): {"tool": "update_armor", "backup_files": ["Armors.json"]},
+    # Classes.json (통합 MCP에서 추가)
+    ("Classes.json", "list"): {"tool": "list_classes", "backup_files": []},
+    ("Classes.json", "create"): {"tool": "create_class", "backup_files": ["Classes.json"]},
+    ("Classes.json", "update"): {"tool": "update_class", "backup_files": ["Classes.json"]},
+    # States.json (통합 MCP에서 추가)
+    ("States.json", "list"): {"tool": "list_states", "backup_files": []},
+    ("States.json", "create"): {"tool": "create_state", "backup_files": ["States.json"]},
+    ("States.json", "update"): {"tool": "update_state", "backup_files": ["States.json"]},
+    # Enemies.json (통합 MCP에서 추가)
+    ("Enemies.json", "list"): {"tool": "list_enemies", "backup_files": []},
+    ("Enemies.json", "create"): {"tool": "create_enemy", "backup_files": ["Enemies.json"]},
+    ("Enemies.json", "update"): {"tool": "update_enemy", "backup_files": ["Enemies.json"]},
+    # System.json
     ("System.json", "query"): {"tool": "get_system", "backup_files": []},
     ("System.json", "list_variables"): {"tool": "get_variables", "backup_files": []},
     ("System.json", "set_variable_name"): {
@@ -249,6 +265,34 @@ def _skills_local_search_by_name(data_path: Path, term: str) -> tuple[bool, int 
     return False, None
 
 
+def _enemies_local_search_by_name(data_path: Path, term: str) -> tuple[bool, int | None]:
+    t = (term or "").strip().lower()
+    if not t:
+        return False, None
+    fp = data_path / "Enemies.json"
+    if not fp.is_file():
+        return False, None
+    try:
+        raw = json.loads(fp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, None
+    if not isinstance(raw, list):
+        return False, None
+    for idx, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip().lower()
+        if not name:
+            continue
+        if t in name:
+            rid = entry.get("id")
+            try:
+                return True, int(rid) if rid is not None else idx
+            except (TypeError, ValueError):
+                return True, idx
+    return False, None
+
+
 def _enrich_mcp_search_tool_result(
     tool_name: str,
     r: dict[str, Any],
@@ -271,6 +315,7 @@ def _enrich_mcp_search_tool_result(
         "search_items": (("id", "itemId"), _items_local_search_by_name),
         "search_actors": (("id", "actorId"), _actors_local_search_by_name),
         "search_skills": (("id", "skillId"), _skills_local_search_by_name),
+        "search_enemies": (("id", "enemyId"), _enemies_local_search_by_name),
     }
     if tool_name not in cfg:
         return out
@@ -304,6 +349,8 @@ def _enrich_mcp_search_tool_result(
             out["actor_id"] = first_id
         elif tool_name == "search_skills":
             out["skill_id"] = first_id
+        elif tool_name == "search_enemies":
+            out["enemy_id"] = first_id
     return out
 
 
@@ -422,6 +469,11 @@ def _normalize_mcp_arguments(
         return out
 
     # ── Items.json ──
+    if target_file == "Items.json" and action == "create":
+        if "name" not in out and "item_name" in out:
+            out["name"] = out.pop("item_name")
+        return out
+
     if target_file == "Items.json" and action == "search":
         # query→search 정규화 후에도 플래너가 name/item_name 만 넘기는 경우가 있어 searchTerm 으로 맞춘다.
         if not (out.get("searchTerm") or out.get("search_term") or out.get("query")):
@@ -493,6 +545,86 @@ def _normalize_mcp_arguments(
         if y is not None:
             b["y"] = _as_int(y)
         return b
+
+    # ── Weapons.json ──
+    if target_file == "Weapons.json" and action == "create":
+        if "name" not in out and "weapon_name" in out:
+            out["name"] = out.pop("weapon_name")
+        return out
+
+    if target_file == "Weapons.json" and action == "update":
+        wid = out.get("weaponId", out.get("weapon_id"))
+        updates = out.get("updates")
+        built = {}
+        if wid is not None:
+            built["weaponId"] = _as_int(wid)
+        if isinstance(updates, dict):
+            built["updates"] = updates
+        return built
+
+    # ── Armors.json ──
+    if target_file == "Armors.json" and action == "create":
+        if "name" not in out and "armor_name" in out:
+            out["name"] = out.pop("armor_name")
+        return out
+
+    if target_file == "Armors.json" and action == "update":
+        aid = out.get("armorId", out.get("armor_id"))
+        updates = out.get("updates")
+        built = {}
+        if aid is not None:
+            built["armorId"] = _as_int(aid)
+        if isinstance(updates, dict):
+            built["updates"] = updates
+        return built
+
+    # ── Classes.json ──
+    if target_file == "Classes.json" and action == "create":
+        if "name" not in out and "class_name" in out:
+            out["name"] = out.pop("class_name")
+        return out
+
+    if target_file == "Classes.json" and action == "update":
+        cid = out.get("classId", out.get("class_id"))
+        updates = out.get("updates")
+        built = {}
+        if cid is not None:
+            built["classId"] = _as_int(cid)
+        if isinstance(updates, dict):
+            built["updates"] = updates
+        return built
+
+    # ── States.json ──
+    if target_file == "States.json" and action == "create":
+        if "name" not in out and "state_name" in out:
+            out["name"] = out.pop("state_name")
+        return out
+
+    if target_file == "States.json" and action == "update":
+        sid_val = out.get("stateId", out.get("state_id"))
+        updates = out.get("updates")
+        built = {}
+        if sid_val is not None:
+            built["stateId"] = _as_int(sid_val)
+        if isinstance(updates, dict):
+            built["updates"] = updates
+        return built
+
+    # ── Enemies.json ──
+    if target_file == "Enemies.json" and action == "create":
+        if "name" not in out and "enemy_name" in out:
+            out["name"] = out.pop("enemy_name")
+        return out
+
+    if target_file == "Enemies.json" and action == "update":
+        eid = out.get("enemyId", out.get("enemy_id"))
+        updates = out.get("updates")
+        built = {}
+        if eid is not None:
+            built["enemyId"] = _as_int(eid)
+        if isinstance(updates, dict):
+            built["updates"] = updates
+        return built
 
     # list / query(get_system 등 인자 없음) / get_game_title / get_variables / get_switches
     if action in ("list", "query", "get_game_title", "list_variables", "list_switches"):
@@ -2135,6 +2267,30 @@ def _sanitize_mz_item_effects_for_schema(effects: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _apply_mz_item_required_defaults(payload: dict[str, Any]) -> None:
+    """Planner/LLM이 Item 필수 필드를 빼거나 null로 넣는 경우를 보정한다.
+
+    setdefault만으로는 부족함: target_info에 ``occasion: null``이 있으면 키가 존재해 기본값이 안 들어감.
+    """
+    int_defaults: dict[str, int] = {
+        "occasion": 0,
+        "scope": 7,
+        "speed": 0,
+        "successRate": 100,
+        "repeats": 1,
+        "tpGain": 0,
+        "hitType": 0,
+        "animationId": -1,
+    }
+    for key, default in int_defaults.items():
+        cur = payload.get(key)
+        if cur is None:
+            payload[key] = default
+            continue
+        if isinstance(cur, str) and cur.strip() == "":
+            payload[key] = default
+
+
 def _structured_create_item_sync(data_path: Path, target_info: dict[str, Any]) -> dict[str, Any]:
     """구조화 플랜의 target_info로 Items.json 슬롯에 아이템을 기록한다 (MCP create_item 미노출 대응)."""
     from agent.schemas.items import Item
@@ -2199,7 +2355,8 @@ def _structured_create_item_sync(data_path: Path, target_info: dict[str, Any]) -
         arr.append(None)
 
     existing = arr[item_id]
-    new_name = str(target_info.get("name") or "").strip()
+    # Planner는 표시명을 item_name으로만 넘기는 경우가 있음(name 키 없음).
+    new_name = str(target_info.get("name") or target_info.get("item_name") or "").strip()
     if existing is not None and isinstance(existing, dict):
         ex_name = str(existing.get("name") or "").strip()
         if ex_name and new_name and ex_name != new_name:
@@ -2242,6 +2399,8 @@ def _structured_create_item_sync(data_path: Path, target_info: dict[str, Any]) -
             d.setdefault("variance", 20)
 
     payload.setdefault("effects", [])
+
+    _apply_mz_item_required_defaults(payload)
 
     try:
         model = Item.model_validate(payload)
@@ -2588,7 +2747,11 @@ async def _executor_structured(
 
     current_game_state = _copy_snapshot_files_to_disk(data_path, target_files, snap_dir, "before")
     backup_targets = _collect_structured_backup_files(execution_plan)
-    backup_paths = _create_backup(data_path, backup_targets)
+    if retry_count == 0:
+        backup_paths = _create_backup(data_path, backup_targets)
+    else:
+        backup_paths = {}
+        logger.info("[Executor structured] retry=%d → 백업 생성 skip (중복 방지)", retry_count)
     logger.info(
         "[Executor structured] before 스냅샷: %d개 파일, 백업: %d개 파일",
         len(current_game_state),
