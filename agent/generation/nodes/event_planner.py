@@ -106,6 +106,8 @@ async def event_planner(state: GenerationState) -> dict:
         )
         # battle quest_chest quest_switch ↔ NPC set_switch 충돌 수정 (NPC 대화로 배틀 우회 방지)
         result = _fix_battle_quest_switch_collision(result, spec.map_id, switch_table)
+        # battle 이벤트 battle_switch ↔ NPC set_switch 충돌 수정 (보스 전투 우회 방지)
+        result = _fix_npc_battle_switch_collision(result, spec.map_id)
         # NpcEvent condition_switch 검증: 존재하지 않는 _defeated 스위치 자동 교체
         result = _fix_npc_defeated_conditions(result, switch_table, spec.map_id)
         # 이동 이벤트 코드 생성 (condition = acquisitions.chest_switch)
@@ -1311,6 +1313,36 @@ def _fix_battle_quest_switch_collision(
     return result
 
 
+def _fix_npc_battle_switch_collision(events: list, map_id: int) -> list:
+    """NpcEvent의 set_switch가 battle 이벤트의 battle_switch와 충돌하면 제거.
+
+    LLM이 보스 NPC에게 _defeated 스위치를 set_switch로 배정하면,
+    NPC 대화만으로 battle_switch가 ON되어 보스 전투 조건(sw=OFF)이 영구 실패한다.
+    """
+    battle_switches: set[str] = {
+        getattr(e, "battle_switch", None)
+        for e in events
+        if e.type == "battle" and getattr(e, "battle_switch", None)
+    } - {None}
+
+    if not battle_switches:
+        return events
+
+    result = []
+    for e in events:
+        if e.type == "npc" and getattr(e, "set_switch", None) in battle_switches:
+            logger.warning(
+                "Map%d NpcEvent '%s': set_switch '%s'가 battle 이벤트의 battle_switch와 충돌 "
+                "→ NPC set_switch 제거 (전투 없이 보스 격파 방지)",
+                map_id,
+                e.name,
+                e.set_switch,
+            )
+            e = e.model_copy(update={"set_switch": None})
+        result.append(e)
+    return result
+
+
 def _fix_npc_defeated_conditions(
     events: list,
     switch_table: SwitchTable,
@@ -1390,6 +1422,8 @@ def _build_move_events(
             tile_by_dest[dest_id] = (tile.get("x", 1), tile.get("y", 1))
 
     _fallback_hint = "아직 조건이 충족되지 않았습니다."
+    # map_id → MapSpec 빠른 조회 (목적지 spawn_point 계산용)
+    map_spec_by_id: dict[int, MapSpec] = {s.map_id: s for s in map_specs} if map_specs else {}
     events: list = []
 
     for move in screenplay.moves:
@@ -1424,6 +1458,14 @@ def _build_move_events(
 
         ex, ey = tile_xy
 
+        # 목적지 맵 spawn_point: 최대 연결 구역 기준으로 tile_generator가 교정한 값
+        # to_y=1 하드코딩 대신 사용하여 이동 불가 타일 도착 문제 방지
+        dest_spec = map_spec_by_id.get(dest_id)
+        if dest_spec:
+            dest_spawn_x, dest_spawn_y = dest_spec.spawn_point
+        else:
+            dest_spawn_x, dest_spawn_y = ex, 1
+
         if move.direction == "forward":
             if not chest_switches:
                 # acquisitions가 없을 때: NPC talked_switches를 게이트 조건으로 대체
@@ -1456,8 +1498,8 @@ def _build_move_events(
                             x=ex,
                             y=ey,
                             to_map=move.to_map_name,
-                            to_x=ex,
-                            to_y=1,
+                            to_x=dest_spawn_x,
+                            to_y=dest_spawn_y,
                             direction="retain",
                             keeper_character_name="People1",
                             keeper_character_index=6,
@@ -1480,8 +1522,8 @@ def _build_move_events(
                             x=ex,
                             y=ey,
                             to_map=move.to_map_name,
-                            to_x=ex,
-                            to_y=1,
+                            to_x=dest_spawn_x,
+                            to_y=dest_spawn_y,
                             character_name="!Crystal",
                             character_index=2,
                         )
@@ -1502,8 +1544,8 @@ def _build_move_events(
                     x=ex,
                     y=ey,
                     to_map=move.to_map_name,
-                    to_x=ex,
-                    to_y=1,
+                    to_x=dest_spawn_x,
+                    to_y=dest_spawn_y,
                     direction="retain",
                     keeper_character_name="People1",
                     keeper_character_index=6,
@@ -1515,12 +1557,7 @@ def _build_move_events(
             )
 
         elif move.direction == "backward":
-            # backward 목적지: 이전 맵의 하단(플레이어가 forward로 나간 위치 근처)
-            target_spec = None
-            if map_specs:
-                target_spec = next((s for s in map_specs if s.map_id == dest_id), None)
-            to_y_back = (target_spec.height - 2) if target_spec else max(ey, 2)
-            to_x_back = (target_spec.width // 2) if target_spec else ex
+            to_x_back, to_y_back = dest_spawn_x, dest_spawn_y
             events.append(
                 TransferEvent(
                     type="transfer",
