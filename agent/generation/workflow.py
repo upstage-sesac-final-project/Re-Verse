@@ -23,6 +23,7 @@ from agent.generation.nodes.generation_responder import generation_responder
 from agent.generation.nodes.generation_validator import generation_validator, route_after_validation
 from agent.generation.nodes.integrator import integrator
 from agent.generation.nodes.map_designer import map_designer
+from agent.generation.nodes.sample_map_selector import sample_map_selector
 from agent.generation.nodes.story_planner import story_planner
 from agent.generation.nodes.tile_generator import tile_generator
 from agent.generation.state import GenerationState
@@ -31,10 +32,12 @@ logger = logging.getLogger(__name__)
 
 
 def _route_after_asset_generator(state: GenerationState) -> str:
-    """C 노드 이후 라우팅: phase_limit에 따라 분기."""
+    """C 노드 이후 라우팅: map_source / phase_limit에 따라 분기."""
     phase_limit = state.get("phase_limit")
     if phase_limit == "assets":
         return "skip_to_integrate"
+    if state.get("map_source") == "samples":
+        return "sample_maps"
     return "map_phase"
 
 
@@ -61,6 +64,7 @@ def build_generation_graph() -> Any:
     builder.add_node("asset_generator", asset_generator)
     builder.add_node("map_designer", map_designer)
     builder.add_node("tile_generator", tile_generator)
+    builder.add_node("sample_map_selector", sample_map_selector)
     builder.add_node("story_planner", story_planner)
     builder.add_node("event_planner", event_planner)
     builder.add_node("event_compiler", event_compiler_node)
@@ -80,10 +84,13 @@ def build_generation_graph() -> Any:
         {
             "skip_to_integrate": "integrator",
             "map_phase": "map_designer",
+            "sample_maps": "sample_map_selector",
         },
     )
 
     builder.add_edge("map_designer", "tile_generator")
+    # 샘플맵 경로는 D+E를 건너뛰고 바로 integrator로
+    builder.add_edge("sample_map_selector", "integrator")
 
     # E → (maps → H) or (story → F → G)
     builder.add_conditional_edges(
@@ -132,7 +139,9 @@ async def run_generation_workflow(
     prompt: str,
     game_id: str,
     generation_id: str | None = None,
-    phase_limit: str = "assets",
+    phase_limit: str | None = None,
+    map_source: str | None = "samples",
+    options: dict[str, Any] | None = None,
 ) -> GenerationState:
     """Full Generation 워크플로우 실행.
 
@@ -141,6 +150,8 @@ async def run_generation_workflow(
         game_id: RPG 프로젝트 ID
         generation_id: 진행률 WebSocket 채널 ID (없으면 자동 생성)
         phase_limit: "assets" → C노드 후 integrator로 skip
+        map_source: "samples" 또는 "algorithmic"
+        options: 기타 설정 (playtime_minutes 등)
 
     Returns:
         최종 GenerationState
@@ -148,11 +159,20 @@ async def run_generation_workflow(
     gen_id = generation_id or f"gen_{uuid4().hex[:8]}"
     graph = get_generation_graph()
 
+    opts = options or {}
+    # 인자로 받은 값을 options에 병합 (우선순위: 인자 < options)
+    if phase_limit and "phase_limit" not in opts:
+        opts["phase_limit"] = phase_limit
+    if map_source and "map_source" not in opts:
+        opts["map_source"] = map_source
+
     initial_state: GenerationState = {
         "user_input": prompt,
         "game_id": game_id,
         "generation_id": gen_id,
-        "phase_limit": phase_limit,
+        "options": opts,
+        "phase_limit": opts.get("phase_limit"),
+        "map_source": opts.get("map_source"),
         "retry_count": 0,
         "completed_phases": [],
     }

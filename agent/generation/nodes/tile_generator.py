@@ -5,31 +5,56 @@ canonical: docs/The_world/map_generation.md §E
 """
 
 import asyncio
+import json
 import logging
+from pathlib import Path
 from typing import Any
 
 from agent.generation.mapgen import extract_connection_info, generate_map
 from agent.generation.models import MapConnectionInfo, MapSpec
+from agent.generation.nodes.integrator import load_base_tilesets
 from agent.generation.progress import publish_progress
 from agent.generation.state import GenerationState
+from app.backend.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
-async def _generate_single_map(
+async def _load_or_generate_map(
     spec: MapSpec,
     seed: int,
+    tilesets: list | None = None,
 ) -> tuple[int, list[int], MapConnectionInfo]:
-    """단일 맵 타일 + 연결 정보 생성 (CPU-bound, asyncio로 감싸기)."""
+    """샘플이 있으면 로드, 없으면 생성."""
     loop = asyncio.get_event_loop()
-    # CPU-bound 알고리즘이므로 스레드풀에서 실행
+
+    # 1. 샘플 맵 로드 시도
+    if spec.original_file_name:
+        sample_maps_dir = Path(settings.BASE_GAME_PATH) / "samplemaps"
+        sample_path = sample_maps_dir / spec.original_file_name
+        if sample_path.exists():
+            try:
+                with open(sample_path, encoding="utf-8") as f:
+                    map_data = json.load(f)
+                    tile_data = map_data.get("data", [])
+                    if tile_data:
+                        logger.info("샘플 맵 타일 로드 성공: %s", spec.original_file_name)
+                        # 샘플 맵의 연결 정보 추출 (flags 기준)
+                        conn_info = extract_connection_info(spec, tile_data, tilesets=tilesets)
+                        return spec.map_id, tile_data, conn_info
+            except Exception as e:
+                logger.error("샘플 맵 로드 중 에러 (%s): %s", spec.original_file_name, e)
+        else:
+            logger.warning("샘플 맵 파일 없음: %s", sample_path)
+
+    # 2. 샘플이 없거나 로드 실패 시 기존 AI 생성 로직 실행
     data = await loop.run_in_executor(None, generate_map, spec, seed)
-    conn_info = extract_connection_info(spec, data)
+    conn_info = extract_connection_info(spec, data, tilesets=tilesets)
     return spec.map_id, data, conn_info
 
 
 async def tile_generator(state: GenerationState) -> dict:
-    """E 노드: 모든 MapSpec을 병렬로 타일 배열 생성."""
+    """E 노드: 모든 MapSpec을 병렬로 타일 배열 생성 또는 로드."""
     gen_id = state["generation_id"]
     map_specs: list[MapSpec] = state.get("map_specs", [])
 
@@ -43,12 +68,15 @@ async def tile_generator(state: GenerationState) -> dict:
             "type": "progress",
             "phase": "tile_generation",
             "progress": 56,
-            "message": f"{len(map_specs)}개 맵 타일 생성 중...",
+            "message": f"{len(map_specs)}개 맵 타일 준비 중...",
         },
     )
 
-    # 맵별 병렬 생성
-    tasks = [_generate_single_map(spec, seed=spec.map_id) for spec in map_specs]
+    # 타일셋 정보 로드 (스폰 포인트 계산용)
+    tilesets = load_base_tilesets()
+
+    # 맵별 병렬 처리
+    tasks = [_load_or_generate_map(spec, seed=spec.map_id, tilesets=tilesets) for spec in map_specs]
     results: list[Any] = await asyncio.gather(*tasks, return_exceptions=True)
 
     map_tiles: dict[int, list[int]] = {}
@@ -56,8 +84,7 @@ async def tile_generator(state: GenerationState) -> dict:
 
     for spec, result in zip(map_specs, results):
         if isinstance(result, Exception):
-            logger.error("tile_generator: 맵 '%s' 생성 실패: %s", spec.name, result)
-            # 폴백: 빈 타일 데이터
+            logger.error("tile_generator: 맵 '%s' 준비 실패: %s", spec.name, result)
             map_tiles[spec.map_id] = [0] * (spec.width * spec.height * 6)
             connection_info[spec.map_id] = MapConnectionInfo(
                 map_id=spec.map_id, exit_tiles=[], entry_tiles=[]
@@ -67,14 +94,14 @@ async def tile_generator(state: GenerationState) -> dict:
             map_tiles[map_id] = data
             connection_info[map_id] = conn
 
-    logger.info("tile_generator 완료: %d개 맵 타일 생성", len(map_tiles))
+    logger.info("tile_generator 완료: %d개 맵 데이터 준비", len(map_tiles))
 
     await publish_progress(
         gen_id,
         {
             "type": "phase_complete",
             "phase": "tile_generation",
-            "summary": f"{len(map_tiles)}개 맵 타일 생성 완료",
+            "summary": f"{len(map_tiles)}개 맵 데이터 준비 완료",
         },
     )
 

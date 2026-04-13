@@ -3,10 +3,10 @@
 generate_map(spec) 호출 시 map_type에 맞는 생성기로 위임.
 """
 
-from collections import deque
+import logging
 
 from agent.generation.mapgen.dungeon_generator import generate_dungeon
-from agent.generation.mapgen.tile_constants import get_tile
+from agent.generation.mapgen.tile_checker import find_nearest_safe_coord, is_walkable
 from agent.generation.mapgen.town_generator import generate_town
 from agent.generation.models import MapConnectionInfo, MapSpec
 
@@ -34,32 +34,41 @@ def generate_map(spec: MapSpec, seed: int = 0) -> list[int]:
     return gen(spec, seed=seed)
 
 
+logger = logging.getLogger(__name__)
+
+
 def calculate_spawn_point(
     spec: MapSpec,
     data: list[int],
+    tilesets: list | None = None,
 ) -> tuple[int, int]:
-    """MapSpec.spawn_point가 walkable인지 확인. 아니면 BFS로 가장 가까운 walkable 탐색."""
+    """walkable 타일 탐색. tilesets가 주어지면 flags를, 아니면 레이어5를 기준."""
     w, h = spec.width, spec.height
     sx, sy = spec.spawn_point
 
-    def is_walkable(x: int, y: int) -> bool:
-        return get_tile(data, x, y, w, h, 5) == 0
-
-    if is_walkable(sx, sy):
+    # 시작점이 이미 walkable이면 즉시 반환
+    if is_walkable(data, sx, sy, w, h, spec.tileset_id, tilesets):
+        logger.info("Map '%s': 기존 시작 좌표 (%d, %d)를 사용합니다.", spec.name, sx, sy)
         return sx, sy
 
-    visited = {(sx, sy)}
-    q: deque[tuple[int, int]] = deque([(sx, sy)])
-    while q:
-        x, y = q.popleft()
-        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
-            nx, ny = x + dx, y + dy
-            if (nx, ny) not in visited and 0 <= nx < w and 0 <= ny < h:
-                visited.add((nx, ny))
-                if is_walkable(nx, ny):
-                    return nx, ny
-                q.append((nx, ny))
+    # 보정 시작 로그
+    logger.info(
+        "Map '%s': 초기 시작 좌표 (%d, %d) 통행 불가 -> 안전한 좌표 탐색 시작", spec.name, sx, sy
+    )
 
+    # 안전한 좌표 탐색 (BFS)
+    nx, ny = find_nearest_safe_coord(data, sx, sy, w, h, spec.tileset_id, tilesets)
+
+    if (nx, ny) != (sx, sy):
+        logger.info(
+            "Map '%s': 안전한 시작 좌표 발견 (%d, %d). 좌표를 수정했습니다.",
+            spec.name,
+            nx,
+            ny,
+        )
+        return nx, ny
+
+    logger.warning("Map '%s': 안전한 좌표를 찾지 못했습니다. 초기값 유지.", spec.name)
     return sx, sy
 
 
@@ -75,7 +84,9 @@ def get_exit_coords(direction: str, width: int, height: int) -> tuple[int, int]:
     }.get(direction, (mid_x, height - 2))
 
 
-def extract_connection_info(spec: MapSpec, data: list[int]) -> MapConnectionInfo:
+def extract_connection_info(
+    spec: MapSpec, data: list[int], tilesets: list | None = None
+) -> MapConnectionInfo:
     """타일 생성 후 맵 연결 좌표 추출."""
     exit_tiles = []
     for exit_spec in spec.exits:
@@ -89,7 +100,8 @@ def extract_connection_info(spec: MapSpec, data: list[int]) -> MapConnectionInfo
             }
         )
 
-    spawn = calculate_spawn_point(spec, data)
+    # 타일셋 정보와 함께 스폰 포인트 계산
+    spawn = calculate_spawn_point(spec, data, tilesets=tilesets)
     entry_tiles = [{"from_spawn": True, "x": spawn[0], "y": spawn[1]}]
 
     return MapConnectionInfo(

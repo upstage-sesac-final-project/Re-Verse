@@ -89,6 +89,7 @@ class MapSpec(BaseModel):
     landmarks: list[LandmarkSpec]
     exits: list[ExitSpec]
     spawn_point: tuple[int, int]
+    original_file_name: str | None = None  # 예: "Map284.json"
 
 
 # Solar Pro 2 래퍼 (list 직접 반환 불가)

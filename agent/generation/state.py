@@ -15,12 +15,14 @@ class GenerationState(TypedDict, total=False):
     user_input: str
     game_id: str
     generation_id: str
+    options: dict[str, Any]  # 추가: playtime_minutes 등 설정 저장
 
     # ── B 노드 (asset_planner) 출력 ───────────────────────
     id_table: IdTable | None
     switch_table: SwitchTable | None
     generation_order: list[str]
     phase_limit: str | None  # "assets" | "maps" | None
+    map_source: str | None  # "algorithmic" (기본, D+E) | "samples" (샘플맵 선택기)
 
     # ── A+C 노드 출력 ──────────────────────────────────────
     game_spec: GameSpec | None
