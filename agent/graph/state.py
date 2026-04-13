@@ -4,6 +4,13 @@ from operator import add
 from typing import Annotated, Literal, TypedDict
 
 
+def _merge_dict(left: dict, right: dict) -> dict:
+    """dict 병합 reducer. right가 비어 있으면 left를 그대로 유지한다."""
+    if not right:
+        return left
+    return {**left, **right}
+
+
 class AgentState(TypedDict, total=False):
     # ── 입력 ────────────────────────────────────────────────
     user_input: str  # 사용자 원본 입력
@@ -27,6 +34,10 @@ class AgentState(TypedDict, total=False):
     extracted_ids: dict  # 이름→ID 매핑 (예: {"enemy_id": 1})
     params_sufficient: bool  # 파라미터 충분 여부
 
+    # ── 2.5단계 Operation IR (definition_v2 → game_index_resolve → planner_v2) ──
+    operation_tuples: list[dict]  # 정규화된 operation IR
+    plan_meta: dict  # planner_v2 → validator (op_idx → step_ids 역매핑)
+
     # ── 3단계 Planner ───────────────────────────────────────
     game_context: dict  # 플래너 프롬프트에 주입할 현재 게임 데이터
     # 단계별 실행 명령. 레거시: [{"task": "..."}]. 구조화(3단계): step_id, action_type,
@@ -41,6 +52,8 @@ class AgentState(TypedDict, total=False):
     # ── 5단계 Validator ─────────────────────────────────────
     validation_results: list  # 파일별 검증 결과 리스트
     validation_summary: str  # 검증 결과 요약 문자열
+    validation_details: list[str]  # schema/judge 실패 상세 (synthesizer 가 사용)
+    judge_feedback: str  # judge 실패 피드백 텍스트 (synthesizer 가 응답에 첨부)
     success: bool  # 전체 검증 통과 여부
     retry_count: int  # 검증 실패 후 재시도 횟수
 
@@ -55,5 +68,7 @@ class AgentState(TypedDict, total=False):
     tool_results: Annotated[list, add]  # 툴 호출 결과 누적
 
     # ── 4단계 Executor 추가 필드들 (MVP) ──────────────────────
-    backup_paths: dict  # 백업 파일 경로들 {"Skills.json": "/path/to/backup.bak"}
+    backup_paths: Annotated[
+        dict, _merge_dict
+    ]  # 백업 파일 경로들 {"Skills.json": "/path/to/backup.bak"} — retry 시 첫 실행 경로 보존
     operation_id: str  # 실행 추적용 고유 ID

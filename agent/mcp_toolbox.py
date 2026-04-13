@@ -17,6 +17,10 @@
   MCP_ENV_JSON={"KEY":"v"}   … (선택) 자식 프로세스에 추가로 넘길 env (기본은 부모 `os.environ` 병합).
   MCP_TIMEOUT=30             … (선택) 한 번의 `call_tool` 대기 초. 기본 30.
   MCP_PATH_ARG_NAME=targetDir … (선택) 게임 `data/` 경로를 넣을 툴 인자 키. k4zuki 서버 README에 맞게 조정.
+  MCP_SERVERS_JSON=…          … (선택) 여러 stdio MCP 바이너리를 이름으로 등록. 설정 시 단일 `MCP_NODE_SERVER_PATH`보다 우선.
+  MCP_DEFAULT_SERVER=default … (선택) `MCP_SERVERS_JSON` 사용 시, 아래 라우팅으로도 키가 안 정해지면 쓸 서버 키. 기본 `default`.
+  MCP_SERVER_BY_TARGET_FILE_JSON=… … (선택) `{"Actors.json":"default",...}` — `target_file` → `MCP_SERVERS_JSON` 키.
+  MCP_SERVER_BY_TOOL_JSON=…   … (선택) `{"get_actor":"mcp_maker",...}` — MCP 툴 이름 → 서버 키 (`mcp_server`/파일 매핑보다 우선).
 
 Executor(4단계)에서는 `is_mcp_enabled()`가 참이고 `(target_file, action)`이 `MCP_TOOL_MAP`에 있을 때만
 `call_mcp_tool`을 호출합니다. 실패 시 기존 Python 매니저로 폴백할 수 있습니다.
@@ -31,7 +35,11 @@ import os
 from pathlib import Path
 from typing import Any
 
-from app.backend.core.game_paths import get_game_data_path, get_storage_root
+from app.backend.core.game_paths import (
+    ensure_rpgmaker_mz_project_shell,
+    get_game_data_path,
+    get_storage_root,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,13 +94,61 @@ def get_mcp_server_args() -> list[str]:
     return [raw]
 
 
-def build_stdio_server_parameters(extra_env: dict[str, str] | None = None) -> Any | None:
-    """`mcp.client.stdio.StdioServerParameters` 인스턴스 또는 설정 불가 시 None.
+def parse_mcp_servers_json() -> dict[str, dict[str, Any]] | None:
+    """`MCP_SERVERS_JSON`: 서버 id → { node_path?, command?, args?, cwd? }.
 
-    우선순위:
-    1. `MCP_NODE_SERVER_PATH`만 있으면 → `node` + `[경로]`
-    2. `MCP_COMMAND` + `MCP_ARGS` (또는 `MCP_NODE_SERVER_PATH`를 보조 인자로)
+    유효한 객체가 없으면 None (레거시 단일 경로 설정 사용).
     """
+    raw = os.environ.get("MCP_SERVERS_JSON", "").strip()
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("MCP_SERVERS_JSON 파싱 실패 — 레거시 MCP_NODE_SERVER_PATH만 사용합니다.")
+        return None
+    if not isinstance(data, dict) or not data:
+        return None
+    out: dict[str, dict[str, Any]] = {}
+    for k, v in data.items():
+        if isinstance(k, str) and isinstance(v, dict):
+            out[k] = v
+    return out or None
+
+
+def _stdio_params_from_server_entry(
+    entry: dict[str, Any],
+    extra_env: dict[str, str] | None,
+) -> Any | None:
+    """서버 항목 dict로 `StdioServerParameters` 생성."""
+    from mcp.client.stdio import StdioServerParameters
+
+    node_path = str(entry.get("node_path") or "").strip()
+    cmd = str(entry.get("command") or "").strip()
+    raw_args = entry.get("args")
+    if isinstance(raw_args, list):
+        args = [str(x) for x in raw_args]
+    else:
+        args = []
+
+    if not cmd and node_path:
+        cmd = "node"
+        args = [node_path]
+    elif cmd and not args and node_path:
+        args = [node_path]
+    elif not cmd:
+        return None
+
+    if not args:
+        return None
+
+    merged_env = {**os.environ, **get_mcp_stdio_env(), **(extra_env or {})}
+    cwd = str(entry.get("cwd") or "").strip() or os.environ.get("MCP_CWD", "").strip() or None
+    return StdioServerParameters(command=cmd, args=args, env=merged_env, cwd=cwd)
+
+
+def _build_stdio_server_parameters_legacy(extra_env: dict[str, str] | None) -> Any | None:
+    """단일 `MCP_NODE_SERVER_PATH` / `MCP_COMMAND` + `MCP_ARGS` (기존 동작)."""
     from mcp.client.stdio import StdioServerParameters
 
     node_path = os.environ.get("MCP_NODE_SERVER_PATH", "").strip()
@@ -110,6 +166,82 @@ def build_stdio_server_parameters(extra_env: dict[str, str] | None = None) -> An
     merged_env = {**os.environ, **get_mcp_stdio_env(), **(extra_env or {})}
     cwd = os.environ.get("MCP_CWD", "").strip() or None
     return StdioServerParameters(command=cmd, args=args, env=merged_env, cwd=cwd)
+
+
+def build_stdio_server_parameters(
+    extra_env: dict[str, str] | None = None,
+    *,
+    mcp_server: str | None = None,
+) -> Any | None:
+    """`mcp.client.stdio.StdioServerParameters` 인스턴스 또는 설정 불가 시 None.
+
+    우선순위:
+    1. `MCP_SERVERS_JSON`이 있으면 → 이름 `mcp_server`(없으면 `MCP_DEFAULT_SERVER`, 기본 키 `default`)로 항목 선택
+    2. 아니면 레거시: `MCP_NODE_SERVER_PATH`만 있으면 → `node` + `[경로]`
+    3. 레거시: `MCP_COMMAND` + `MCP_ARGS` (또는 `MCP_NODE_SERVER_PATH`를 보조 인자로)
+    """
+    servers = parse_mcp_servers_json()
+    if servers:
+        key = (mcp_server or "").strip() or os.environ.get("MCP_DEFAULT_SERVER", "default").strip()
+        if not key:
+            key = "default"
+        entry = servers.get(key)
+        if not isinstance(entry, dict):
+            logger.warning("MCP_SERVERS_JSON에 서버 키가 없습니다: %s", key)
+            return None
+        return _stdio_params_from_server_entry(entry, extra_env)
+
+    return _build_stdio_server_parameters_legacy(extra_env)
+
+
+def _load_mcp_string_mapping_json(env_key: str) -> dict[str, str]:
+    """환경변수 JSON 객체를 str→str 맵으로 로드. 실패·비어 있으면 {}."""
+    raw = os.environ.get(env_key, "").strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("%s 파싱 실패 — 무시합니다.", env_key)
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, str] = {}
+    for k, v in data.items():
+        if isinstance(k, str) and isinstance(v, str) and v.strip():
+            out[k] = v.strip()
+    return out
+
+
+def resolve_mcp_server_key(
+    target_file: str,
+    tool_name: str | None,
+    explicit_from_map: str | None = None,
+) -> str | None:
+    """어떤 `MCP_SERVERS_JSON` 키로 stdio를 띄울지 결정.
+
+    우선순위:
+    1. `MCP_TOOL_MAP`의 `mcp_server` (explicit_from_map)
+    2. `MCP_SERVER_BY_TOOL_JSON`[tool_name]
+    3. `MCP_SERVER_BY_TARGET_FILE_JSON`[target_file]
+    4. None → `build_stdio_server_parameters`에서 `MCP_DEFAULT_SERVER` 사용
+    """
+    if explicit_from_map and str(explicit_from_map).strip():
+        return str(explicit_from_map).strip()
+
+    tname = (tool_name or "").strip()
+    if tname:
+        by_tool = _load_mcp_string_mapping_json("MCP_SERVER_BY_TOOL_JSON")
+        if tname in by_tool:
+            return by_tool[tname]
+
+    tf = (target_file or "").strip()
+    if tf:
+        by_file = _load_mcp_string_mapping_json("MCP_SERVER_BY_TARGET_FILE_JSON")
+        if tf in by_file:
+            return by_file[tf]
+
+    return None
 
 
 def _is_path_under_storage_root(candidate: Path) -> bool:
@@ -131,6 +263,7 @@ async def call_mcp_tool(
     game_data_path: Path,
     *,
     path_arg_name: str | None = None,
+    mcp_server: str | None = None,
 ) -> dict[str, Any]:
     """MCP 서버에 `call_tool` 한 번 보내고, Executor가 쓰기 쉬운 dict로 정규화한다.
 
@@ -154,16 +287,27 @@ async def call_mcp_tool(
     # MCP 서버는 RPGMAKER_PROJECT_PATH 환경변수로 게임 루트를 읽는다.
     # game_data_path는 data/ 폴더이므로 .parent가 게임 루트.
     game_root = game_data_path.resolve().parent
-    params = build_stdio_server_parameters(extra_env={"RPGMAKER_PROJECT_PATH": str(game_root)})
+    ensure_rpgmaker_mz_project_shell(game_root)
+    params = build_stdio_server_parameters(
+        extra_env={"RPGMAKER_PROJECT_PATH": str(game_root)},
+        mcp_server=mcp_server,
+    )
     if params is None:
         return {
             "success": False,
-            "error": "MCP 설정 없음(MCP_NODE_SERVER_PATH 또는 MCP_COMMAND/MCP_ARGS)",
+            "error": "MCP 설정 없음(MCP_SERVERS_JSON 항목 또는 MCP_NODE_SERVER_PATH / MCP_COMMAND+MCP_ARGS)",
             "modified_files": [],
             "data": {},
         }
 
     safe_args = dict(arguments)
+    # 통합 MCP(integration_MCP 등)는 툴마다 `projectPath`(게임 루트) 필수.
+    # 기존 k4zuki 계열은 `targetDir`(data/) 등 다른 키를 쓰기도 해 둘 다 채운다.
+    if "projectPath" not in safe_args:
+        safe_args["projectPath"] = str(game_root)
+    pk = (path_arg_name or os.environ.get("MCP_PATH_ARG_NAME", "targetDir")).strip()
+    if pk and pk not in safe_args:
+        safe_args[pk] = str(game_data_path.resolve())
 
     # per-call 타임아웃: 응답 지연 시 전체 워크플로우가 장시간 블로킹되는 것을 방지한다.
     timeout = float(os.environ.get("MCP_TIMEOUT", "30"))

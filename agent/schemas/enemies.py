@@ -17,8 +17,8 @@ class Action(BaseModel):
     skillId: int = Field(description="행동 패턴 > 스킬 ID")
     rating: int = Field(description="행동 패턴 > 우선도", ge=1, le=9)
     conditionType: int = Field(description="행동 패턴 > 조건 유형", default=5, ge=0, le=6)
-    conditionParam1: int = Field(description="행동 패턴 > 첫번째 조건 결정값", ge=0, le=100)
-    conditionParam2: int = Field(description="행동 패턴 > 두번째 조건 결정값", ge=0, le=100)
+    conditionParam1: float = Field(description="행동 패턴 > 첫번째 조건 결정값", ge=0, le=100)
+    conditionParam2: float = Field(description="행동 패턴 > 두번째 조건 결정값", ge=0, le=100)
 
 
 class Enemy(BaseModel):

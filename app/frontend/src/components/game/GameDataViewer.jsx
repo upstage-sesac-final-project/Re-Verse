@@ -243,7 +243,8 @@ function SystemView({ data, filename }) {
 // ── 메인 컴포넌트 ─────────────────────────────────────────────
 export default function GameDataViewer({ gameId, refreshKey }) {
   const [cache, setCache] = useState({})
-  const [selectedFile, setSelectedFile] = useState('Enemies.json')
+  // 액터/스킬 수정 요청이 많아 기본 탭을 Actors로 두면 AI 반영 확인이 쉬움
+  const [selectedFile, setSelectedFile] = useState('Actors.json')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -256,7 +257,8 @@ export default function GameDataViewer({ gameId, refreshKey }) {
     if (cache[selectedFile]) return
     setIsLoading(true)
     setError(null)
-    fetch(`/game/${gameId}/data/${selectedFile}`)
+    // 동일 URL이라도 AI가 디스크를 고친 뒤 최신 JSON을 보려면 브라우저 캐시를 쓰면 안 됨
+    fetch(`/game/${gameId}/data/${selectedFile}?v=${refreshKey}`, { cache: 'no-store' })
       .then((res) => {
         if (!res.ok) throw new Error('불러오기 실패')
         return res.json()
@@ -266,7 +268,7 @@ export default function GameDataViewer({ gameId, refreshKey }) {
       .finally(() => setIsLoading(false))
     // cache intentionally included — re-fetch after cache cleared by AI update
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameId, selectedFile, cache])
+  }, [gameId, selectedFile, cache, refreshKey])
 
   const data = cache[selectedFile]
   const isArray = Array.isArray(data)

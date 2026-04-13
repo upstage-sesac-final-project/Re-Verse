@@ -50,7 +50,7 @@ class SystemTerms(BaseModel):
 
 
 class System(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     airship: Vehicle = Field(description="비공정 설정")
     armorTypes: list[str | None] = Field(default_factory=list, description="방어구 타입 목록")

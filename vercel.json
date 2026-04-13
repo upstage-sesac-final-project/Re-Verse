@@ -10,6 +10,10 @@
     {
       "source": "/game/:path*",
       "destination": "http://34.230.225.135:8000/game/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ],
   "env": {

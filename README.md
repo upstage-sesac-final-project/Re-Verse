@@ -150,14 +150,48 @@ npm run dev
 
 ## 🧪 테스트 & 품질 체크
 
-루트에서:
+### Agent 테스트
 
 ```bash
-uv run pytest
+# 전체 실행
+python -m pytest agent/tests/ -v
+
+# ci 테스트용 (LLM 호출 없이 MOCK 데이터 테스트)
+uv run pytest app/backend/tests agent/tests -v --tb=short -m "not integration"
+
+# 커버리지 포함
+python -m pytest agent/tests/ --cov --cov-report=term-missing
+
+# 특정 파일만
+python -m pytest agent/tests/test_executor_mvp.py -v
+
+# 키워드 필터
+python -m pytest agent/tests/ -k "enemy" -v
+```
+
+### Backend 테스트
+
+```bash
+# 전체 실행
+python -m pytest app/backend/tests/ -v
+
+# 커버리지 포함
+python -m pytest app/backend/tests/ --cov --cov-report=term-missing
+```
+
+### 전체 테스트 + 커버리지
+
+```bash
+python -m pytest --cov --cov-report=term-missing
+```
+
+### 린트
+
+```bash
 uv run ruff check .
 ```
 
-프론트에서:
+### 프론트엔드
 
 ```bash
 cd app/frontend

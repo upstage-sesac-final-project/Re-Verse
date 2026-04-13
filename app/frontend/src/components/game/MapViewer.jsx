@@ -304,7 +304,7 @@ export default function MapViewer({ gameId, refreshKey }) {
   // Re-fetch map list when game data is updated by the AI
   useEffect(() => {
     if (refreshKey === 0) return  // skip initial mount (handled by the main effect)
-    fetch(`/game/${gameId}/data/MapInfos.json`)
+    fetch(`/game/${gameId}/data/MapInfos.json?v=${refreshKey}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((data) => {
         const list = data.filter(Boolean).sort((a, b) => a.order - b.order)
@@ -316,7 +316,7 @@ export default function MapViewer({ gameId, refreshKey }) {
 
   // MapInfos.json 로드
   useEffect(() => {
-    fetch(`/game/${gameId}/data/MapInfos.json`)
+    fetch(`/game/${gameId}/data/MapInfos.json?v=0`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((data) => {
         const list = data.filter(Boolean).sort((a, b) => a.order - b.order)
@@ -339,8 +339,12 @@ export default function MapViewer({ gameId, refreshKey }) {
     const mapFilename = `Map${String(selectedMapId).padStart(3, '0')}.json`
 
     Promise.all([
-      fetch(`/game/${gameId}/data/${mapFilename}`).then((r) => r.json()),
-      fetch(`/game/${gameId}/data/Tilesets.json`).then((r) => r.json()),
+      fetch(`/game/${gameId}/data/${mapFilename}?v=${refreshKey}`, { cache: 'no-store' }).then((r) =>
+        r.json()
+      ),
+      fetch(`/game/${gameId}/data/Tilesets.json?v=${refreshKey}`, { cache: 'no-store' }).then((r) =>
+        r.json()
+      ),
     ])
       .then(async ([map, tilesets]) => {
         setMapData(map)
@@ -366,6 +370,7 @@ export default function MapViewer({ gameId, refreshKey }) {
     const canvas = canvasRef.current
     if (!canvas || !mapData) return
     const { width, height, data } = mapData
+    if (!data) return
 
     canvas.width  = width  * cellSize
     canvas.height = height * cellSize
@@ -410,7 +415,7 @@ export default function MapViewer({ gameId, refreshKey }) {
     drawCanvas()
   }, [drawCanvas])
 
-  const events = mapData ? mapData.events.filter(Boolean) : []
+  const events = mapData ? (mapData.events ?? []).filter(Boolean) : []
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">

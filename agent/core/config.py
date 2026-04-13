@@ -1,12 +1,23 @@
-"""Agent 레이어 설정 — 루트 .env에서 설정을 읽는다."""
+"""Agent 레이어 설정 — APP_ENV에 따라 .env.{환경} 파일을 읽는다."""
 
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 
-# 루트 .env 경로 (어느 디렉토리에서 실행해도 동일하게 참조)
-_ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _resolve_env_file() -> Path:
+    """APP_ENV 값에 따라 .env.development 또는 .env.production 경로를 반환한다."""
+    raw = (os.getenv("APP_ENV") or "development").lower().strip()
+    env_name = "production" if raw in ("prod", "production") else "development"
+    candidate = _PROJECT_ROOT / f".env.{env_name}"
+    return candidate if candidate.exists() else _PROJECT_ROOT / ".env"
+
+
+_ROOT_ENV = _resolve_env_file()
 
 # 환경 변수를 os.environ에 로드 (MCP_ENABLED 등 직접 os.environ 접근용)
 load_dotenv(_ROOT_ENV)
@@ -40,6 +51,7 @@ class AgentConfig(BaseSettings):
 
     # ── 에이전트 동작 ────────────────────────────────────────
     AGENT_TIMEOUT: int = 30
+    LLM_TIMEOUT: int = 300  # 단일 LLM ainvoke 최대 대기 시간(초)
     MAX_RETRIES: int = 3
 
     # ── 대화 이력 ────────────────────────────────────────────
@@ -47,7 +59,7 @@ class AgentConfig(BaseSettings):
     HISTORY_SUMMARY_WINDOW: int = 10  # 그 이전 N턴 요약 압축
 
     model_config = {
-        "env_file": str(_ROOT_ENV),
+        "env_file": str(_resolve_env_file()),
         "env_file_encoding": "utf-8",
         "case_sensitive": True,
         "extra": "ignore",

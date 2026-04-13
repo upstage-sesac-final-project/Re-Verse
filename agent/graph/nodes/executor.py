@@ -1,16 +1,4 @@
-"""Executor 노드 — 4단계: 룰베이스 JSON 물리 수정.
-
-MVP 버전: 기존 dispatcher 재활용 + 기본 LLM 번역 + 백업/롤백
-
-구현 단계:
-1. 수도코드 LLM 번역 (간단한 키워드 매칭)
-2. 기존 dispatcher 함수 호출
-3. 백업/롤백 기본 기능
-4. changes_log 생성
-
-흐름:
-    3단계 수도코드 → LLM 번역 → dispatcher 호출 → 결과 반환
-"""
+"""Executor 노드 — 4단계: 룰베이스 JSON 물리 수정."""
 
 import asyncio
 import functools
@@ -25,20 +13,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field
+from pydantic import ValidationError
 
-from agent.core.llm_client import invoke_llm
+from agent.graph.nodes.executor_v2.dispatch import dispatch_step
 from agent.graph.state import AgentState
-from agent.mcp_toolbox import build_stdio_server_parameters, call_mcp_tool, is_mcp_enabled
-from app.backend.core.game_paths import get_game_data_path
-from app.backend.services.json_modify_tools.dispatcher import (
-    run_enemies,
-    run_items,
-    run_levels,
-    run_map_villager,
-    run_skills,
+from agent.mcp_toolbox import (
+    build_stdio_server_parameters,
+    call_mcp_tool,
+    is_mcp_enabled,
+    resolve_mcp_server_key,
 )
+from app.backend.core.game_paths import get_game_data_path
 from app.backend.services.json_modify_tools.managers.actor_manager import ActorManager
 from app.backend.services.json_modify_tools.managers.class_manager import ClassManager
 from app.backend.services.json_modify_tools.managers.skill_manager import SkillManager
@@ -53,18 +38,18 @@ game_locks: defaultdict[str, asyncio.Lock] = defaultdict(lambda: asyncio.Lock())
 # MCP (k4zuki RPG Maker MZ Node 서버) — 구조화 스텝만 인터셉트
 # (target_file, action_type) → list_tools() 이름과 동일. 맵 전용 툴(get_map*, *map_event*, add_event_command)은 제외.
 #
-# 없는 것: Classes.json / Enemies.json 등 — 이 MCP 리포에 해당 툴이 없음(액터·아이템·스킬·시스템 일부만).
-# Actors.json `update`는 레거시(ActorManager 클래스 변경)용이므로 MCP `update_actor`는 action `update_actor`로 구분.
+# 통합 MCP (integration_MCP / @rein634/rpg-maker-mz-mcp) 기준 툴 매핑.
+# 4개 리포를 하나로 합친 서버가 제공하는 tool 이름에 맞춤.
 # ────────────────────────────────────────────────────────────
 MCP_TOOL_MAP: dict[tuple[str, str], dict[str, Any]] = {
     # Actors.json
-    ("Actors.json", "list"): {"tool": "get_actors", "backup_files": []},
+    ("Actors.json", "list"): {"tool": "list_actors", "backup_files": []},
     ("Actors.json", "search"): {"tool": "search_actors", "backup_files": []},
     ("Actors.json", "query_by_id"): {"tool": "get_actor", "backup_files": []},
     ("Actors.json", "create"): {"tool": "create_actor", "backup_files": ["Actors.json"]},
     ("Actors.json", "update_actor"): {"tool": "update_actor", "backup_files": ["Actors.json"]},
     # Skills.json
-    ("Skills.json", "list"): {"tool": "get_skills", "backup_files": []},
+    ("Skills.json", "list"): {"tool": "list_skills", "backup_files": []},
     ("Skills.json", "query"): {"tool": "get_skill", "backup_files": []},
     ("Skills.json", "search"): {"tool": "search_skills", "backup_files": []},
     ("Skills.json", "create"): {"tool": "create_skill", "backup_files": ["Skills.json"]},
@@ -83,13 +68,31 @@ MCP_TOOL_MAP: dict[tuple[str, str], dict[str, Any]] = {
     },
     ("Skills.json", "update"): {"tool": "update_skill", "backup_files": ["Skills.json"]},
     # Items.json
-    ("Items.json", "list"): {"tool": "get_items", "backup_files": []},
+    ("Items.json", "list"): {"tool": "list_items", "backup_files": []},
     ("Items.json", "search"): {"tool": "search_items", "backup_files": []},
+    ("Items.json", "create"): {"tool": "create_item", "backup_files": ["Items.json"]},
     ("Items.json", "update"): {"tool": "update_item", "backup_files": ["Items.json"]},
-    # Weapons.json / Armors.json (MCP는 조회만 제공)
-    ("Weapons.json", "list"): {"tool": "get_weapons", "backup_files": []},
-    ("Armors.json", "list"): {"tool": "get_armors", "backup_files": []},
-    # System.json (맵 편집 툴 제외, 시작 위치·타이틀·변수·스위치 이름 등)
+    # Weapons.json
+    ("Weapons.json", "list"): {"tool": "list_weapons", "backup_files": []},
+    ("Weapons.json", "create"): {"tool": "create_weapon", "backup_files": ["Weapons.json"]},
+    ("Weapons.json", "update"): {"tool": "update_weapon", "backup_files": ["Weapons.json"]},
+    # Armors.json
+    ("Armors.json", "list"): {"tool": "list_armors", "backup_files": []},
+    ("Armors.json", "create"): {"tool": "create_armor", "backup_files": ["Armors.json"]},
+    ("Armors.json", "update"): {"tool": "update_armor", "backup_files": ["Armors.json"]},
+    # Classes.json (통합 MCP에서 추가)
+    ("Classes.json", "list"): {"tool": "list_classes", "backup_files": []},
+    ("Classes.json", "create"): {"tool": "create_class", "backup_files": ["Classes.json"]},
+    ("Classes.json", "update"): {"tool": "update_class", "backup_files": ["Classes.json"]},
+    # States.json (통합 MCP에서 추가)
+    ("States.json", "list"): {"tool": "list_states", "backup_files": []},
+    ("States.json", "create"): {"tool": "create_state", "backup_files": ["States.json"]},
+    ("States.json", "update"): {"tool": "update_state", "backup_files": ["States.json"]},
+    # Enemies.json (통합 MCP에서 추가)
+    ("Enemies.json", "list"): {"tool": "list_enemies", "backup_files": []},
+    ("Enemies.json", "create"): {"tool": "create_enemy", "backup_files": ["Enemies.json"]},
+    ("Enemies.json", "update"): {"tool": "update_enemy", "backup_files": ["Enemies.json"]},
+    # System.json
     ("System.json", "query"): {"tool": "get_system", "backup_files": []},
     ("System.json", "list_variables"): {"tool": "get_variables", "backup_files": []},
     ("System.json", "set_variable_name"): {
@@ -242,6 +245,34 @@ def _skills_local_search_by_name(data_path: Path, term: str) -> tuple[bool, int 
     return False, None
 
 
+def _enemies_local_search_by_name(data_path: Path, term: str) -> tuple[bool, int | None]:
+    t = (term or "").strip().lower()
+    if not t:
+        return False, None
+    fp = data_path / "Enemies.json"
+    if not fp.is_file():
+        return False, None
+    try:
+        raw = json.loads(fp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, None
+    if not isinstance(raw, list):
+        return False, None
+    for idx, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip().lower()
+        if not name:
+            continue
+        if t in name:
+            rid = entry.get("id")
+            try:
+                return True, int(rid) if rid is not None else idx
+            except (TypeError, ValueError):
+                return True, idx
+    return False, None
+
+
 def _enrich_mcp_search_tool_result(
     tool_name: str,
     r: dict[str, Any],
@@ -264,6 +295,7 @@ def _enrich_mcp_search_tool_result(
         "search_items": (("id", "itemId"), _items_local_search_by_name),
         "search_actors": (("id", "actorId"), _actors_local_search_by_name),
         "search_skills": (("id", "skillId"), _skills_local_search_by_name),
+        "search_enemies": (("id", "enemyId"), _enemies_local_search_by_name),
     }
     if tool_name not in cfg:
         return out
@@ -297,6 +329,8 @@ def _enrich_mcp_search_tool_result(
             out["actor_id"] = first_id
         elif tool_name == "search_skills":
             out["skill_id"] = first_id
+        elif tool_name == "search_enemies":
+            out["enemy_id"] = first_id
     return out
 
 
@@ -415,6 +449,11 @@ def _normalize_mcp_arguments(
         return out
 
     # ── Items.json ──
+    if target_file == "Items.json" and action == "create":
+        if "name" not in out and "item_name" in out:
+            out["name"] = out.pop("item_name")
+        return out
+
     if target_file == "Items.json" and action == "search":
         # query→search 정규화 후에도 플래너가 name/item_name 만 넘기는 경우가 있어 searchTerm 으로 맞춘다.
         if not (out.get("searchTerm") or out.get("search_term") or out.get("query")):
@@ -486,6 +525,86 @@ def _normalize_mcp_arguments(
         if y is not None:
             b["y"] = _as_int(y)
         return b
+
+    # ── Weapons.json ──
+    if target_file == "Weapons.json" and action == "create":
+        if "name" not in out and "weapon_name" in out:
+            out["name"] = out.pop("weapon_name")
+        return out
+
+    if target_file == "Weapons.json" and action == "update":
+        wid = out.get("weaponId", out.get("weapon_id"))
+        updates = out.get("updates")
+        built = {}
+        if wid is not None:
+            built["weaponId"] = _as_int(wid)
+        if isinstance(updates, dict):
+            built["updates"] = updates
+        return built
+
+    # ── Armors.json ──
+    if target_file == "Armors.json" and action == "create":
+        if "name" not in out and "armor_name" in out:
+            out["name"] = out.pop("armor_name")
+        return out
+
+    if target_file == "Armors.json" and action == "update":
+        aid = out.get("armorId", out.get("armor_id"))
+        updates = out.get("updates")
+        built = {}
+        if aid is not None:
+            built["armorId"] = _as_int(aid)
+        if isinstance(updates, dict):
+            built["updates"] = updates
+        return built
+
+    # ── Classes.json ──
+    if target_file == "Classes.json" and action == "create":
+        if "name" not in out and "class_name" in out:
+            out["name"] = out.pop("class_name")
+        return out
+
+    if target_file == "Classes.json" and action == "update":
+        cid = out.get("classId", out.get("class_id"))
+        updates = out.get("updates")
+        built = {}
+        if cid is not None:
+            built["classId"] = _as_int(cid)
+        if isinstance(updates, dict):
+            built["updates"] = updates
+        return built
+
+    # ── States.json ──
+    if target_file == "States.json" and action == "create":
+        if "name" not in out and "state_name" in out:
+            out["name"] = out.pop("state_name")
+        return out
+
+    if target_file == "States.json" and action == "update":
+        sid_val = out.get("stateId", out.get("state_id"))
+        updates = out.get("updates")
+        built = {}
+        if sid_val is not None:
+            built["stateId"] = _as_int(sid_val)
+        if isinstance(updates, dict):
+            built["updates"] = updates
+        return built
+
+    # ── Enemies.json ──
+    if target_file == "Enemies.json" and action == "create":
+        if "name" not in out and "enemy_name" in out:
+            out["name"] = out.pop("enemy_name")
+        return out
+
+    if target_file == "Enemies.json" and action == "update":
+        eid = out.get("enemyId", out.get("enemy_id"))
+        updates = out.get("updates")
+        built = {}
+        if eid is not None:
+            built["enemyId"] = _as_int(eid)
+        if isinstance(updates, dict):
+            built["updates"] = updates
+        return built
 
     # list / query(get_system 등 인자 없음) / get_game_title / get_variables / get_switches
     if action in ("list", "query", "get_game_title", "list_variables", "list_switches"):
@@ -1272,28 +1391,6 @@ def _supports_legacy_fallback(target_file: str, action: str) -> bool:
     return (target_file, action) in legacy_supported
 
 
-# ────────────────────────────────────────────────────────────
-# MVP 버전: 간단한 툴 매핑
-# ────────────────────────────────────────────────────────────
-
-TOOL_MAP = {
-    "edit_enemies": run_enemies,
-    "edit_items": run_items,
-    "edit_skills": run_skills,
-    "edit_levels": run_levels,
-    "edit_map_villager": run_map_villager,
-}
-
-# 대상 파일 매핑 (백업용)
-TARGET_FILE_MAP = {
-    "edit_enemies": ["Enemies.json"],
-    "edit_items": ["Items.json"],
-    "edit_skills": ["Skills.json", "Actors.json", "Classes.json", "System.json"],
-    "edit_levels": ["Actors.json", "System.json"],
-    "edit_map_villager": [],  # 맵 번호에 따라 동적 결정
-}
-
-
 def _is_structured_execution_plan(plan: list[dict]) -> bool:
     """3단계 Planner가 만든 "구조화 실행 플랜"인지 판별한다.
 
@@ -1531,11 +1628,71 @@ async def _execute_one_structured_step(
         logger.debug("[Executor] action 정규화: %s → %s (step %d)", raw_action, action, sid)
 
     try:
+        # ── 커스텀 명령 guard: _equip, _add_learning 등은 MCP가 처리 못함 ──
+        # updates에 _ 접두사 키가 있으면 MCP를 skip하고 executor_v2 dispatch로 직행.
+        _custom_update_keys = frozenset(
+            {
+                "_equip",
+                "_add_learning",
+                "_add_action",
+                "_add_drop_item",
+                "_remove_learning",
+                "_remove_action",
+                "_remove_equip",
+            }
+        )
+        _updates = target_info.get("updates")
+        _has_custom = isinstance(_updates, dict) and bool(
+            _custom_update_keys & set(_updates.keys())
+        )
+        if _has_custom:
+            logger.info(
+                "[Executor] 커스텀 업데이트 키 감지 → MCP skip, executor_v2 dispatch 직행 (step %d, keys=%s)",
+                sid,
+                sorted(_custom_update_keys & set(_updates.keys())),
+            )
+            async with game_locks[game_id]:
+                r = await asyncio.to_thread(
+                    dispatch_step, data_path, action, target_file, target_info
+                )
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": f"structured_{target_file.replace('.json', '').lower()}_{action}",
+                "success": bool(r.get("success", False)),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "entity_id": r.get("entity_id"),
+                "modified_files": r.get("modified_files", []),
+                "structured": True,
+                "timestamp": ts,
+            }
+
         # ── MCP 인터셉터: 켜져 있고 (파일, 액션) 매핑이 있으면 stdio MCP 우선 ──
         # 성공 시 즉시 반환. 실패·미설정 시 아래 Class/Actor/System 매니저로 폴백한다.
         if is_mcp_enabled():
             mcp_entry = MCP_TOOL_MAP.get((target_file, action))
-            if mcp_entry and build_stdio_server_parameters() is not None:
+            mcp_server_id: str | None = None
+            if isinstance(mcp_entry, dict):
+                _explicit = (
+                    str(mcp_entry["mcp_server"]).strip() if mcp_entry.get("mcp_server") else None
+                )
+                _tool_nm = str(mcp_entry["tool"]).strip() if mcp_entry.get("tool") else None
+                mcp_server_id = resolve_mcp_server_key(target_file, _tool_nm, _explicit)
+                _eff_srv = (
+                    mcp_server_id
+                    or os.environ.get("MCP_DEFAULT_SERVER", "default").strip()
+                    or "default"
+                )
+                logger.debug(
+                    "[Executor] MCP 서버 키=%s (effective=%s) target_file=%s tool=%s step=%d",
+                    mcp_server_id,
+                    _eff_srv,
+                    target_file,
+                    _tool_nm,
+                    sid,
+                )
+            if mcp_entry and build_stdio_server_parameters(mcp_server=mcp_server_id) is not None:
                 logger.debug("[Executor] MCP 시도: tool=%s, step=%d", mcp_entry["tool"], sid)
                 # MCP 툴은 구조화 step의 target_info를 툴 inputSchema에 맞게 정규화한 뒤 호출한다.
                 # 결과 성공 여부는 call_mcp_tool이 {success,data,error,modified_files}로 정리한 값을 사용한다.
@@ -1547,6 +1704,7 @@ async def _execute_one_structured_step(
                         norm,
                         data_path,
                         path_arg_name=path_key,
+                        mcp_server=mcp_server_id,
                     )
                 if r.get("success"):
                     modified_files = r.get("modified_files") or mcp_entry.get(
@@ -1924,61 +2082,73 @@ async def _execute_one_structured_step(
                 "timestamp": ts,
             }
 
-        # Items/Enemies는 dispatcher 함수를 통해 처리 (매니저가 없음)
+        # Items/Enemies 신규 생성: Definition이 item_id/enemy_id를 주면 JSON에 직접 쓴다.
+        # (MCP에 create_item이 없던 레거시 한계를 우회)
+        if target_file == "Items.json" and action == "create":
+            if target_info.get("item_id") is not None or target_info.get("itemId") is not None:
+                logger.debug("[Executor] 구조화: Items.json.create → JSON 직접 저장")
+                async with game_locks[game_id]:
+                    r = await asyncio.to_thread(
+                        _structured_create_item_sync, data_path, target_info
+                    )
+                step_results[sid] = {**r, "step_id": sid}
+                mf = r.get("modified_files") or ["Items.json"]
+                return {
+                    "step_id": sid,
+                    "tool_name": "structured_items_create_json",
+                    "success": bool(r.get("success")),
+                    "stdout": r.get("stdout", ""),
+                    "stderr": r.get("stderr", ""),
+                    "modified_files": mf,
+                    "structured": True,
+                    "timestamp": ts,
+                }
+
+        if target_file == "Enemies.json" and action == "create":
+            if target_info.get("enemy_id") is not None or target_info.get("enemyId") is not None:
+                logger.debug("[Executor] 구조화: Enemies.json.create → JSON 직접 저장")
+                async with game_locks[game_id]:
+                    r = await asyncio.to_thread(
+                        _structured_create_enemy_sync, data_path, target_info
+                    )
+                step_results[sid] = {**r, "step_id": sid}
+                mf = r.get("modified_files") or ["Enemies.json"]
+                return {
+                    "step_id": sid,
+                    "tool_name": "structured_enemies_create_json",
+                    "success": bool(r.get("success")),
+                    "stdout": r.get("stdout", ""),
+                    "stderr": r.get("stderr", ""),
+                    "modified_files": mf,
+                    "structured": True,
+                    "timestamp": ts,
+                }
+
+        # Items/Enemies는 executor_v2 dispatch로 처리한다.
         if target_file in ("Items.json", "Enemies.json") and action in (
             "create",
             "update",
             "search",
         ):
-            logger.debug("[Executor] 레거시 분기: %s.%s", target_file, action)
-            from app.backend.services.json_modify_tools.dispatcher import run_enemies, run_items
-
-            dispatcher_map = {
-                "Items.json": run_items,
-                "Enemies.json": run_enemies,
-            }
-
-            dispatcher_func = dispatcher_map[target_file]
-
-            # target_info에서 적절한 자연어 입력 구성 (query/searchTerm 은 플래너·정규화 편차 흡수)
-            name = (
-                target_info.get("name")
-                or target_info.get("item_name")
-                or target_info.get("enemy_name")
-                or target_info.get("query")
-                or target_info.get("searchTerm")
-                or target_info.get("search_term")
-                or ""
-            )
-
-            if action == "create":
-                user_input = f"{name} 추가해줘"
-            elif action == "update":
-                updates = target_info.get("updates", {})
-                if isinstance(updates, dict) and updates:
-                    update_desc = ", ".join(f"{k}={v}" for k, v in updates.items())
-                    user_input = f"{name} {update_desc}로 수정해줘"
-                else:
-                    user_input = f"{name} 수정해줘"
-            else:  # search
-                user_input = f"{name} 찾아줘"
-
-            logger.debug("[Executor] dispatcher 입력: '%s'", user_input)
+            logger.debug("[Executor] executor_v2 dispatch fallback: %s.%s", target_file, action)
             try:
-                r = await asyncio.to_thread(dispatcher_func, user_input)
+                async with game_locks[game_id]:
+                    r = await asyncio.to_thread(
+                        dispatch_step, data_path, action, target_file, target_info
+                    )
                 step_results[sid] = {**r, "step_id": sid}
                 return {
                     "step_id": sid,
                     "tool_name": f"structured_{target_file.replace('.json', '').lower()}_{action}",
                     "success": bool(r.get("success", False)),
-                    "stdout": r.get("stdout", ""),
-                    "stderr": r.get("stderr", ""),
-                    "modified_files": [target_file],
+                    "stdout": r.get("message", ""),
+                    "stderr": r.get("error") or "",
+                    "modified_files": r.get("modified_files", []),
                     "structured": True,
                     "timestamp": ts,
                 }
             except Exception as e:
-                err = f"Dispatcher 호출 실패: {e}"
+                err = f"executor_v2 dispatch 호출 실패: {e}"
                 logger.error("[Executor] %s (step %d)", err, sid)
                 step_results[sid] = {"success": False, "error": err, "step_id": sid}
                 return {
@@ -1990,13 +2160,55 @@ async def _execute_one_structured_step(
                     "timestamp": ts,
                 }
 
-        # 위 조건에 없는 target/action 조합은 현재 MVP에서 아직 구현되지 않았다는 뜻이다.
-        # (MCP 핸들러 없음 + 레거시 매니저 핸들러 없음)인 "정의되지 않은 액션"이다.
+        # ── executor_v2 dispatch 최종 fallback ──────────────────
+        # MCP 매핑 없음 + 레거시 매니저 매핑 없음인 경우,
+        # executor_v2 의 dispatch_step (순수 Python CRUD) 으로 최종 시도한다.
+        # dispatch_step 은 entity 8종 + System.json + Map 을 커버하므로
+        # 대부분의 미지원 action 을 여기서 처리할 수 있다.
+        logger.info(
+            "[Executor] MCP/레거시 미지원 → executor_v2 dispatch 최종 fallback: %s.%s (step %d)",
+            target_file,
+            action,
+            sid,
+        )
+        try:
+            async with game_locks[game_id]:
+                r = await asyncio.to_thread(
+                    dispatch_step, data_path, action, target_file, target_info
+                )
+            if r.get("success"):
+                step_results[sid] = {**r, "step_id": sid}
+                return {
+                    "step_id": sid,
+                    "tool_name": f"structured_{target_file.replace('.json', '').lower()}_{action}",
+                    "success": True,
+                    "stdout": r.get("message", ""),
+                    "stderr": "",
+                    "entity_id": r.get("entity_id"),
+                    "modified_files": r.get("modified_files", []),
+                    "structured": True,
+                    "timestamp": ts,
+                }
+            # dispatch_step 도 실패한 경우 아래 UNSUPPORTED 로 진행
+            logger.warning(
+                "[Executor] executor_v2 dispatch 도 실패: %s (step %d)",
+                r.get("error", "unknown"),
+                sid,
+            )
+        except Exception as e:
+            logger.warning(
+                "[Executor] executor_v2 dispatch 예외: %s (step %d)",
+                e,
+                sid,
+            )
+
+        # ── 최종 미지원 ──────────────────────────────────────
+        # MCP, 레거시 매니저, executor_v2 dispatch 모두 실패한 경우.
         err = _structured_error(
             "UNSUPPORTED_STRUCTURED_STEP",
             target_file,
             action,
-            "no mcp/legacy handler",
+            "no mcp/legacy/dispatch handler",
             hint=f"raw_action={raw_action}",
         )
         logger.error("[Executor] 미지원 스텝: %s", err)
@@ -2023,6 +2235,385 @@ async def _execute_one_structured_step(
             "timestamp": ts,
         }
         return result
+
+
+_ITEM_CREATE_SKIP_KEYS = frozenset(
+    {
+        "item_id",
+        "itemId",
+        "updates",
+        "new_description",
+        "new_name",
+        "newName",
+        "query",
+        "searchTerm",
+        "search_term",
+        "item_name",
+    }
+)
+
+
+def _sanitize_mz_item_effects_for_schema(effects: Any) -> list[dict[str, Any]]:
+    """MZ 관례(code 11/12는 회복량을 value2에 두는 경우가 많음)에 맞게 보정한다."""
+    if not isinstance(effects, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for raw in effects:
+        if not isinstance(raw, dict):
+            continue
+        e = dict(raw)
+        code = e.get("code")
+        if code in (11, 12):
+            v1, v2 = e.get("value1", 0), e.get("value2", 0)
+            try:
+                v1n = float(v1)
+                v2n = float(v2)
+            except (TypeError, ValueError):
+                v1n, v2n = 0.0, 0.0
+            if v1n > 10 and v2n == 0:
+                e["value2"] = v1
+                e["value1"] = 0
+        out.append(e)
+    return out
+
+
+def _apply_mz_item_required_defaults(payload: dict[str, Any]) -> None:
+    """Planner/LLM이 Item 필수 필드를 빼거나 null로 넣는 경우를 보정한다.
+
+    setdefault만으로는 부족함: target_info에 ``occasion: null``이 있으면 키가 존재해 기본값이 안 들어감.
+    """
+    int_defaults: dict[str, int] = {
+        "occasion": 0,
+        "scope": 7,
+        "speed": 0,
+        "successRate": 100,
+        "repeats": 1,
+        "tpGain": 0,
+        "hitType": 0,
+        "animationId": -1,
+    }
+    for key, default in int_defaults.items():
+        cur = payload.get(key)
+        if cur is None:
+            payload[key] = default
+            continue
+        if isinstance(cur, str) and cur.strip() == "":
+            payload[key] = default
+
+
+def _structured_create_item_sync(data_path: Path, target_info: dict[str, Any]) -> dict[str, Any]:
+    """구조화 플랜의 target_info로 Items.json 슬롯에 아이템을 기록한다 (MCP create_item 미노출 대응)."""
+    from agent.schemas.items import Item
+
+    ts = datetime.now().isoformat()
+    raw_id = target_info.get("item_id") or target_info.get("itemId")
+    if raw_id is None:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Items create: item_id가 필요합니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+    try:
+        item_id = int(raw_id)
+    except (TypeError, ValueError):
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"Items create: 잘못된 item_id: {raw_id!r}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    fp = data_path / "Items.json"
+    if not fp.is_file():
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Items.json 파일이 없습니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    try:
+        arr = json.loads(fp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"Items.json 읽기 실패: {e}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    if not isinstance(arr, list) or not arr:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Items.json 루트는 비어 있지 않은 배열이어야 합니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    while len(arr) <= item_id:
+        arr.append(None)
+
+    existing = arr[item_id]
+    # Planner는 표시명을 item_name으로만 넘기는 경우가 있음(name 키 없음).
+    new_name = str(target_info.get("name") or target_info.get("item_name") or "").strip()
+    if existing is not None and isinstance(existing, dict):
+        ex_name = str(existing.get("name") or "").strip()
+        if ex_name and new_name and ex_name != new_name:
+            return {
+                "success": False,
+                "exit_code": 2,
+                "stdout": "",
+                "stderr": (f"item_id={item_id} 슬롯에 이미 다른 아이템이 있습니다 ({ex_name!r})."),
+                "modified_files": [],
+                "timestamp": ts,
+            }
+
+    payload: dict[str, Any] = {}
+    for k, v in target_info.items():
+        if k in _ITEM_CREATE_SKIP_KEYS:
+            continue
+        if k == "damage" and isinstance(v, dict):
+            payload["damage"] = dict(v)
+        elif k == "effects" and isinstance(v, list):
+            payload["effects"] = _sanitize_mz_item_effects_for_schema(v)
+        elif isinstance(v, dict | list | str | int | float | bool) or v is None:
+            payload[k] = v
+
+    payload["id"] = item_id
+    if not str(payload.get("name") or "").strip():
+        payload["name"] = new_name or f"Item {item_id}"
+
+    if "damage" not in payload:
+        payload["damage"] = {
+            "type": 0,
+            "elementId": 0,
+            "formula": "0",
+            "variance": 20,
+            "critical": False,
+        }
+    else:
+        d = payload["damage"]
+        if isinstance(d, dict):
+            d.setdefault("critical", False)
+            d.setdefault("variance", 20)
+
+    payload.setdefault("effects", [])
+
+    _apply_mz_item_required_defaults(payload)
+
+    try:
+        model = Item.model_validate(payload)
+        final_obj = model.model_dump(mode="json")
+    except ValidationError as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"아이템 스키마 검증 실패: {e}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    arr[item_id] = final_obj
+    try:
+        fp.write_text(json.dumps(arr, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except OSError as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": str(e),
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    return {
+        "success": True,
+        "exit_code": 0,
+        "stdout": f"Items.json에 아이템 id={item_id} ({final_obj.get('name')}) 저장",
+        "stderr": "",
+        "modified_files": ["Items.json"],
+        "timestamp": ts,
+    }
+
+
+_ENEMY_CREATE_SKIP_KEYS = frozenset(
+    {
+        "enemy_id",
+        "enemyId",
+        "updates",
+        "query",
+        "searchTerm",
+        "search_term",
+        "enemy_name",
+    }
+)
+
+
+def _default_enemy_template_dict() -> dict[str, Any]:
+    return {
+        "battlerHue": 0,
+        "battlerName": "",
+        "params": [100, 0, 10, 10, 10, 10, 10, 10],
+        "dropItems": [
+            {"kind": 0, "dataId": 1, "denominator": 1},
+            {"kind": 0, "dataId": 1, "denominator": 1},
+            {"kind": 0, "dataId": 1, "denominator": 1},
+        ],
+        "actions": [
+            {
+                "skillId": 1,
+                "rating": 5,
+                "conditionType": 0,
+                "conditionParam1": 0,
+                "conditionParam2": 0,
+            }
+        ],
+        "traits": [],
+        "exp": 10,
+        "gold": 5,
+        "note": "",
+        "name": "",
+    }
+
+
+def _structured_create_enemy_sync(data_path: Path, target_info: dict[str, Any]) -> dict[str, Any]:
+    """구조화 플랜으로 Enemies.json 슬롯에 적을 기록한다."""
+    from agent.schemas.enemies import Enemy
+
+    ts = datetime.now().isoformat()
+    raw_id = target_info.get("enemy_id") or target_info.get("enemyId")
+    if raw_id is None:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Enemies create: enemy_id가 필요합니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+    try:
+        enemy_id = int(raw_id)
+    except (TypeError, ValueError):
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"Enemies create: 잘못된 enemy_id: {raw_id!r}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    fp = data_path / "Enemies.json"
+    if not fp.is_file():
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Enemies.json 파일이 없습니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    try:
+        arr = json.loads(fp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"Enemies.json 읽기 실패: {e}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    if not isinstance(arr, list) or not arr:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Enemies.json 루트는 비어 있지 않은 배열이어야 합니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    while len(arr) <= enemy_id:
+        arr.append(None)
+
+    existing = arr[enemy_id]
+    new_name = str(target_info.get("name") or "").strip()
+    if existing is not None and isinstance(existing, dict):
+        ex_name = str(existing.get("name") or "").strip()
+        if ex_name and new_name and ex_name != new_name:
+            return {
+                "success": False,
+                "exit_code": 2,
+                "stdout": "",
+                "stderr": (f"enemy_id={enemy_id} 슬롯에 이미 다른 적이 있습니다 ({ex_name!r})."),
+                "modified_files": [],
+                "timestamp": ts,
+            }
+
+    base = _default_enemy_template_dict()
+    for k, v in target_info.items():
+        if k in _ENEMY_CREATE_SKIP_KEYS:
+            continue
+        if k in base or k in ("name", "note", "battlerName", "battlerHue", "params", "traits"):
+            base[k] = v
+        elif k == "actions" and isinstance(v, list):
+            base["actions"] = v
+        elif k == "dropItems" and isinstance(v, list):
+            base["dropItems"] = v
+
+    base["id"] = enemy_id
+    if not str(base.get("name") or "").strip():
+        base["name"] = new_name or f"Enemy {enemy_id}"
+
+    try:
+        model = Enemy.model_validate(base)
+        final_obj = model.model_dump(mode="json")
+    except ValidationError as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"적 스키마 검증 실패: {e}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    arr[enemy_id] = final_obj
+    try:
+        fp.write_text(json.dumps(arr, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except OSError as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": str(e),
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    return {
+        "success": True,
+        "exit_code": 0,
+        "stdout": f"Enemies.json에 적 id={enemy_id} ({final_obj.get('name')}) 저장",
+        "stderr": "",
+        "modified_files": ["Enemies.json"],
+        "timestamp": ts,
+    }
 
 
 _ITEM_UPDATE_ID_KEYS = frozenset({"item_id", "itemId", "id"})
@@ -2166,7 +2757,11 @@ async def _executor_structured(
 
     current_game_state = _copy_snapshot_files_to_disk(data_path, target_files, snap_dir, "before")
     backup_targets = _collect_structured_backup_files(execution_plan)
-    backup_paths = _create_backup(data_path, backup_targets)
+    if retry_count == 0:
+        backup_paths = _create_backup(data_path, backup_targets)
+    else:
+        backup_paths = {}
+        logger.info("[Executor structured] retry=%d → 백업 생성 skip (중복 방지)", retry_count)
     logger.info(
         "[Executor structured] before 스냅샷: %d개 파일, 백업: %d개 파일",
         len(current_game_state),
@@ -2259,28 +2854,6 @@ async def _executor_structured(
     return result
 
 
-# ────────────────────────────────────────────────────────────
-# MVP 버전: 간단한 LLM 번역 스키마
-# ────────────────────────────────────────────────────────────
-
-
-class SimpleToolCall(BaseModel):
-    """MVP: 간단한 툴 호출 구조"""
-
-    tool_name: str = Field(
-        description="edit_enemies, edit_items, edit_skills, edit_levels, edit_map_villager 중 하나"
-    )
-    user_input: str = Field(description="해당 툴에 넘길 자연어 입력")
-    reasoning: str = Field(default="", description="선택 이유")
-
-
-class SimplePlan(BaseModel):
-    """MVP: LLM이 수도코드를 해석한 결과"""
-
-    tools: list[SimpleToolCall] = Field(description="실행할 툴 목록")
-    note: str = Field(default="", description="해석 메모")
-
-
 async def executor(state: AgentState) -> dict:
     """MVP 버전 Executor"""
 
@@ -2335,6 +2908,10 @@ async def executor(state: AgentState) -> dict:
         result = {
             "changes_log": [
                 {
+                    "step_id": -1,
+                    "tool_name": "guard_error",
+                    "target_file": "",
+                    "action": "guard",
                     "success": False,
                     "error": "최대 재시도(2) 초과. 수행 불가.",
                     "timestamp": datetime.now().isoformat(),
@@ -2350,6 +2927,11 @@ async def executor(state: AgentState) -> dict:
         result = {
             "changes_log": [
                 {
+                    "step_id": -1,
+                    "tool_name": "guard_error",
+                    "target_file": "",
+                    "action": "guard",
+                    "success": False,
                     "error": "execution_plan이 비어있습니다.",
                     "timestamp": datetime.now().isoformat(),
                 }
@@ -2420,154 +3002,22 @@ async def executor(state: AgentState) -> dict:
 
         return _finish(result, mode="structured")
 
-    logger.info("[Executor] 비구조화(번역) 경로: %d개 항목", len(execution_plan))
-
-    # ── Step 3: LLM 번역 (MVP: 간단한 키워드 기반) ──────────
-    try:
-        translated_plan = await _translate_execution_plan_mvp(execution_plan)
-        logger.info("[Executor MVP] 번역 완료: %d개 툴", len(translated_plan.tools))
-    except Exception as e:
-        logger.error("[Executor MVP] 번역 실패: %s", e)
-        result = {
-            "changes_log": [
-                {
-                    "success": False,
-                    "error": f"LLM 번역 실패: {e}",
-                    "timestamp": datetime.now().isoformat(),
-                }
-            ],
-            "tool_results": [],
-            "modified_file_paths": [],
-        }
-        return _finish(result, mode="legacy", icon="\u274c")
-
-    # ── Step 4: 대상 파일 수집 및 백업 ────────────────────────
-    target_files = set()
-    for tool_call in translated_plan.tools:
-        target_files.update(TARGET_FILE_MAP.get(tool_call.tool_name, []))
-
-        # 맵 파일 동적 결정
-        if tool_call.tool_name == "edit_map_villager":
-            import re
-
-            match = re.search(r"(\d+)", tool_call.user_input)
-            map_num = int(match.group(1)) if match else 1
-            target_files.add(f"Map{map_num:03d}.json")
-
-    tf_list = sorted(target_files)
-    run_id = uuid.uuid4().hex
-    snap_dir = _executor_snapshot_dir(data_path, run_id)
-    current_game_state = _copy_snapshot_files_to_disk(data_path, tf_list, snap_dir, "before")
-
-    # 백업 생성
-    backup_paths = _create_backup(data_path, tf_list)
-
-    logger.info("[Executor MVP] 백업 생성: %d개 파일", len(backup_paths))
-
-    # ── Step 5: 툴 순차 실행 ──────────────────────────────────
-    changes_log = []
-
-    for i, tool_call in enumerate(translated_plan.tools):
-        tool_function = TOOL_MAP.get(tool_call.tool_name)
-
-        if tool_function is None:
-            logger.warning("[Executor MVP] 지원하지 않는 툴: %s", tool_call.tool_name)
-            changes_log.append(
-                {
-                    "step": i + 1,
-                    "tool_name": tool_call.tool_name,
-                    "success": False,
-                    "error": f"지원하지 않는 툴: {tool_call.tool_name}",
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-            continue
-
-        logger.info(
-            "[Executor MVP] 툴 실행: %s('%s')", tool_call.tool_name, tool_call.user_input[:50]
-        )
-
-        try:
-            # MVP: 스킬은 매니저 사용, 나머지는 기존 dispatcher
-            if tool_call.tool_name == "edit_skills":
-                logger.debug("[Executor MVP] SkillManager 분기 사용")
-                skill_manager = SkillManager(data_path, f"mvp_{i}")
-
-                # user_input에서 기본 파라미터 추출
-                action = (
-                    "add"
-                    if any(
-                        word in tool_call.user_input.lower() for word in ["추가", "만들", "생성"]
-                    )
-                    else "update"
-                )
-
-                # 스킬 이름 추출 (간단한 매칭)
-                skill_names = ["최후의일격", "전체공격", "회복마법", "버프"]
-                skill_name = next(
-                    (name for name in skill_names if name in tool_call.user_input), "새스킬"
-                )
-
-                result = await skill_manager.execute(
-                    action=action,
-                    target_name=skill_name,
-                    mpCost=50,  # MVP: 기본값
-                    description=f"{skill_name} 설명",
-                )
-            else:
-                logger.debug("[Executor MVP] Dispatcher 분기 사용: %s", tool_call.tool_name)
-                result = await asyncio.to_thread(tool_function, tool_call.user_input)
-
-            changes_log.append(
-                {
-                    "step": i + 1,
-                    "tool_name": tool_call.tool_name,
-                    "user_input": tool_call.user_input,
-                    "success": result.get("success", False),
-                    "stdout": result.get("stdout", ""),
-                    "stderr": result.get("stderr", ""),
-                    "command": result.get("command", ""),
-                    "timestamp": result.get("timestamp", datetime.now().isoformat()),
-                }
-            )
-
-            if result.get("success"):
-                logger.info("[Executor MVP] ✅ 성공: %s", result.get("stdout", ""))
-            else:
-                logger.warning("[Executor MVP] ❌ 실패: %s", result.get("stderr", ""))
-                # MVP: 실패해도 다음 툴 계속 실행 (best-effort)
-
-        except Exception as e:
-            logger.error("[Executor MVP] 툴 실행 에러: %s", e)
-            changes_log.append(
-                {
-                    "step": i + 1,
-                    "tool_name": tool_call.tool_name,
-                    "success": False,
-                    "error": str(e),
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-
-    # ── Step 6: 수정 후 스냅샷 (경로만 state에 반영) ─────────────
-    modified_game_state = _copy_snapshot_files_to_disk(data_path, tf_list, snap_dir, "after")
-
-    logger.info(
-        "[Executor MVP] 완료: %d개 툴 실행, %d개 파일 수정",
-        len(translated_plan.tools),
-        len(target_files),
-    )
-
-    modified_file_paths = _collect_modified_file_paths_from_changes_log(data_path, changes_log)
+    logger.warning("[Executor] 비구조화(번역) 경로는 제거된 json_modify_tools에 의존해 비활성화됨")
     result = {
-        "modified_game_state": modified_game_state,
-        "current_game_state": current_game_state,
-        "changes_log": changes_log,
-        "tool_results": changes_log,  # progress.md 호환성을 위해 changes_log와 동일하게 설정
-        "modified_file_paths": modified_file_paths,
-        "backup_paths": backup_paths,
+        "changes_log": [
+            {
+                "success": False,
+                "error": (
+                    "비구조화 executor 경로는 제거된 legacy json_modify_tools 경로에 "
+                    "의존해 더 이상 지원되지 않습니다. 구조화 execution_plan을 사용하세요."
+                ),
+                "timestamp": datetime.now().isoformat(),
+            }
+        ],
+        "tool_results": [],
+        "modified_file_paths": [],
     }
-    return _finish(result, mode="legacy")
+    return _finish(result, mode="legacy_removed", icon="⚠️")
 
 
 # ────────────────────────────────────────────────────────────
@@ -2663,130 +3113,6 @@ def _create_backup(data_path: Path, target_files: list[str]) -> dict[str, str]:
                 logger.warning("백업 실패: %s - %s", file_name, e)
 
     return backup_paths
-
-
-async def _translate_execution_plan_mvp(execution_plan: list[dict]) -> SimplePlan:
-    """MVP: 수도코드를 간단하게 번역"""
-
-    # 수도코드를 문자열로 변환
-    plan_text = json.dumps(execution_plan, ensure_ascii=False, indent=2)
-
-    # MVP용 간단한 프롬프트
-    system_prompt = """당신은 RPG 게임 수정 명령어 번역기입니다.
-
-## 사용 가능한 툴
-
-| tool_name | 용도 | user_input 예시 |
-|-----------|------|-----------------|
-| edit_enemies | 몬스터 추가/수정 | "까마귀", "데몬", "슬라임" |
-| edit_items | 아이템 추가/수정 | "독약", "회복물약", "마나물약" |
-| edit_skills | 스킬 추가/수정 | "최후의일격", "전체공격", "회복마법" |
-| edit_levels | 레벨 설정 | "레벨 50으로", "25" |
-| edit_map_villager | 맵에 NPC 추가 | "맵 1번에 빌리저", "3번 맵" |
-
-## 규칙
-1. 수도코드를 분석해서 위 5개 툴 중 적절한 것 선택
-2. user_input은 기존 툴이 이해할 수 있는 한국어 형태로 변환
-3. 복수 명령은 tools 배열에 순서대로 나열
-
-## 번역 예시
-수도코드: "파이어볼 스킬 추가하고 마나소모 50으로"
-→ {"tools": [{"tool_name": "edit_skills", "user_input": "최후의일격"}]}
-
-수도코드: "까마귀 몬스터 추가해줘"
-→ {"tools": [{"tool_name": "edit_enemies", "user_input": "까마귀"}]}"""
-
-    user_content = f"다음 수도코드를 번역해주세요:\n\n{plan_text}"
-
-    messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_content)]
-
-    try:
-        result = await invoke_llm(messages, structured_output=SimplePlan)
-        logger.info("LLM 번역 성공: %d개 툴", len(result.tools))
-        return result
-    except Exception as e:
-        logger.error("LLM 번역 실패: %s", e)
-        # MVP: Fallback으로 키워드 기반 번역
-        return _fallback_translate(execution_plan)
-
-
-def _fallback_translate(execution_plan: list[dict]) -> SimplePlan:
-    """MVP: LLM 실패시 키워드 기반 번역"""
-
-    logger.warning("Fallback 번역 모드 실행")
-
-    tools = []
-    content = json.dumps(execution_plan, ensure_ascii=False).lower()
-
-    # 간단한 키워드 매칭
-    if any(word in content for word in ["스킬", "마법", "skill"]):
-        tools.append(
-            SimpleToolCall(
-                tool_name="edit_skills",
-                user_input="최후의일격",  # 기본값
-                reasoning="스킬 관련 키워드 감지",
-            )
-        )
-
-    if any(word in content for word in ["몬스터", "적", "enemy", "보스"]):
-        tools.append(
-            SimpleToolCall(
-                tool_name="edit_enemies",
-                user_input="슬라임",  # 기본값
-                reasoning="몬스터 관련 키워드 감지",
-            )
-        )
-
-    if any(word in content for word in ["아이템", "템", "item", "포션"]):
-        tools.append(
-            SimpleToolCall(
-                tool_name="edit_items",
-                user_input="회복물약",  # 기본값
-                reasoning="아이템 관련 키워드 감지",
-            )
-        )
-
-    if any(word in content for word in ["레벨", "level", "경험치"]):
-        # 숫자 추출 시도
-        import re
-
-        numbers = re.findall(r"\d+", content)
-        level = numbers[0] if numbers else "25"
-
-        tools.append(
-            SimpleToolCall(
-                tool_name="edit_levels",
-                user_input=f"레벨 {level}으로",
-                reasoning=f"레벨 관련 키워드 감지, 추출된 숫자: {level}",
-            )
-        )
-
-    if any(word in content for word in ["맵", "마을", "map", "npc", "빌리저"]):
-        # 맵 번호 추출 시도
-        import re
-
-        numbers = re.findall(r"\d+", content)
-        map_id = numbers[0] if numbers else "1"
-
-        tools.append(
-            SimpleToolCall(
-                tool_name="edit_map_villager",
-                user_input=f"맵 {map_id}번에 빌리저",
-                reasoning=f"맵 관련 키워드 감지, 추출된 맵 ID: {map_id}",
-            )
-        )
-
-    # 아무것도 못 찾으면 기본값
-    if not tools:
-        tools.append(
-            SimpleToolCall(
-                tool_name="edit_skills",
-                user_input="최후의일격",
-                reasoning="키워드 매칭 실패 - 기본 스킬 추가",
-            )
-        )
-
-    return SimplePlan(tools=tools, note="Fallback 키워드 번역 사용됨")
 
 
 # ────────────────────────────────────────────────────────────

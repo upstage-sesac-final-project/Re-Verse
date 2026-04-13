@@ -21,6 +21,7 @@ _CONFIDENCE_THRESHOLD = 0.7
 
 
 class _RouterOutput(BaseModel):
+    resolved_input: str = Field(default="", description="맥락이 해소된 완전한 요청 문장")
     intent: Literal[
         "게임_요소_생성",
         "게임_요소_수정",
@@ -77,9 +78,15 @@ async def router(state: AgentState) -> dict:
         )
         intent = "추가_정보_필요"
 
+    # resolved_input: coref 해소된 입력. 비어 있으면 원본 사용.
+    resolved = output.resolved_input.strip() if output.resolved_input else ""
+    if resolved:
+        logger.info("  resolved: %r", resolved)
+
     result: dict = {
         "intent": intent,
         "confidence": output.confidence,
+        "user_input": resolved or user_input,  # 해소된 입력으로 덮어씀
     }
 
     # 터미널 인텐트는 즉시 응답을 final_response 에 기록
@@ -92,6 +99,7 @@ async def router(state: AgentState) -> dict:
         result["final_response"] = output.response or "조금 더 구체적으로 말씀해주시겠어요?"
         logger.info("─── 🛑 Router END → %s (terminal) ─────────────────────", intent)
     else:
-        logger.info("─── ✅ Router END → %s (next: definition) ──────────────", intent)
+        next_node = "reader" if intent == "게임_요소_조회" else "definition"
+        logger.info("─── ✅ Router END → %s (next: %s) ──────────────", intent, next_node)
 
     return result
