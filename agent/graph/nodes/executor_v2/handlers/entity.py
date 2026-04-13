@@ -17,18 +17,6 @@ logger = logging.getLogger(__name__)
 # 지원 파일 집합
 # ──────────────────────────────────────────────
 
-ENTITY_FILES = frozenset({
-    "Actors.json",
-    "Classes.json",
-    "Skills.json",
-    "Items.json",
-    "Weapons.json",
-    "Armors.json",
-    "Enemies.json",
-    "States.json",
-})
-
-ALL_SUPPORTED = ENTITY_FILES | {"System.json"}
 
 # action 정규화
 _ACTION_ALIASES: dict[str, str] = {
@@ -57,8 +45,18 @@ _ACTION_ALIASES: dict[str, str] = {
 
 
 def _resolve_entity_id(target_info: dict) -> int | None:
-    for key in ("id", "entity_id", "actor_id", "skill_id", "item_id",
-                "class_id", "enemy_id", "state_id", "weapon_id", "armor_id"):
+    for key in (
+        "id",
+        "entity_id",
+        "actor_id",
+        "skill_id",
+        "item_id",
+        "class_id",
+        "enemy_id",
+        "state_id",
+        "weapon_id",
+        "armor_id",
+    ):
         val = target_info.get(key)
         if val is not None:
             try:
@@ -186,10 +184,14 @@ def execute_entity_step(
 
 
 def _append_system_type(
-    crud: RPGMakerCRUD, data_path: Path, system_key: str, value: str,
+    crud: RPGMakerCRUD,
+    data_path: Path,
+    system_key: str,
+    value: str,
 ) -> dict[str, Any]:
     """System.json 의 타입 배열에 항목 추가 (armorTypes, weaponTypes 등)."""
     import json
+
     fp = data_path / "System.json"
     data = json.loads(fp.read_text(encoding="utf-8"))
     arr = data.get(system_key)
@@ -230,7 +232,8 @@ def _resolve_custom_updates(
                 # 중복 방지
                 if not any(
                     t.get("code") == 43 and t.get("dataId") == int(skill_id)
-                    for t in existing_traits if isinstance(t, dict)
+                    for t in existing_traits
+                    if isinstance(t, dict)
                 ):
                     existing_traits.append(new_trait)
                 resolved["traits"] = existing_traits
@@ -339,23 +342,23 @@ def _apply_array_op(
             arr.append(new_elem)
             logger.info(
                 "[entity] _array_op upsert: match %s not found, added to %s.%s",
-                match_cond, target_file, array_field,
+                match_cond,
+                target_file,
+                array_field,
             )
 
     elif op_type == "add":
         arr.append(dict(set_fields))
 
     elif op_type == "remove":
-        arr = [
-            e for e in arr
-            if not (isinstance(e, dict) and _array_elem_matches(e, match_cond))
-        ]
+        arr = [e for e in arr if not (isinstance(e, dict) and _array_elem_matches(e, match_cond))]
 
     resolved[array_field] = arr
 
 
 def _sanitize_int_fields(info: dict) -> None:
     """create 직전 — float→int 강제 변환. LLM 이 만든 데이터 보정."""
+
     def _deep_int(obj: Any) -> Any:
         if isinstance(obj, dict):
             return {k: _deep_int(v) for k, v in obj.items()}
@@ -371,11 +374,31 @@ def _sanitize_int_fields(info: dict) -> None:
             info[key] = _deep_int(info[key])
 
     # top-level 정수 필드
-    int_keys = {"exp", "gold", "price", "stypeId", "mpCost", "tpCost", "scope",
-                "occasion", "hitType", "successRate", "repeats", "tpGain",
-                "animationId", "itypeId", "wtypeId", "etypeId", "atypeId",
-                "classId", "initialLevel", "maxLevel", "iconIndex",
-                "restriction", "priority"}
+    int_keys = {
+        "exp",
+        "gold",
+        "price",
+        "stypeId",
+        "mpCost",
+        "tpCost",
+        "scope",
+        "occasion",
+        "hitType",
+        "successRate",
+        "repeats",
+        "tpGain",
+        "animationId",
+        "itypeId",
+        "wtypeId",
+        "etypeId",
+        "atypeId",
+        "classId",
+        "initialLevel",
+        "maxLevel",
+        "iconIndex",
+        "restriction",
+        "priority",
+    }
     for k in int_keys:
         if k in info and isinstance(info[k], float) and info[k] == int(info[k]):
             info[k] = int(info[k])

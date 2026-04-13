@@ -20,9 +20,9 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
-from agent.utils.game_data_io import get_game_data_dir
 from agent.graph.nodes.executor_v2.dispatch import dispatch_step
 from agent.graph.nodes.executor_v2.utils.locks import game_locks
+from agent.utils.game_data_io import get_game_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ async def executor(state: dict) -> dict:
 
     # retry 추적 상태 초기화 (매 실행 시작 시)
     from agent.graph.nodes.validator.retry_loop import reset_retry_state
+
     reset_retry_state()
 
     if not game_id:
@@ -64,16 +65,16 @@ async def executor(state: dict) -> dict:
 
         # ── error step ──
         if action == "error":
-            entry = _make_entry(sid, action, target_file, False,
-                                error=target_info.get("error", "plan 에러"), ts=ts)
+            entry = _make_entry(
+                sid, action, target_file, False, error=target_info.get("error", "plan 에러"), ts=ts
+            )
             changes_log.append(entry)
             step_results[sid] = entry
             continue
 
         # ── condition 평가 ──
         if _should_skip(step, step_results):
-            entry = _make_entry(sid, action, target_file, True,
-                                ts=ts, skipped=True)
+            entry = _make_entry(sid, action, target_file, True, ts=ts, skipped=True)
             changes_log.append(entry)
             step_results[sid] = entry
             logger.info("[executor] step %d SKIPPED (condition)", sid)
@@ -87,7 +88,9 @@ async def executor(state: dict) -> dict:
 
         logger.info(
             "[executor] step %d: %s.%s target=%s",
-            sid, target_file, action,
+            sid,
+            target_file,
+            action,
             json.dumps(target_info, ensure_ascii=False)[:200],
         )
 
@@ -96,7 +99,9 @@ async def executor(state: dict) -> dict:
             result = dispatch_step(data_path, action, target_file, target_info)
 
         entry = _make_entry(
-            sid, action, target_file,
+            sid,
+            action,
+            target_file,
             success=result.get("success", False),
             error=result.get("error"),
             entity_id=result.get("entity_id"),
@@ -113,7 +118,10 @@ async def executor(state: dict) -> dict:
     fail = sum(1 for e in changes_log if not e.get("success") and not e.get("skipped"))
     logger.info(
         "─── executor END (%.2fs steps=%d ok=%d fail=%d) ─────",
-        elapsed, len(changes_log), ok, fail,
+        elapsed,
+        len(changes_log),
+        ok,
+        fail,
     )
 
     return {
@@ -136,7 +144,9 @@ async def execute_one(game_id: str, step: dict) -> dict:
         result = dispatch_step(data_path, action, target_file, target_info)
 
     return _make_entry(
-        step.get("step_id", -1), action, target_file,
+        step.get("step_id", -1),
+        action,
+        target_file,
         success=result.get("success", False),
         error=result.get("error"),
         entity_id=result.get("entity_id"),
@@ -149,6 +159,7 @@ async def execute_one(game_id: str, step: dict) -> dict:
 # ──────────────────────────────────────────────
 # step_results 전파
 # ──────────────────────────────────────────────
+
 
 def _inject_prev_results(
     target_info: dict,
@@ -180,10 +191,7 @@ def _inject_prev_results(
     # _equip: armor_id / weapon_id 가 None 이면 이전 Armors/Weapons create 에서 채움
     equip = new_updates.get("_equip")
     if isinstance(equip, dict) and equip.get("item_id") is None:
-        equip["item_id"] = (
-            prev_ids.get("Armors.json")
-            or prev_ids.get("Weapons.json")
-        )
+        equip["item_id"] = prev_ids.get("Armors.json") or prev_ids.get("Weapons.json")
 
     # _add_learning: skill_id 가 None 이면 이전 Skills create 에서 채움
     learn = new_updates.get("_add_learning")
@@ -216,10 +224,19 @@ def _inject_prev_results(
 # name → id reconciliation
 # ──────────────────────────────────────────────
 
-_ENTITY_FILES = frozenset({
-    "Actors.json", "Classes.json", "Skills.json", "Items.json",
-    "Weapons.json", "Armors.json", "Enemies.json", "States.json",
-})
+_ENTITY_FILES = frozenset(
+    {
+        "Actors.json",
+        "Classes.json",
+        "Skills.json",
+        "Items.json",
+        "Weapons.json",
+        "Armors.json",
+        "Enemies.json",
+        "States.json",
+    }
+)
+
 
 def _reconcile_id(
     target_info: dict,
@@ -249,7 +266,9 @@ def _reconcile_id(
                     # id 는 있지만 name 이 다름 → name 기반 재검색
                     logger.warning(
                         "[reconcile] id=%d name 불일치: '%s' vs '%s', name 으로 재검색",
-                        entity_id, name, actual_name,
+                        entity_id,
+                        name,
+                        actual_name,
                     )
                     found = _find_by_name(data, name)
                     if found is not None:
@@ -276,8 +295,18 @@ def _reconcile_id(
 
 def _extract_id(info: dict) -> int | None:
     """target_info 에서 entity id 추출."""
-    for key in ("id", "entity_id", "actor_id", "skill_id", "item_id",
-                "class_id", "enemy_id", "state_id", "weapon_id", "armor_id"):
+    for key in (
+        "id",
+        "entity_id",
+        "actor_id",
+        "skill_id",
+        "item_id",
+        "class_id",
+        "enemy_id",
+        "state_id",
+        "weapon_id",
+        "armor_id",
+    ):
         val = info.get(key)
         if val is not None:
             try:
@@ -325,6 +354,7 @@ def _load_json_safe(data_path: Path, filename: str) -> Any:
 # condition 평가
 # ──────────────────────────────────────────────
 
+
 def _should_skip(step: dict, step_results: dict[int, dict]) -> bool:
     """step 의 condition 을 평가해서 skip 여부를 결정한다.
 
@@ -342,24 +372,15 @@ def _should_skip(step: dict, step_results: dict[int, dict]) -> bool:
     if isinstance(condition, dict):
         if condition.get("skip_if_exists"):
             # 의존 step 이 성공(= 대상이 이미 존재)이면 skip
-            return any(
-                step_results.get(d, {}).get("success")
-                for d in depends_on
-            )
+            return any(step_results.get(d, {}).get("success") for d in depends_on)
         if condition.get("skip_if_not_exists"):
-            return any(
-                not step_results.get(d, {}).get("success")
-                for d in depends_on
-            )
+            return any(not step_results.get(d, {}).get("success") for d in depends_on)
 
     if isinstance(condition, str):
         # 한국어 문자열 하위 호환
         skip_phrases = ("존재하지 않", "없을 경우", "없으면", "없을 때")
         if any(p in condition for p in skip_phrases):
-            return any(
-                not step_results.get(d, {}).get("success")
-                for d in depends_on
-            )
+            return any(not step_results.get(d, {}).get("success") for d in depends_on)
 
     return False
 
@@ -368,15 +389,23 @@ def _should_skip(step: dict, step_results: dict[int, dict]) -> bool:
 # util
 # ──────────────────────────────────────────────
 
+
 def _make_entry(
-    sid: int, action: str, target_file: str, success: bool,
-    error: str | None = None, entity_id: int | None = None,
-    data: Any = None, modified_files: list[str] | None = None,
-    ts: str = "", skipped: bool = False,
+    sid: int,
+    action: str,
+    target_file: str,
+    success: bool,
+    error: str | None = None,
+    entity_id: int | None = None,
+    data: Any = None,
+    modified_files: list[str] | None = None,
+    ts: str = "",
+    skipped: bool = False,
 ) -> dict:
     entry: dict[str, Any] = {
         "step_id": sid,
         "action": action,
+        "tool_name": f"structured_{target_file.replace('.json', '').lower()}_{action}",
         "target_file": target_file,
         "success": success,
         "timestamp": ts or datetime.now().isoformat(),
@@ -418,6 +447,10 @@ def _guard_error(msg: str, t0: float) -> dict:
     return {
         "changes_log": [
             {
+                "step_id": -1,
+                "action": "guard",
+                "tool_name": "guard_error",
+                "target_file": "",
                 "success": False,
                 "error": msg,
                 "timestamp": datetime.now().isoformat(),
