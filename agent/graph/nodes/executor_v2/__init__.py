@@ -377,6 +377,7 @@ def _make_entry(
     entry: dict[str, Any] = {
         "step_id": sid,
         "action": action,
+        "tool_name": f"structured_{target_file.replace('.json', '').lower()}_{action}",
         "target_file": target_file,
         "success": success,
         "timestamp": ts or datetime.now().isoformat(),
@@ -418,6 +419,10 @@ def _guard_error(msg: str, t0: float) -> dict:
     return {
         "changes_log": [
             {
+                "step_id": -1,
+                "action": "guard",
+                "tool_name": "guard_error",
+                "target_file": "",
                 "success": False,
                 "error": msg,
                 "timestamp": datetime.now().isoformat(),
