@@ -1364,6 +1364,46 @@ def test_create_item_sync_default_damage(tmp_path):
     assert arr[1]["damage"]["formula"] == "0"
 
 
+def test_create_item_sync_planner_omits_occasion_like_fields(tmp_path):
+    """Planner가 Definition 대비 occasion 등 필수 필드를 빼도(또는 null) 성공해야 한다."""
+    import json as _json
+
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_items_json(dp, [None, None, None])
+    info = {
+        "item_id": 3,
+        "item_name": "소화기",
+        "description": "화재 진압용 소화기",
+        "iconIndex": 1,
+        "price": 0,
+        "itypeId": 1,
+        "consumable": True,
+        "scope": 7,
+        "speed": 0,
+        "successRate": 100,
+        "repeats": 1,
+        "tpGain": 0,
+        "hitType": 0,
+        "animationId": -1,
+        "damage": {
+            "type": 0,
+            "elementId": -1,
+            "formula": "",
+            "variance": 0,
+            "critical": False,
+        },
+        "effects": [],
+        "note": "",
+        "occasion": None,
+    }
+    r = executor_module._structured_create_item_sync(dp, info)
+    assert r["success"] is True, r.get("stderr")
+    arr = _json.loads((dp / "Items.json").read_text(encoding="utf-8"))
+    assert arr[3]["name"] == "소화기"
+    assert arr[3]["occasion"] == 0
+
+
 def test_create_item_sync_effects_sanitized(tmp_path):
     """code=11, value1=500, value2=0 → swap 적용 확인."""
     import json as _json
