@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 def planner_v2(state: AgentState) -> dict:
     """planner_v2 노드 진입점 (동기 함수)."""
     import time
+
     _t0 = time.perf_counter()
     logger.info("─── Planner START ──────────────────────────────────")
 
@@ -35,17 +36,21 @@ def planner_v2(state: AgentState) -> dict:
         return {"execution_plan": [], "plan_meta": {}}
 
     from pathlib import Path
+
     data_path = Path(get_game_data_dir(game_id))
     plan, meta, deduped = build_execution_plan(operation_tuples, data_path)
 
     elapsed = time.perf_counter() - _t0
     logger.info(
         "[Planner] steps=%d operations=%d→%d",
-        len(plan), len(operation_tuples), len(deduped),
+        len(plan),
+        len(operation_tuples),
+        len(deduped),
     )
     logger.info(
         "─── Planner END (elapsed=%.2fs, steps=%d) ─────────────",
-        elapsed, len(plan),
+        elapsed,
+        len(plan),
     )
     return {
         "execution_plan": plan,

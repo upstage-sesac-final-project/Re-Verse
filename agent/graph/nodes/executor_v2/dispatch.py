@@ -33,7 +33,11 @@ def dispatch_step(
     if target_file in ENTITY_SUPPORTED:
         return execute_entity_step(data_path, action, target_file, target_info)
 
-    if target_file == "MapInfos.json" or _MAP_FILE_PATTERN.match(target_file) or target_file == "Map":
+    if (
+        target_file == "MapInfos.json"
+        or _MAP_FILE_PATTERN.match(target_file)
+        or target_file == "Map"
+    ):
         return execute_map_step(data_path, action, target_file, target_info)
 
     return {

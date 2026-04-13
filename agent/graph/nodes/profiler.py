@@ -13,7 +13,6 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -26,8 +25,8 @@ from agent.constants import (
     SKIP_FILES,
 )
 from agent.core.llm_client import invoke_llm
-from agent.utils.game_data_io import get_game_data_dir
 from agent.prompts.profiler_prompt import build_profiler_system_prompt, build_profiler_user_prompt
+from agent.utils.game_data_io import get_game_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +38,9 @@ logger = logging.getLogger(__name__)
 # 모듈 로드 시 한 번만 파싱하고 dict 로 캐싱.
 # ──────────────────────────────────────────────
 
-_SCHEMA_REF_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "rpgmaker-mz-data-schema-update.md"
+_SCHEMA_REF_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "data" / "rpgmaker-mz-data-schema-update.md"
+)
 
 # {section_header: section_text} — _load_schema_sections() 가 채움
 _SCHEMA_SECTIONS: dict[str, str] = {}
@@ -77,7 +78,8 @@ def _load_schema_sections() -> None:
             _SCHEMA_SECTIONS[header] = part
 
     logger.info(
-        "[Profiler] 스키마 레퍼런스 로드 완료: %d 섹션", len(_SCHEMA_SECTIONS),
+        "[Profiler] 스키마 레퍼런스 로드 완료: %d 섹션",
+        len(_SCHEMA_SECTIONS),
     )
 
 
@@ -122,6 +124,7 @@ async def profiler(state: dict) -> dict:
     execution_plan 내 create step 에 _needs_profiling=True 인 것들에 대해 LLM 호출.
     """
     import time
+
     _t0 = time.perf_counter()
     logger.info("─── Profiler START ─────────────────────────────────")
 
@@ -143,7 +146,9 @@ async def profiler(state: dict) -> dict:
     elapsed = time.perf_counter() - _t0
     logger.info(
         "─── Profiler END (elapsed=%.2fs, profiled=%d/%d) ──────────",
-        elapsed, profiled_count, len(plan),
+        elapsed,
+        profiled_count,
+        len(plan),
     )
     return {"execution_plan": enriched_plan}
 

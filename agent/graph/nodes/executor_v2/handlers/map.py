@@ -57,6 +57,7 @@ def execute_map_step(
 # L1 metadata_ops 구현
 # ──────────────────────────────────────────────
 
+
 def _load_map_infos(data_path: Path) -> list:
     fp = data_path / "MapInfos.json"
     return json.loads(fp.read_text(encoding="utf-8"))
@@ -124,7 +125,9 @@ def _create_map(data_path: Path, info: dict) -> dict[str, Any]:
         "events": [None],
     }
     map_fp = data_path / map_file
-    map_fp.write_text(json.dumps(empty_map, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    map_fp.write_text(
+        json.dumps(empty_map, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
+    )
 
     logger.info("[map] create map id=%d name='%s'", new_id, name)
     return _ok(new_entry, ["MapInfos.json", map_file], entity_id=new_id)
@@ -213,6 +216,7 @@ def _list_maps(data_path: Path) -> dict[str, Any]:
 # L4 content_ops stub
 # ──────────────────────────────────────────────
 
+
 def content_ops(
     data_path: Path,
     action: str,
@@ -230,6 +234,7 @@ def content_ops(
 # ──────────────────────────────────────────────
 # 공통 util
 # ──────────────────────────────────────────────
+
 
 def _ok(data: Any, modified_files: list[str], *, entity_id: int | None = None) -> dict[str, Any]:
     return {

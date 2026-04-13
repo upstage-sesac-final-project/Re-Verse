@@ -13,7 +13,6 @@ from typing import Any
 
 from agent.constants import (
     EFFECT_CODES,
-    PARAM_ALIASES,
     PARAM_KOREAN,
     PARAM_NAMES,
     TRAIT_CODES,
@@ -25,7 +24,6 @@ from agent.constants import (
 # ──────────────────────────────────────────────
 # Param 인덱스 — 8개 기본 능력치
 # ──────────────────────────────────────────────
-
 
 
 # ──────────────────────────────────────────────

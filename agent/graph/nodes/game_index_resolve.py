@@ -11,16 +11,14 @@ LLM 호출 0회, 순수 결정론.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
+from agent.constants import CATEGORY_TO_FILE, KIND_TO_SYSTEM_KEY
 from agent.game_index import (
-    EntityEntry,
     find_entity,
     find_in_file,
     resolve_entity_ref,
     resolve_system_type,
 )
-from agent.constants import CATEGORY_TO_FILE, KIND_TO_SYSTEM_KEY
 from agent.graph.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -29,6 +27,7 @@ logger = logging.getLogger(__name__)
 async def game_index_resolve(state: AgentState) -> dict:
     """operation_tuples 의 subject.id, value.ref 를 확정한다."""
     import time
+
     _t0 = time.perf_counter()
     logger.info("─── GameIndexResolve START ─────────────────────────")
 
@@ -49,7 +48,8 @@ async def game_index_resolve(state: AgentState) -> dict:
     logger.info("[GameIndexResolve] %d ops resolved", len(resolved))
     logger.info(
         "─── GameIndexResolve END (elapsed=%.2fs, ops=%d) ──────",
-        elapsed, len(resolved),
+        elapsed,
+        len(resolved),
     )
     return {"operation_tuples": resolved}
 
@@ -89,7 +89,9 @@ def _resolve_subject(op: dict, game_id: str) -> dict:
         if entry.file != file:
             logger.info(
                 "[GameIndexResolve] '%s': file %s → %s (재라우팅)",
-                name, file, entry.file,
+                name,
+                file,
+                entry.file,
             )
         op = dict(op)
         op["file"] = entry.file
@@ -159,8 +161,6 @@ def _resolve_value(op: dict, game_id: str) -> dict:
 
 def _enrich_equip_type_hint(op: dict, game_id: str, kind: str, ref: str) -> dict:
     """장비의 etypeId 를 게임 데이터에서 읽어 type_hint 를 정확한 슬롯 이름으로 설정."""
-    import json
-    from pathlib import Path
 
     target_file = "Armors.json" if kind == "armor" else "Weapons.json"
     entry = find_in_file(game_id, target_file, ref)
@@ -170,6 +170,7 @@ def _enrich_equip_type_hint(op: dict, game_id: str, kind: str, ref: str) -> dict
     # entry.id 로 실제 JSON 에서 etypeId 읽기
     try:
         from agent.utils.game_data_io import read_game_json
+
         data = read_game_json(game_id, target_file)
         if not isinstance(data, list):
             return op
@@ -198,7 +199,9 @@ def _enrich_equip_type_hint(op: dict, game_id: str, kind: str, ref: str) -> dict
                     op["value"] = value
                     logger.info(
                         "[GameIndexResolve] equip type_hint 교정: '%s' → etypeId=%d → '%s'",
-                        ref, etype_id, slot_name,
+                        ref,
+                        etype_id,
+                        slot_name,
                     )
     except Exception as e:
         logger.warning("[GameIndexResolve] equip type_hint 교정 실패: %s", e)

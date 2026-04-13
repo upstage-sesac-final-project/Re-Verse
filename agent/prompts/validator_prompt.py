@@ -135,6 +135,7 @@ def build_prompt(state: AgentState) -> list[BaseMessage]:
 
 # ── semantic judge 프롬프트 (validator 전용) ──────────────────────────
 
+
 def build_judge_system_prompt() -> str:
     return """\
 당신은 RPG Maker MZ 게임 수정 결과를 검수하는 판정관입니다.
@@ -171,10 +172,10 @@ def build_judge_user_prompt(
 {resolved_input}
 
 ## 해당 operation
-파일: {operation.get('file', '?')}
-작업: {operation.get('op', '?')}
-대상: {(operation.get('subject') or {}).get('name', '?')}
-필드: {operation.get('field', '—')}
+파일: {operation.get("file", "?")}
+작업: {operation.get("op", "?")}
+대상: {(operation.get("subject") or {}).get("name", "?")}
+필드: {operation.get("field", "—")}
 
 ## 실행 결과 요약
 {result_summary}

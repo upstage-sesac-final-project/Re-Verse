@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from agent.constants import ALLOWED_EFFECT_CODES, EFFECT_RULES, STATE_MAX_ID
+from agent.constants import ALLOWED_EFFECT_CODES, EFFECT_RULES
 
 
 class Effect(BaseModel):

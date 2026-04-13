@@ -18,18 +18,17 @@ from pathlib import Path
 from typing import Any
 
 from agent.constants import (
-    ALL_ENTITY_FILES,
     ARRAY_FIELDS,
     FIELD_REROUTE_FIXES,
     FUZZY_THRESHOLD,
     SYSTEM_DEDICATED_FIELDS,
     SYSTEM_TYPE_ARRAY_NAMES,
 )
+from agent.graph.nodes.planner_v2.array_op_resolver import resolve_array_op
 from agent.graph.nodes.planner_v2.dependencies import (
     Requirement,
     lookup_requirements,
 )
-from agent.graph.nodes.planner_v2.array_op_resolver import resolve_array_op
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +45,7 @@ def _load_json(data_path: Path, filename: str) -> Any:
     return json.loads(fp.read_text(encoding="utf-8"))
 
 
-def _find_entity_by_name(
-    data: list, name: str, threshold: float = FUZZY_THRESHOLD
-) -> dict | None:
+def _find_entity_by_name(data: list, name: str, threshold: float = FUZZY_THRESHOLD) -> dict | None:
     """이름 완전 일치 → 부분 일치 → fuzzy 매칭 순서로 탐색."""
     if not name or not isinstance(data, list):
         return None
@@ -89,9 +86,7 @@ def _find_entity_by_index(data: list, index: int) -> dict | None:
     return None
 
 
-def _find_in_system_type_list(
-    system_data: dict, key: str, name: str
-) -> int | None:
+def _find_in_system_type_list(system_data: dict, key: str, name: str) -> int | None:
     """System.json 의 배열(armorTypes 등)에서 문자열 검색 → index 반환."""
     arr = system_data.get(key)
     if not isinstance(arr, list):
@@ -141,7 +136,9 @@ def _fix_field_after_reroute(
 
     logger.info(
         "[planner] field '%s' → '%s' 교정 (파일 %s 호환)",
-        field, new_field, new_file,
+        field,
+        new_field,
+        new_file,
     )
     return op, new_field, value
 
@@ -171,44 +168,53 @@ def _extract_system_value(value: dict) -> Any:
 
 
 def _plan_system_operation(
-    action: str, field: str | None, value: dict, step_offset: int,
+    action: str,
+    field: str | None,
+    value: dict,
+    step_offset: int,
 ) -> list[dict]:
     """System.json 전용 step 생성. 엔티티 로직을 타지 않는다."""
 
     # ── read ──
     if action == "read":
-        return [{
-            "step_id": step_offset,
-            "action_type": "get_system",
-            "target_file": "System.json",
-            "target_info": {"field": field},
-            "depends_on": [],
-            "description": f"System.json 조회" + (f" ({field})" if field else ""),
-            "_op_action": "read",
-        }]
+        return [
+            {
+                "step_id": step_offset,
+                "action_type": "get_system",
+                "target_file": "System.json",
+                "target_info": {"field": field},
+                "depends_on": [],
+                "description": "System.json 조회" + (f" ({field})" if field else ""),
+                "_op_action": "read",
+            }
+        ]
 
     if action != "update":
-        return [{
-            "step_id": step_offset,
-            "action_type": "error",
-            "target_file": "System.json",
-            "target_info": {"error": f"System.json 은 {action} 을(를) 지원하지 않습니다"},
-            "depends_on": [],
-            "description": f"System.json {action} 미지원",
-            "_op_action": action,
-        }]
+        return [
+            {
+                "step_id": step_offset,
+                "action_type": "error",
+                "target_file": "System.json",
+                "target_info": {"error": f"System.json 은 {action} 을(를) 지원하지 않습니다"},
+                "depends_on": [],
+                "description": f"System.json {action} 미지원",
+                "_op_action": action,
+            }
+        ]
 
     # ── update ──
     if not field:
-        return [{
-            "step_id": step_offset,
-            "action_type": "error",
-            "target_file": "System.json",
-            "target_info": {"error": "System.json update 에는 field 가 필요합니다"},
-            "depends_on": [],
-            "description": "System.json update: field 누락",
-            "_op_action": "update",
-        }]
+        return [
+            {
+                "step_id": step_offset,
+                "action_type": "error",
+                "target_file": "System.json",
+                "target_info": {"error": "System.json update 에는 field 가 필요합니다"},
+                "depends_on": [],
+                "description": "System.json update: field 누락",
+                "_op_action": "update",
+            }
+        ]
 
     raw_value = _extract_system_value(value)
 
@@ -218,30 +224,37 @@ def _plan_system_operation(
         target_info: dict[str, Any] = {}
         if dedicated == "update_game_title":
             target_info["title"] = raw_value
-        return [{
-            "step_id": step_offset,
-            "action_type": dedicated,
-            "target_file": "System.json",
-            "target_info": target_info,
-            "depends_on": [],
-            "description": f"System.json {field} 업데이트",
-            "_op_action": "update",
-        }]
+        return [
+            {
+                "step_id": step_offset,
+                "action_type": dedicated,
+                "target_file": "System.json",
+                "target_info": target_info,
+                "depends_on": [],
+                "description": f"System.json {field} 업데이트",
+                "_op_action": "update",
+            }
+        ]
 
     # 2) 타입 배열 추가
     if field in SYSTEM_TYPE_ARRAY_NAMES:
-        return [{
-            "step_id": step_offset,
-            "action_type": "append_system_type",
-            "target_file": "System.json",
-            "target_info": {"system_key": field, "value": raw_value or ""},
-            "depends_on": [],
-            "description": f"System.json['{field}'] 에 항목 추가",
-            "_op_action": "update",
-        }]
+        return [
+            {
+                "step_id": step_offset,
+                "action_type": "append_system_type",
+                "target_file": "System.json",
+                "target_info": {"system_key": field, "value": raw_value or ""},
+                "depends_on": [],
+                "description": f"System.json['{field}'] 에 항목 추가",
+                "_op_action": "update",
+            }
+        ]
 
     # 3) variables / switches (field 에 인덱스 포함: "variables.42", "switches.5")
-    for prefix, action_type in (("variables", "set_variable_name"), ("switches", "set_switch_name")):
+    for prefix, action_type in (
+        ("variables", "set_variable_name"),
+        ("switches", "set_switch_name"),
+    ):
         if field.startswith(prefix):
             parts = field.split(".", 1)
             idx = int(parts[1]) if len(parts) > 1 else None
@@ -249,31 +262,36 @@ def _plan_system_operation(
             target_info = {"name": raw_value}
             if idx is not None:
                 target_info[id_key] = idx
-            return [{
-                "step_id": step_offset,
-                "action_type": action_type,
-                "target_file": "System.json",
-                "target_info": target_info,
-                "depends_on": [],
-                "description": f"System.json {field} 이름 설정",
-                "_op_action": "update",
-            }]
+            return [
+                {
+                    "step_id": step_offset,
+                    "action_type": action_type,
+                    "target_file": "System.json",
+                    "target_info": target_info,
+                    "depends_on": [],
+                    "description": f"System.json {field} 이름 설정",
+                    "_op_action": "update",
+                }
+            ]
 
     # 4) 그 외 → 범용 update_system_field
-    return [{
-        "step_id": step_offset,
-        "action_type": "update_system_field",
-        "target_file": "System.json",
-        "target_info": {"key_path": field, "value": raw_value},
-        "depends_on": [],
-        "description": f"System.json {field} 업데이트",
-        "_op_action": "update",
-    }]
+    return [
+        {
+            "step_id": step_offset,
+            "action_type": "update_system_field",
+            "target_file": "System.json",
+            "target_info": {"key_path": field, "value": raw_value},
+            "depends_on": [],
+            "description": f"System.json {field} 업데이트",
+            "_op_action": "update",
+        }
+    ]
 
 
 # ──────────────────────────────────────────────
 # Requirement → resolved result
 # ──────────────────────────────────────────────
+
 
 def _resolve_placeholder(
     placeholder: str | None,
@@ -386,6 +404,7 @@ def _check_requirement(
 # 공개 API — operation_tuples → execution_plan
 # ──────────────────────────────────────────────
 
+
 def build_execution_plan(
     operation_tuples: list[dict],
     data_path: Path,
@@ -437,9 +456,7 @@ def _dedup_operations(ops: list[dict]) -> list[dict]:
     return result
 
 
-def _plan_one_operation(
-    op: dict, data_path: Path, step_offset: int
-) -> list[dict]:
+def _plan_one_operation(op: dict, data_path: Path, step_offset: int) -> list[dict]:
     """단일 operation → step list."""
     target_file = op.get("file", "")
     field = op.get("field")
@@ -499,38 +516,40 @@ def _plan_one_operation(
     sid = step_offset
 
     for req in requirements:
-        search_name = _resolve_placeholder(
-            req.placeholder, op, resolved_values
-        )
+        search_name = _resolve_placeholder(req.placeholder, op, resolved_values)
         check = _check_requirement(req, data_path, search_name, resolved_values)
 
         if check.get("error"):
             # 필수 엔티티를 못 찾음 → 에러 step 하나만 반환
-            steps.append({
-                "step_id": sid,
-                "action_type": "error",
-                "target_file": req.file,
-                "target_info": {"error": check["error"]},
-                "depends_on": [],
-                "description": check["error"],
-                "_op_action": action,
-            })
+            steps.append(
+                {
+                    "step_id": sid,
+                    "action_type": "error",
+                    "target_file": req.file,
+                    "target_info": {"error": check["error"]},
+                    "depends_on": [],
+                    "description": check["error"],
+                    "_op_action": action,
+                }
+            )
             return steps
 
         if check["action_needed"] == "create_type":
             # System type 배열에 추가
-            steps.append({
-                "step_id": sid,
-                "action_type": "append_system_type",
-                "target_file": "System.json",
-                "target_info": {
-                    "system_key": req.system_key,
-                    "value": search_name,
-                },
-                "depends_on": [s["step_id"] for s in steps] if steps else [],
-                "description": f"System.json['{req.system_key}'] 에 '{search_name}' 추가",
-                "_op_action": "create",
-            })
+            steps.append(
+                {
+                    "step_id": sid,
+                    "action_type": "append_system_type",
+                    "target_file": "System.json",
+                    "target_info": {
+                        "system_key": req.system_key,
+                        "value": search_name,
+                    },
+                    "depends_on": [s["step_id"] for s in steps] if steps else [],
+                    "description": f"System.json['{req.system_key}'] 에 '{search_name}' 추가",
+                    "_op_action": "create",
+                }
+            )
             resolved_values[req.resolve_key or "new_type_id"] = check["resolved_id"]
             sid += 1
 
@@ -544,16 +563,18 @@ def _plan_one_operation(
                     creation_info[key] = resolved_values.get(ref_key)
                 else:
                     creation_info[key] = binding
-            steps.append({
-                "step_id": sid,
-                "action_type": "create",
-                "target_file": req.file,
-                "target_info": creation_info,
-                "depends_on": [s["step_id"] for s in steps] if steps else [],
-                "description": f"{req.file} 에 '{search_name}' 생성",
-                "_op_action": "create",
-                "_needs_profiling": True,
-            })
+            steps.append(
+                {
+                    "step_id": sid,
+                    "action_type": "create",
+                    "target_file": req.file,
+                    "target_info": creation_info,
+                    "depends_on": [s["step_id"] for s in steps] if steps else [],
+                    "description": f"{req.file} 에 '{search_name}' 생성",
+                    "_op_action": "create",
+                    "_needs_profiling": True,
+                }
+            )
             resolved_values[req.resolve_key or "entity_id"] = check["resolved_id"]
             sid += 1
 
@@ -563,18 +584,14 @@ def _plan_one_operation(
                 resolved_values[req.resolve_key] = check["resolved_id"]
 
     # 최종 mutation step (원래 요청 — update, equip 등)
-    final_step = _build_final_mutation_step(
-        op, sid, steps, resolved_values, data_path
-    )
+    final_step = _build_final_mutation_step(op, sid, steps, resolved_values, data_path)
     if final_step:
         steps.append(final_step)
 
     return steps
 
 
-def _plan_simple_mutation(
-    op: dict, data_path: Path, step_offset: int
-) -> list[dict]:
+def _plan_simple_mutation(op: dict, data_path: Path, step_offset: int) -> list[dict]:
     """의존성 없는 단순 create/update."""
     target_file = op.get("file", "")
     action = op.get("op", "update")
@@ -621,7 +638,9 @@ def _plan_simple_mutation(
     if action == "create":
         # value 의 메타 필드는 제외하고, 엔티티 데이터에 해당하는 것만 복사
         _VALUE_META_KEYS = {"kind", "ref", "new_value", "type_hint", "array_op", "match_hint"}
-        target_info.update({k: v for k, v in value.items() if v is not None and k not in _VALUE_META_KEYS})
+        target_info.update(
+            {k: v for k, v in value.items() if v is not None and k not in _VALUE_META_KEYS}
+        )
         return [
             {
                 "step_id": step_offset,
@@ -636,7 +655,9 @@ def _plan_simple_mutation(
         ]
 
     # update
-    updates = _build_updates_dict(target_file, field, value, resolved_values={}, data_path=data_path)
+    updates = _build_updates_dict(
+        target_file, field, value, resolved_values={}, data_path=data_path
+    )
     target_info["updates"] = updates
 
     return [
@@ -682,9 +703,7 @@ def _plan_bulk_update(
     ]
 
 
-def _plan_delete(
-    op: dict, data_path: Path, step_offset: int
-) -> list[dict]:
+def _plan_delete(op: dict, data_path: Path, step_offset: int) -> list[dict]:
     """delete 요청."""
     target_file = op.get("file", "")
     subject = op.get("subject") or {}
@@ -747,19 +766,23 @@ def _build_updates_dict(
     if field == "equips":
         item_id = resolved_values.get("armor_id") or resolved_values.get("weapon_id")
         etype_id = resolved_values.get("etypeId")
-        return {"_equip": {
-            "item_id": item_id,
-            "etype_id": etype_id,
-            "kind": value.get("kind"),
-        }}
+        return {
+            "_equip": {
+                "item_id": item_id,
+                "etype_id": etype_id,
+                "kind": value.get("kind"),
+            }
+        }
     if field == "learnings":
         skill_id = resolved_values.get("skill_id")
         # new_value 가 정수면 습득 레벨로 사용
         level = value.get("new_value") if isinstance(value.get("new_value"), (int, float)) else 1
-        return {"_add_learning": {
-            "skill_id": skill_id,
-            "level": int(level),
-        }}
+        return {
+            "_add_learning": {
+                "skill_id": skill_id,
+                "level": int(level),
+            }
+        }
     if field == "classId":
         class_id = resolved_values.get("class_id")
         return {"classId": class_id}
@@ -812,8 +835,16 @@ def _build_final_mutation_step(
 
     # subject entity_id 해소 — resolved_values 에서 먼저 찾고, 없으면 파일에서 검색
     entity_id = None
-    for key in ("actor_id", "skill_id", "enemy_id", "class_id",
-                "item_id", "weapon_id", "armor_id", "state_id"):
+    for key in (
+        "actor_id",
+        "skill_id",
+        "enemy_id",
+        "class_id",
+        "item_id",
+        "weapon_id",
+        "armor_id",
+        "state_id",
+    ):
         val = resolved_values.get(key)
         if val is not None and key.replace("_id", "").capitalize() + "s.json" == target_file:
             entity_id = val

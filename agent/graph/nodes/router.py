@@ -21,9 +21,7 @@ _CONFIDENCE_THRESHOLD = 0.7
 
 
 class _RouterOutput(BaseModel):
-    resolved_input: str = Field(
-        default="", description="맥락이 해소된 완전한 요청 문장"
-    )
+    resolved_input: str = Field(default="", description="맥락이 해소된 완전한 요청 문장")
     intent: Literal[
         "게임_요소_생성",
         "게임_요소_수정",

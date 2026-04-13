@@ -20,7 +20,7 @@ reader 의 _REFERENCE_MAP 이 "읽기 방향 (id → 이름)" 이라면,
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Literal
 
 
 @dataclass
@@ -35,10 +35,10 @@ class Requirement:
     file: str
     # 확인 방법
     lookup: Literal[
-        "by_name",          # 이름으로 entity 검색 (DB 배열 파일)
-        "system_type_list", # System.json 내 배열(armorTypes 등)에서 문자열 검색
-        "by_id",            # id 로 entity 확인
-        "map_info",         # MapInfos.json 에서 확인
+        "by_name",  # 이름으로 entity 검색 (DB 배열 파일)
+        "system_type_list",  # System.json 내 배열(armorTypes 등)에서 문자열 검색
+        "by_id",  # id 로 entity 확인
+        "map_info",  # MapInfos.json 에서 확인
     ]
     # 검색 대상 키 (system_type_list 전용: "armorTypes" / "weaponTypes" / ...)
     system_key: str | None = None
@@ -64,13 +64,12 @@ class Requirement:
 # 값: list[Requirement] — 선행 조건, 리스트 순서가 실행 순서.
 #
 
-WriteDependencyKey = tuple[str, ...] # 2-tuple or 3-tuple
+WriteDependencyKey = tuple[str, ...]  # 2-tuple or 3-tuple
 
 WRITE_DEPENDENCIES: dict[WriteDependencyKey, list[Requirement]] = {
     # ================================================================
     # ACTORS
     # ================================================================
-
     # actor.equips 에 armor 추가 → System.equipTypes + Armors
     ("Actors.json", "equips", "armor"): [
         Requirement(
@@ -97,7 +96,6 @@ WRITE_DEPENDENCIES: dict[WriteDependencyKey, list[Requirement]] = {
             resolve_key="actor_id",
         ),
     ],
-
     # actor.equips 에 weapon 추가
     ("Actors.json", "equips", "weapon"): [
         Requirement(
@@ -124,7 +122,6 @@ WRITE_DEPENDENCIES: dict[WriteDependencyKey, list[Requirement]] = {
             resolve_key="actor_id",
         ),
     ],
-
     # actor.classId → Classes 참조
     ("Actors.json", "classId"): [
         Requirement(
@@ -142,7 +139,6 @@ WRITE_DEPENDENCIES: dict[WriteDependencyKey, list[Requirement]] = {
             resolve_key="actor_id",
         ),
     ],
-
     # actor 에게 스킬 부여 → Skills 참조 (trait code 43 으로 직접 부여)
     ("Actors.json", "learnings"): [
         Requirement(
@@ -160,17 +156,14 @@ WRITE_DEPENDENCIES: dict[WriteDependencyKey, list[Requirement]] = {
             resolve_key="actor_id",
         ),
     ],
-
     # actor 전체를 create
     ("Actors.json", None): [
         # actor create 시 classId 기본은 1. 명시적 class 가 있으면 intake 가 별도
         # operation 으로 뽑는다.
     ],
-
     # ================================================================
     # CLASSES
     # ================================================================
-
     # class.learnings 에 skill 추가
     ("Classes.json", "learnings"): [
         Requirement(
@@ -188,11 +181,9 @@ WRITE_DEPENDENCIES: dict[WriteDependencyKey, list[Requirement]] = {
             resolve_key="class_id",
         ),
     ],
-
     # ================================================================
     # SKILLS
     # ================================================================
-
     # skill.stypeId → System.skillTypes
     ("Skills.json", "stypeId"): [
         Requirement(
@@ -204,7 +195,6 @@ WRITE_DEPENDENCIES: dict[WriteDependencyKey, list[Requirement]] = {
             resolve_key="stypeId",
         ),
     ],
-
     # skill.damage.elementId → System.elements
     ("Skills.json", "elementId"): [
         Requirement(
@@ -216,11 +206,9 @@ WRITE_DEPENDENCIES: dict[WriteDependencyKey, list[Requirement]] = {
             resolve_key="elementId",
         ),
     ],
-
     # ================================================================
     # WEAPONS
     # ================================================================
-
     # weapon.wtypeId → System.weaponTypes
     ("Weapons.json", "wtypeId"): [
         Requirement(
@@ -232,7 +220,6 @@ WRITE_DEPENDENCIES: dict[WriteDependencyKey, list[Requirement]] = {
             resolve_key="wtypeId",
         ),
     ],
-
     # weapon.etypeId → System.equipTypes
     ("Weapons.json", "etypeId"): [
         Requirement(
@@ -244,11 +231,9 @@ WRITE_DEPENDENCIES: dict[WriteDependencyKey, list[Requirement]] = {
             resolve_key="etypeId",
         ),
     ],
-
     # ================================================================
     # ARMORS
     # ================================================================
-
     # armor.atypeId → System.armorTypes
     ("Armors.json", "atypeId"): [
         Requirement(
@@ -260,7 +245,6 @@ WRITE_DEPENDENCIES: dict[WriteDependencyKey, list[Requirement]] = {
             resolve_key="atypeId",
         ),
     ],
-
     # armor.etypeId → System.equipTypes
     ("Armors.json", "etypeId"): [
         Requirement(
@@ -272,11 +256,9 @@ WRITE_DEPENDENCIES: dict[WriteDependencyKey, list[Requirement]] = {
             resolve_key="etypeId",
         ),
     ],
-
     # ================================================================
     # ENEMIES
     # ================================================================
-
     # enemy.actions[].skillId → Skills
     ("Enemies.json", "actions"): [
         Requirement(
@@ -287,7 +269,6 @@ WRITE_DEPENDENCIES: dict[WriteDependencyKey, list[Requirement]] = {
             resolve_key="skill_id",
         ),
     ],
-
     # enemy.dropItems[].dataId → Items
     ("Enemies.json", "dropItems"): [
         Requirement(
@@ -298,15 +279,12 @@ WRITE_DEPENDENCIES: dict[WriteDependencyKey, list[Requirement]] = {
             resolve_key="item_id",
         ),
     ],
-
     # ================================================================
     # ITEMS / STATES — 대부분 독립 entity. 특별한 write 의존성 없음.
     # ================================================================
-
     # ================================================================
     # MAPS (L1 메타데이터)
     # ================================================================
-
     # Map 생성 시 MapInfos.json 에 엔트리 추가 필요
     ("Map", "create"): [
         Requirement(

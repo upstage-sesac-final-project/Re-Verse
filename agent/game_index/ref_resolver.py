@@ -17,9 +17,7 @@ logger = logging.getLogger(__name__)
 _FUZZY_THRESHOLD = 0.6
 
 
-def resolve_system_type(
-    game_id: str, system_key: str, name: str
-) -> int | None:
+def resolve_system_type(game_id: str, system_key: str, name: str) -> int | None:
     """System.json의 배열에서 이름→인덱스. 없으면 None.
 
     예: resolve_system_type("game_001", "elements", "빛") → 8
@@ -55,9 +53,7 @@ def resolve_system_type(
     return best_idx if best_ratio >= _FUZZY_THRESHOLD else None
 
 
-def resolve_entity_ref(
-    game_id: str, filename: str, name: str
-) -> int | None:
+def resolve_entity_ref(game_id: str, filename: str, name: str) -> int | None:
     """엔티티 파일에서 이름→ID."""
     entry = find_in_file(game_id, filename, name)
     return entry.id if entry else None

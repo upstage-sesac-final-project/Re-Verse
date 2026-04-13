@@ -24,9 +24,7 @@ def _normalize(s: str) -> str:
     return s.strip().lower().replace(" ", "")
 
 
-def find_entity(
-    game_id: str, name: str, threshold: float = _FUZZY_THRESHOLD
-) -> list[EntityEntry]:
+def find_entity(game_id: str, name: str, threshold: float = _FUZZY_THRESHOLD) -> list[EntityEntry]:
     """이름으로 전체 entity 파일에서 검색. 매칭되는 모든 결과 반환.
 
     완전 일치 우선, 없으면 fuzzy.

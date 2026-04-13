@@ -77,9 +77,7 @@ def build_profiler_user_prompt(
     if feedback:
         parts.append(f"\n## 이전 시도 실패 피드백\n{feedback}\n위 피드백을 참고하여 수정하세요.")
 
-    parts.append(
-        "\n비어 있는 필드를 채워서 완성된 target_info 를 JSON 으로 답하세요."
-    )
+    parts.append("\n비어 있는 필드를 채워서 완성된 target_info 를 JSON 으로 답하세요.")
 
     return "\n".join(parts)
 
