@@ -1,14 +1,14 @@
-"""Synthesizer 노드 — 6단계: 사용자 친화적 최종 응답 생성.
+"""Synthesizer 노드 — 최종 사용자 응답 생성.
 
-담당: 세종님
+validator 의 검증 결과 + changes_log 를 바탕으로 final_response 를 만든다.
+성공: 결정론 템플릿 (LLM 0회)
+실패: 결정론 템플릿 + 상세 정보
 """
 
 import logging
-import time
 
-from agent.core.llm_client import invoke_llm
+from agent.graph.nodes.validator.responder import build_final_response
 from agent.graph.state import AgentState
-from agent.prompts.synthesizer_prompt import build_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -21,15 +21,30 @@ async def synthesizer(state: AgentState) -> dict:
     logger.info("  intent : %s", state.get("intent"))
     logger.info("  passed : %s | retry_count : %d", passed, retry_count)
 
+    # definition 에서 params_sufficient=False 로 조기 종료한 경우
+    existing = state.get("final_response")
+    if existing:
+        logger.info(
+            "─── ✅ Synthesizer END (기존 응답 재사용, len=%d) ────────────",
+            len(existing),
+        )
+        return {"final_response": existing}
+
+    changes_log = state.get("changes_log", [])
+    validation_summary = state.get("validation_summary", "")
+    validation_details = state.get("validation_details", [])
+    judge_feedback = state.get("judge_feedback", "")
+
     if not passed:
-        logger.warning("  ❌ 실패 상태로 진입 (retry=%d) — 에러 응답 생성", retry_count)
+        logger.warning("  ❌ 실패 상태 (retry=%d) — 에러 응답 생성", retry_count)
 
-    messages = build_prompt(state)
-    _t0 = time.perf_counter()
-    response: str = await invoke_llm(messages)  # type: ignore[assignment]
-    _elapsed = time.perf_counter() - _t0
-
-    logger.info(
-        "─── ✅ Synthesizer END (elapsed=%.2fs, len=%d) ────────────", _elapsed, len(response)
+    response = build_final_response(
+        success=passed,
+        summary=validation_summary,
+        changes_log=changes_log,
+        details=validation_details,
+        judge_feedback=judge_feedback,
     )
+
+    logger.info("─── ✅ Synthesizer END (len=%d) ────────────", len(response))
     return {"final_response": response}
