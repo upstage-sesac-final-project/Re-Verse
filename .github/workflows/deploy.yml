@@ -29,7 +29,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            echo "${{ secrets.ENV_FILE }}" > .env
+            echo "${{ secrets.ENV_FILE }}" > .env.production
 
             # BuildKit: Dockerfile의 RUN --mount=type=cache 등 캐시 마운트 사용
             export DOCKER_BUILDKIT=1
