@@ -20,39 +20,23 @@ from agent.game_index import (
     resolve_entity_ref,
     resolve_system_type,
 )
+from agent.constants import CATEGORY_TO_FILE, KIND_TO_SYSTEM_KEY
 from agent.graph.state import AgentState
 
 logger = logging.getLogger(__name__)
 
 
-# value.kind 가 system 타입인 경우의 매핑
-_KIND_TO_SYSTEM_KEY: dict[str, str] = {
-    "element": "elements",
-    "weapon_type": "weaponTypes",
-    "armor_type": "armorTypes",
-    "skill_type": "skillTypes",
-    "equip_type": "equipTypes",
-}
-
-# kind → entity 파일
-_KIND_TO_FILE: dict[str, str] = {
-    "actor": "Actors.json",
-    "enemy": "Enemies.json",
-    "skill": "Skills.json",
-    "item": "Items.json",
-    "weapon": "Weapons.json",
-    "armor": "Armors.json",
-    "class": "Classes.json",
-    "state": "States.json",
-}
-
-
 async def game_index_resolve(state: AgentState) -> dict:
     """operation_tuples 의 subject.id, value.ref 를 확정한다."""
+    import time
+    _t0 = time.perf_counter()
+    logger.info("─── GameIndexResolve START ─────────────────────────")
+
     ops: list[dict] = state.get("operation_tuples", []) or []
     game_id: str = state.get("game_id", "game_001")
 
     if not ops:
+        logger.info("─── GameIndexResolve END (empty input) ────────────")
         return {}
 
     resolved: list[dict] = []
@@ -61,7 +45,12 @@ async def game_index_resolve(state: AgentState) -> dict:
         op = _resolve_value(op, game_id)
         resolved.append(op)
 
-    logger.info("[game_index_resolve] %d ops resolved", len(resolved))
+    elapsed = time.perf_counter() - _t0
+    logger.info("[GameIndexResolve] %d ops resolved", len(resolved))
+    logger.info(
+        "─── GameIndexResolve END (elapsed=%.2fs, ops=%d) ──────",
+        elapsed, len(resolved),
+    )
     return {"operation_tuples": resolved}
 
 
@@ -99,7 +88,7 @@ def _resolve_subject(op: dict, game_id: str) -> dict:
         entry = candidates[0]
         if entry.file != file:
             logger.info(
-                "[game_index_resolve] '%s': file %s → %s (재라우팅)",
+                "[GameIndexResolve] '%s': file %s → %s (재라우팅)",
                 name, file, entry.file,
             )
         op = dict(op)
@@ -124,7 +113,11 @@ def _resolve_subject(op: dict, game_id: str) -> dict:
 
 
 def _resolve_value(op: dict, game_id: str) -> dict:
-    """value.ref 를 숫자 ID 로 해소. value 에 resolved_id 추가."""
+    """value.ref 를 숫자 ID 로 해소. value 에 resolved_id 추가.
+
+    equips 관련 장비의 경우, 게임 데이터에서 etypeId 를 직접 읽어
+    type_hint 를 정확한 슬롯 이름으로 교정한다.
+    """
     value = op.get("value")
     if not value or not isinstance(value, dict):
         return op
@@ -137,12 +130,12 @@ def _resolve_value(op: dict, game_id: str) -> dict:
     resolved_id: int | None = None
 
     # System.json 타입 배열
-    if kind in _KIND_TO_SYSTEM_KEY:
-        resolved_id = resolve_system_type(game_id, _KIND_TO_SYSTEM_KEY[kind], ref)
+    if kind in KIND_TO_SYSTEM_KEY:
+        resolved_id = resolve_system_type(game_id, KIND_TO_SYSTEM_KEY[kind], ref)
 
     # 엔티티 파일
-    elif kind in _KIND_TO_FILE:
-        resolved_id = resolve_entity_ref(game_id, _KIND_TO_FILE[kind], ref)
+    elif kind in CATEGORY_TO_FILE:
+        resolved_id = resolve_entity_ref(game_id, CATEGORY_TO_FILE[kind], ref)
 
     # kind 가 모호하면 전체 검색
     else:
@@ -155,5 +148,59 @@ def _resolve_value(op: dict, game_id: str) -> dict:
         value["resolved_id"] = resolved_id
         op = dict(op)
         op["value"] = value
+
+    # equips 장비일 때: 게임 데이터에서 etypeId 를 읽어 type_hint 교정
+    field = op.get("field", "")
+    if field == "equips" and kind in ("armor", "weapon") and ref:
+        op = _enrich_equip_type_hint(op, game_id, kind, ref)
+
+    return op
+
+
+def _enrich_equip_type_hint(op: dict, game_id: str, kind: str, ref: str) -> dict:
+    """장비의 etypeId 를 게임 데이터에서 읽어 type_hint 를 정확한 슬롯 이름으로 설정."""
+    import json
+    from pathlib import Path
+
+    target_file = "Armors.json" if kind == "armor" else "Weapons.json"
+    entry = find_in_file(game_id, target_file, ref)
+    if not entry:
+        return op
+
+    # entry.id 로 실제 JSON 에서 etypeId 읽기
+    try:
+        from agent.utils.game_data_io import read_game_json
+        data = read_game_json(game_id, target_file)
+        if not isinstance(data, list):
+            return op
+        entity = None
+        for e in data:
+            if isinstance(e, dict) and e.get("id") == entry.id:
+                entity = e
+                break
+        if not entity:
+            return op
+
+        etype_id = entity.get("etypeId")
+        if etype_id is None:
+            return op
+
+        # etypeId → equipTypes 배열에서 슬롯 이름 가져오기
+        system = read_game_json(game_id, "System.json")
+        if isinstance(system, dict):
+            equip_types = system.get("equipTypes", [])
+            if isinstance(equip_types, list) and 0 <= etype_id < len(equip_types):
+                slot_name = equip_types[etype_id]
+                if slot_name:
+                    value = dict(op.get("value") or {})
+                    value["type_hint"] = slot_name
+                    op = dict(op)
+                    op["value"] = value
+                    logger.info(
+                        "[GameIndexResolve] equip type_hint 교정: '%s' → etypeId=%d → '%s'",
+                        ref, etype_id, slot_name,
+                    )
+    except Exception as e:
+        logger.warning("[GameIndexResolve] equip type_hint 교정 실패: %s", e)
 
     return op

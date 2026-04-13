@@ -30,7 +30,7 @@ async def run_partial_retry(
 
     Returns {"success": bool, "changes_log": list, "summary": str}
     """
-    from agent.graph.nodes.executor_v2 import execute_one
+    from agent.graph.nodes.executor import execute_one
     from agent.graph.nodes.profiler import profile_one
 
     patched_log: list[dict] = []

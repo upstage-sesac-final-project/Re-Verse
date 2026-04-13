@@ -23,36 +23,18 @@ from agent.utils.game_data_io import get_next_entity_id, get_system_context
 
 logger = logging.getLogger(__name__)
 
-# --- 공통 매핑 상수 ---
-CATEGORY_TO_PLURAL = {
-    "actor": "Actors",
-    "enemy": "Enemies",
-    "item": "Items",
-    "skill": "Skills",
-    "weapon": "Weapons",
-    "armor": "Armors",
-    "class": "Classes",
-    "state": "States",
-    "element": "System",  # 속성은 System.json 내에 포함됨
-    "system": "System",
-}
-
-CATEGORY_TO_ID_FIELD = {
-    "actor": "actor_id",
-    "enemy": "enemy_id",
-    "item": "item_id",
-    "skill": "skill_id",
-    "weapon": "weapon_id",
-    "armor": "armor_id",
-    "class": "class_id",
-    "state": "state_id",
-    "element": "element_id",
-    "system": "system_id",
-}
+# --- 공통 매핑 상수 (agent.constants 에서 가져옴) ---
+from agent.constants import (
+    ARRAY_FIELDS,
+    CATEGORY_TO_FILE,
+    CATEGORY_TO_ID_FIELD,
+    CATEGORY_TO_PLURAL,
+    PROPERTY_TO_FIELD,
+    TRAIT_CODE_TO_HINT,
+)
 
 # 복수형(파일명/폴더명) -> 단수형(내부 타겟명) 변환용
 PLURAL_TO_SINGULAR = {v.lower(): k for k, v in CATEGORY_TO_PLURAL.items()}
-# 특수 케이스 추가
 PLURAL_TO_SINGULAR.update({"enemies": "enemy", "actors": "actor"})
 
 SUPPORTED_BULK_TARGETS = {
@@ -488,15 +470,11 @@ async def definition(state: AgentState) -> dict:
         if cls.get("is_category_label"):
             logger.info("[Definition] 카테고리 지칭어 감지: %s -> %s", cls["name"], cls["category"])
 
-    # --- [4단계: 구체적 ID 매핑 (RAG 검색)] ---
+    # --- [4단계: 구체적 ID 매핑 (GameIndex 기반)] ---
     logger.info("[Definition] Step 4: 엔티티 ID 매핑 중...")
     from difflib import SequenceMatcher
 
-    retriever = RPGRetriever(game_id)
-    bulk_context = await _build_bulk_scope_context(retriever, game_id, bulk_scope_targets)
-    if bulk_context:
-        logger.info("[Definition] bulk RAG 컨텍스트 확보: %s", bulk_context)
-    if not sys_info:  # 시스템 정보 미리 확보
+    if not sys_info:
         sys_info = get_system_context(game_id)
 
     for cls in classifications:
@@ -534,77 +512,48 @@ async def definition(state: AgentState) -> dict:
                 logger.debug("[Definition] Step 4 속성 신규 생성 판단: %s", cls["name"])
             continue
 
-        # [일반 케이스: 파일 기반 검색]
-        plural_cat = _normalize_category_to_plural(cls["category"])
-        results = await retriever.retrieve_entities(cls["name"], plural_cat, k=1)
+        # [일반 케이스: GameIndex 기반 검색 — RAG 대체]
+        from agent.game_index import find_entity as gi_find
+        target_file = CATEGORY_TO_FILE.get(cls["category"].lower(), "")
+        gi_results = gi_find(game_id, cls["name"])
+        # target_file 에 맞는 결과만 필터
+        if target_file:
+            gi_results = [e for e in gi_results if e.file == target_file]
 
-        # 1단계 의도 확인 (CREATE 인지 여부)
         is_create = any(
             ext["action"] == "CREATE"
             and (ext["subject"] == cls["name"] or ext["value"] == cls["name"])
             for ext in extractions
         )
 
-        if results:
-            best_match = results[0]
-            # 글자 모양 유사도 체크
-            similarity = SequenceMatcher(None, cls["name"], best_match["name"]).ratio()
-
-            # [매칭 정책]
-            # 1. 생성(CREATE)인 경우: 글자 모양이 거의 똑같을 때(0.9)만 중복으로 간주하고 ID 할당. 아니면 NEW.
-            # 2. 수정/조회인 경우: 의미 기반 검색 결과를 믿고 ID 할당 (유사도 0.5 이상이면 허용)
+        if gi_results:
+            best = gi_results[0]
+            similarity = SequenceMatcher(None, cls["name"].lower(), best.name.lower()).ratio()
 
             if is_create:
                 if similarity >= 0.9:
-                    cls["mapped_id"] = best_match["id"]
-                    cls["actual_name"] = best_match["name"]
-                    cls["reason"] += (
-                        f" (중복 이름 발견: {best_match['name']} ID:{best_match['id']})"
-                    )
-                    logger.debug(
-                        "[Definition] Step 4 중복 이름 발견: %s -> ID:%s",
-                        cls["name"],
-                        cls["mapped_id"],
-                    )
+                    cls["mapped_id"] = best.id
+                    cls["actual_name"] = best.name
+                    cls["reason"] += f" (중복 이름 발견: {best.name} ID:{best.id})"
+                    logger.debug("[Definition] Step 4 중복 이름 발견: %s -> ID:%s", cls["name"], best.id)
                 else:
                     cls["mapped_id"] = "NEW"
-                    cls["reason"] += (
-                        f" (새로운 이름으로 판단: {best_match['name']}와 유사도 {similarity:.2f}로 낮음)"
-                    )
-                    logger.debug(
-                        "[Definition] Step 4 신규 생성(낮은 유사도): %s (vs %s: %.2f)",
-                        cls["name"],
-                        best_match["name"],
-                        similarity,
-                    )
+                    cls["reason"] += f" (새로운 이름으로 판단: {best.name}와 유사도 {similarity:.2f}로 낮음)"
+                    logger.debug("[Definition] Step 4 신규 생성(낮은 유사도): %s (vs %s: %.2f)", cls["name"], best.name, similarity)
             else:
                 if similarity >= 0.5:
-                    cls["mapped_id"] = best_match["id"]
-                    cls["actual_name"] = best_match["name"]
-                    cls["reason"] += f" (매칭 성공: {best_match['name']} ID:{best_match['id']})"
-                    logger.debug(
-                        "[Definition] Step 4 매칭 성공: %s -> ID:%s (유사도 %.2f)",
-                        cls["name"],
-                        cls["mapped_id"],
-                        similarity,
-                    )
+                    cls["mapped_id"] = best.id
+                    cls["actual_name"] = best.name
+                    cls["reason"] += f" (매칭 성공: {best.name} ID:{best.id})"
+                    logger.debug("[Definition] Step 4 매칭 성공: %s -> ID:%s (유사도 %.2f)", cls["name"], best.id, similarity)
                 else:
-                    # [능동적 생성] 수정/조회인데 대상을 못 찾으면 NEW로 간주하여 생성을 유도
                     cls["mapped_id"] = "NEW"
-                    cls["reason"] += (
-                        f" (데이터를 찾을 수 없어 신규 생성으로 전환: {best_match['name']}와 유사도 {similarity:.2f}로 낮음)"
-                    )
-                    logger.debug(
-                        "[Definition] Step 4 매칭 실패(신규 생성 전환): %s (vs %s: %.2f)",
-                        cls["name"],
-                        best_match["name"],
-                        similarity,
-                    )
+                    cls["reason"] += f" (데이터를 찾을 수 없어 신규 생성으로 전환: {best.name}와 유사도 {similarity:.2f}로 낮음)"
+                    logger.debug("[Definition] Step 4 매칭 실패(신규 전환): %s (vs %s: %.2f)", cls["name"], best.name, similarity)
         else:
-            # 검색 결과가 아예 없는 경우
             cls["mapped_id"] = "NEW"
-            cls["reason"] += " (데이터가 존재하지 않아 신규 생성 대상으로 지정)"
-            logger.debug("[Definition] Step 4 검색 결과 없음(신규): %s", cls["name"])
+            cls["reason"] += " (GameIndex 에서 미발견 → 신규 생성)"
+            logger.debug("[Definition] Step 4 GameIndex 미발견(신규): %s", cls["name"])
 
     # 로그 출력
     for ext in extractions:
@@ -676,6 +625,17 @@ async def definition(state: AgentState) -> dict:
     if os.path.exists(schema2_path):
         with open(schema2_path, encoding="utf-8") as f:
             schema2_content = f.read()
+
+    # RAG bulk_context — Step 5 fallback 시에만 필요. 지연 초기화.
+    bulk_context = {}
+    if bulk_scope_targets:
+        try:
+            retriever = RPGRetriever(game_id)
+            bulk_context = await _build_bulk_scope_context(retriever, game_id, bulk_scope_targets)
+            if bulk_context:
+                logger.info("[Definition] Step 5 bulk RAG 컨텍스트 확보: %s", bulk_context)
+        except Exception as e:
+            logger.warning("[Definition] bulk RAG 컨텍스트 실패 (무시): %s", e)
 
     messages_5 = build_step5_prompt(
         state,
@@ -858,40 +818,10 @@ async def definition(state: AgentState) -> dict:
 # planner_v2 가 소비하는 정규화된 IR 형식
 # ──────────────────────────────────────────────
 
-# target(category) → file 매핑
-_TARGET_TO_FILE: dict[str, str] = {
-    "actor": "Actors.json",
-    "enemy": "Enemies.json",
-    "item": "Items.json",
-    "skill": "Skills.json",
-    "weapon": "Weapons.json",
-    "armor": "Armors.json",
-    "class": "Classes.json",
-    "state": "States.json",
-    "element": "System.json",
-    "system": "System.json",
-}
-
-# 배열 필드와 그에 어울리는 array_op match_hint 추론
-_ARRAY_FIELDS = frozenset({
-    "traits", "effects", "actions", "dropItems", "learnings", "equips",
-})
-
-# trait code → 의미 매핑 (intake match_hint 와 동일)
-_TRAIT_CODE_TO_HINT: dict[int, str] = {
-    11: "속성 내성",
-    13: "상태 내성",
-    21: "능력치 보정",
-    22: "추가 능력치",
-    31: "공격 속성",
-    32: "공격 상태",
-    41: "스킬 유형 추가",
-    42: "스킬 유형 봉인",
-    43: "스킬 추가",
-    44: "스킬 봉인",
-    51: "무기 유형 장비",
-    52: "방어구 유형 장비",
-}
+# _TARGET_TO_FILE, ARRAY_FIELDS, TRAIT_CODE_TO_HINT, CATEGORY_TO_FILE
+# → agent.constants 의 CATEGORY_TO_FILE, ARRAY_FIELDS, TRAIT_CODE_TO_HINT 로 통합
+# System.json 전용 확장
+_TARGET_TO_FILE: dict[str, str] = {**CATEGORY_TO_FILE, "element": "System.json", "system": "System.json"}
 
 
 # ──────────────────────────────────────────────
@@ -899,55 +829,9 @@ _TRAIT_CODE_TO_HINT: dict[int, str] = {
 # Step 1~4 결과(extractions + classifications)에서 LLM 없이 operation_tuples 생성
 # ──────────────────────────────────────────────
 
-# category → file
-_CAT_TO_FILE: dict[str, str] = {
-    "actor": "Actors.json",
-    "enemy": "Enemies.json",
-    "item": "Items.json",
-    "skill": "Skills.json",
-    "weapon": "Weapons.json",
-    "armor": "Armors.json",
-    "class": "Classes.json",
-    "state": "States.json",
-}
-
 # extraction.property → (field, value.kind) 매핑
 # property 가 이 테이블에 있으면 코드 기반 변환 가능
-_PROPERTY_TO_FIELD: dict[str, tuple[str, str]] = {
-    # 스킬 관련
-    "스킬": ("learnings", "skill"),
-    "기술": ("learnings", "skill"),
-    "마법": ("learnings", "skill"),
-    # 장비 관련
-    "장비": ("equips", "armor"),
-    "무기": ("equips", "weapon"),
-    "방어구": ("equips", "armor"),
-    "장신구": ("equips", "armor"),
-    # 직업 관련
-    "직업": ("classId", "class"),
-    "클래스": ("classId", "class"),
-    # 단순 필드
-    "이름": ("name", "string"),
-    "닉네임": ("nickname", "string"),
-    "프로필": ("profile", "string"),
-    "설명": ("description", "string"),
-    "레벨": ("initialLevel", "param"),
-    "초기레벨": ("initialLevel", "param"),
-    "최대레벨": ("maxLevel", "param"),
-    "가격": ("price", "param"),
-    "경험치": ("exp", "param"),
-    "골드": ("gold", "param"),
-    # 속성/특성 관련
-    "속성": ("traits", "trait"),
-    "공격속성": ("traits", "trait"),
-    "내성": ("traits", "trait"),
-    "약점": ("traits", "trait"),
-    # 행동 관련
-    "행동": ("actions", "skill"),
-    "행동패턴": ("actions", "skill"),
-    "드롭": ("dropItems", "item"),
-    "드롭아이템": ("dropItems", "item"),
-}
+# PROPERTY_TO_FIELD 는 agent.constants 에서 import
 
 
 def _extractions_to_operation_tuples(
@@ -995,6 +879,19 @@ def _extractions_to_operation_tuples(
                     sub_cls = cval
                     break
         if not sub_cls:
+            # System.json 수정: subject 가 카테고리 지칭어("게임", "시스템" 등)로 필터된 경우
+            if prop and value_str and action == "UPDATE":
+                sys_field = _detect_system_field(subject, prop)
+                if sys_field:
+                    logger.info("[Step4.6] System.json 수정 감지: %s.%s = %s", subject, sys_field, value_str)
+                    ops.append({
+                        "op": "update",
+                        "file": "System.json",
+                        "subject": None,
+                        "field": sys_field,
+                        "value": {"kind": "string", "ref": None, "new_value": value_str, "type_hint": None, "array_op": None, "match_hint": None},
+                    })
+                    continue
             logger.info("[Step4.6] subject '%s' not in cls_by_name %s → fallback", subject, list(cls_by_name.keys()))
             return []
 
@@ -1007,7 +904,7 @@ def _extractions_to_operation_tuples(
         if sub_id is None:
             sub_id = extracted_ids.get(subject)
 
-        sub_file = _CAT_TO_FILE.get(sub_cat)
+        sub_file = CATEGORY_TO_FILE.get(sub_cat)
         if not sub_file and sub_cat not in ("element", "system", "none"):
             return []
 
@@ -1076,7 +973,7 @@ def _extractions_to_operation_tuples(
 
             # value 구성
             ir_value = _build_direct_ir_value(
-                field, kind, value_str, val_cls, extracted_ids,
+                field, kind, value_str, val_cls, extracted_ids, prop=prop,
             )
 
             ops.append({
@@ -1098,13 +995,23 @@ def _lookup_property_field(prop: str) -> tuple[str, str] | None:
     """property 문자열에서 field 매핑을 찾는다. 완전 일치 → 부분 일치."""
     t = prop.lower().replace(" ", "")
     # 완전 일치
-    for key, val in _PROPERTY_TO_FIELD.items():
+    for key, val in PROPERTY_TO_FIELD.items():
         if key.replace(" ", "") == t:
             return val
     # 부분 포함
-    for key, val in _PROPERTY_TO_FIELD.items():
+    for key, val in PROPERTY_TO_FIELD.items():
         if key in prop or prop in key:
             return val
+    return None
+
+
+def _detect_system_field(subject: str, prop: str) -> str | None:
+    """subject + property 에서 System.json 필드를 감지. 해당하면 필드명 반환."""
+    combined = (subject + " " + prop).lower()
+    if "제목" in combined or "타이틀" in combined:
+        return "gameTitle"
+    if "통화" in combined or "화폐" in combined:
+        return "currencyUnit"
     return None
 
 
@@ -1127,6 +1034,7 @@ def _build_direct_ir_value(
     value_str: str,
     val_cls: dict | None,
     extracted_ids: dict,
+    prop: str = "",
 ) -> dict:
     """직접 변환용 IR value 생성."""
     val_id = None
@@ -1145,7 +1053,7 @@ def _build_direct_ir_value(
             "kind": kind,
             "ref": value_str if value_str else None,
             "new_value": None,
-            "type_hint": None,
+            "type_hint": prop if prop else None,  # "방패", "장신구" 등 슬롯 힌트
             "array_op": None,
             "match_hint": None,
         }
@@ -1273,8 +1181,9 @@ def _update_to_ir(
 ) -> list[dict]:
     """update modification → operation IR.
 
-    updates 전체를 1개 operation 으로 변환한다.
-    필드별 분해는 planner_v2 가 처리.
+    세부 필드 값(params, traits, effects 등)은 profiler 책임이므로 여기서는
+    스칼라 필드(name, initialLevel 등)만 raw_updates 로 전달한다.
+    배열/복합 필드는 field 이름만 남기고 값은 버린다.
     """
     selector = params.get("selector") or {}
     updates = params.get("updates") or {}
@@ -1302,7 +1211,14 @@ def _update_to_ir(
     if not updates or not isinstance(updates, dict):
         return []
 
-    # updates 전체를 1개 operation 으로. 필드 분해하지 않음.
+    # profiler 가 채울 복합 필드(traits, effects, params 등)는 버리고,
+    # 스칼라 + 참조 필드(equips, classId 등)는 남긴다.
+    _PROFILER_FIELDS = {"traits", "effects", "damage", "params", "actions", "dropItems", "learnings"}
+    filtered_updates = {k: v for k, v in updates.items() if k not in _PROFILER_FIELDS}
+
+    if not filtered_updates:
+        return []
+
     return [{
         "op": "update",
         "file": file,
@@ -1315,7 +1231,7 @@ def _update_to_ir(
             "type_hint": None,
             "array_op": None,
             "match_hint": None,
-            "raw_updates": updates,
+            "raw_updates": filtered_updates,
         },
     }]
 
@@ -1353,51 +1269,4 @@ def _read_to_ir(file: str, target: str, params: dict) -> list[dict]:
     }]
 
 
-def _build_ir_value(field: str, value, target: str) -> dict:
-    """field/value → operation IR value 구조.
-
-    배열 필드는 array_op 으로, 일반 필드는 new_value 로.
-    """
-    # 배열 필드 — 통째 교체 케이스만 처리 (세밀한 array_op 은 planner 가 추론)
-    if field in _ARRAY_FIELDS:
-        if isinstance(value, list):
-            # 통째 교체 — value 전체를 raw 로 전달, planner 가 처리
-            return {
-                "kind": "array",
-                "ref": None,
-                "new_value": None,
-                "type_hint": None,
-                "array_op": "replace",
-                "match_hint": None,
-                "raw_array": value,
-            }
-        # 단일 값이 들어온 경우 → 추가
-        return {
-            "kind": "array",
-            "ref": str(value) if value else None,
-            "new_value": None,
-            "type_hint": None,
-            "array_op": "add",
-            "match_hint": None,
-        }
-
-    # 참조 필드 — equips 등은 위에서 처리됨. classId 등은 ref 필요
-    if field == "classId":
-        return {
-            "kind": "class",
-            "ref": str(value) if value else None,
-            "new_value": value if isinstance(value, int) else None,
-            "type_hint": None,
-            "array_op": None,
-            "match_hint": None,
-        }
-
-    # 일반 필드 — new_value 로
-    return {
-        "kind": "param",
-        "ref": None,
-        "new_value": value,
-        "type_hint": None,
-        "array_op": None,
-        "match_hint": None,
-    }
+# _build_ir_value 삭제 — _update_to_ir 에서 스칼라만 통과시키므로 불필요.

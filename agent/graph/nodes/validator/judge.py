@@ -10,7 +10,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from agent.core.llm_client import invoke_llm
 from agent.utils.game_data_io import get_game_data_dir
-from agent.graph.nodes.executor_v2.utils.traits import describe_effects_list, describe_params, describe_traits_list
+from agent.utils.traits_reference import describe_effects_list, describe_params, describe_traits_list
 from agent.prompts.validator_prompt import build_judge_system_prompt, build_judge_user_prompt
 
 logger = logging.getLogger(__name__)
@@ -126,10 +126,11 @@ def _build_result_summary(
                             f"  dropItem: kind={di.get('kind')} dataId={di.get('dataId')} 1/{di.get('denominator', '?')}"
                         )
 
-            # equips
+            # equips — ID를 이름으로 변환하여 judge 가 판단 가능하게
             equips = data.get("equips")
             if isinstance(equips, list):
-                summary_parts.append(f"  equips: {equips}")
+                equip_descs = _describe_equips(equips, game_id)
+                summary_parts.append(f"  equips: {equip_descs}")
 
             if data.get("description"):
                 summary_parts.append(f"  설명: {data['description']}")
@@ -162,3 +163,43 @@ def _parse_judgment(text: str) -> dict[str, Any]:
             pass
     # 파싱 실패 → 안전 방향
     return {"match": True, "confidence": 0.3, "reason": "판정 파싱 실패, 통과 처리"}
+
+
+def _describe_equips(equips: list, game_id: str) -> str:
+    """equips 배열의 ID를 게임 데이터에서 실제 이름으로 변환."""
+    try:
+        from agent.utils.game_data_io import read_game_json
+
+        # equipTypes 로 슬롯 이름
+        system = read_game_json(game_id, "System.json")
+        equip_types = system.get("equipTypes", []) if isinstance(system, dict) else []
+
+        # Weapons + Armors 로 장비 이름 lookup
+        weapons = read_game_json(game_id, "Weapons.json") or []
+        armors = read_game_json(game_id, "Armors.json") or []
+
+        parts = []
+        for slot_idx, item_id in enumerate(equips):
+            slot_name = equip_types[slot_idx] if slot_idx < len(equip_types) else f"슬롯{slot_idx}"
+            if not item_id or item_id == 0:
+                parts.append(f"{slot_name}=없음")
+                continue
+
+            # 슬롯 0=무기 → Weapons, 나머지 → Armors
+            name = "?"
+            if slot_idx == 0:
+                for w in weapons:
+                    if isinstance(w, dict) and w.get("id") == item_id:
+                        name = w.get("name", "?")
+                        break
+            else:
+                for a in armors:
+                    if isinstance(a, dict) and a.get("id") == item_id:
+                        name = a.get("name", "?")
+                        break
+
+            parts.append(f"{slot_name}={name}(id={item_id})")
+
+        return "[" + ", ".join(parts) + "]"
+    except Exception:
+        return str(equips)

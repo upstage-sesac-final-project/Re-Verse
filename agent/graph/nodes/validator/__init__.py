@@ -14,13 +14,17 @@ from agent.graph.nodes.validator.responder import build_final_response
 from agent.graph.nodes.validator.retry_loop import run_partial_retry
 from agent.graph.nodes.validator.schema_check import validate_changed_files
 
-logger = logging.getLogger(__name__)
+from agent.constants import MAX_RETRY
 
-MAX_RETRY = 2
+logger = logging.getLogger(__name__)
 
 
 async def validator(state: dict) -> dict:
     """Validator node entry point."""
+    import time
+    _t0 = time.perf_counter()
+    logger.info("─── Validator START ────────────────────────────────")
+
     changes_log: list[dict] = state.get("changes_log", [])
     execution_plan: list[dict] = state.get("execution_plan", [])
     operation_tuples: list[dict] = state.get("operation_tuples", [])
@@ -29,6 +33,11 @@ async def validator(state: dict) -> dict:
     user_input: str = state.get("user_input", "")
     resolved_input: str = state.get("resolved_input", "")
     retry_count: int = state.get("retry_count", 0)
+
+    logger.info(
+        "[Validator] entries=%d retry=%d ops=%d",
+        len(changes_log), retry_count, len(operation_tuples),
+    )
 
     # 1. 실행 중 실패가 있었는지 확인
     exec_failures = [e for e in changes_log if not e.get("success")]
@@ -41,6 +50,11 @@ async def validator(state: dict) -> dict:
             if retried.get("success"):
                 changes_log = retried["changes_log"]
             else:
+                elapsed = time.perf_counter() - _t0
+                logger.info(
+                    "─── Validator END (elapsed=%.2fs, result=FAIL, reason=exec_retry_failed) ──",
+                    elapsed,
+                )
                 return {
                     "success": False,
                     "retry_count": retry_count + 1,
@@ -72,6 +86,11 @@ async def validator(state: dict) -> dict:
 
     if schema_failures:
         summary = f"Schema 검증 실패: {len(schema_failures)} 파일"
+        elapsed = time.perf_counter() - _t0
+        logger.info(
+            "─── Validator END (elapsed=%.2fs, result=FAIL, reason=schema) ─────",
+            elapsed,
+        )
         return {
             "success": False,
             "retry_count": retry_count + 1,
@@ -126,6 +145,12 @@ async def validator(state: dict) -> dict:
     summary = "성공" if success else f"의미 검증 실패: {len(judge_failures)} 건"
     judge_reasons = [f["reason"] for f in judge_failures]
 
+    elapsed = time.perf_counter() - _t0
+    logger.info(
+        "─── Validator END (elapsed=%.2fs, result=%s, schema_fail=%d, judge_fail=%d) ──",
+        elapsed, "OK" if success else "FAIL",
+        len(schema_failures), len(judge_failures),
+    )
     return {
         "success": success,
         "retry_count": retry_count + (0 if success else 1),

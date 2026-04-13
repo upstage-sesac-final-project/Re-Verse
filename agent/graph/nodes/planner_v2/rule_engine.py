@@ -17,6 +17,14 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+from agent.constants import (
+    ALL_ENTITY_FILES,
+    ARRAY_FIELDS,
+    FIELD_REROUTE_FIXES,
+    FUZZY_THRESHOLD,
+    SYSTEM_DEDICATED_FIELDS,
+    SYSTEM_TYPE_ARRAY_NAMES,
+)
 from agent.graph.nodes.planner_v2.dependencies import (
     Requirement,
     lookup_requirements,
@@ -24,15 +32,6 @@ from agent.graph.nodes.planner_v2.dependencies import (
 from agent.graph.nodes.planner_v2.array_op_resolver import resolve_array_op
 
 logger = logging.getLogger(__name__)
-
-# SequenceMatcher 임계값 — 이름 검색 시 퍼지 매칭 최소 유사도
-_FUZZY_THRESHOLD = 0.6
-
-# entity 파일 집합 — subject 재라우팅 등에 사용
-_ALL_ENTITY_FILES = (
-    "Enemies.json", "Actors.json", "Classes.json", "Skills.json",
-    "Items.json", "Weapons.json", "Armors.json", "States.json",
-)
 
 
 # ──────────────────────────────────────────────
@@ -48,7 +47,7 @@ def _load_json(data_path: Path, filename: str) -> Any:
 
 
 def _find_entity_by_name(
-    data: list, name: str, threshold: float = _FUZZY_THRESHOLD
+    data: list, name: str, threshold: float = FUZZY_THRESHOLD
 ) -> dict | None:
     """이름 완전 일치 → 부분 일치 → fuzzy 매칭 순서로 탐색."""
     if not name or not isinstance(data, list):
@@ -114,17 +113,7 @@ def _next_system_type_index(system_data: dict, key: str) -> int:
 
 # 파일 재라우팅 시 field 가 새 파일과 호환되지 않을 때 교정하는 규칙
 # (원래 field, 새 파일이 아닌 파일 종류) → (교정된 field, 추가 value 패치)
-_FIELD_REROUTE_FIXES: dict[str, dict[str, Any]] = {
-    # Skills.json 의 damage.elementId → 다른 파일에서는 traits 공격 속성
-    "damage.elementId": {
-        "field": "traits",
-        "value_patch": {"array_op": "update", "match_hint": "공격 속성"},
-    },
-    "elementId": {
-        "field": "traits",
-        "value_patch": {"array_op": "update", "match_hint": "공격 속성"},
-    },
-}
+# FIELD_REROUTE_FIXES 는 agent.constants 에서 import
 
 
 def _fix_field_after_reroute(
@@ -134,13 +123,13 @@ def _fix_field_after_reroute(
     value: dict,
 ) -> tuple[dict, str | None, dict]:
     """파일 재라우팅 후 field 호환성 교정."""
-    if not field or field not in _FIELD_REROUTE_FIXES:
+    if not field or field not in FIELD_REROUTE_FIXES:
         return op, field, value
     # Skills.json 전용 field 가 다른 파일로 갔을 때만 교정
     if new_file == "Skills.json":
         return op, field, value
 
-    fix = _FIELD_REROUTE_FIXES[field]
+    fix = FIELD_REROUTE_FIXES[field]
     new_field = fix["field"]
     value_patch = fix.get("value_patch", {})
 
@@ -169,16 +158,7 @@ def _next_entity_id(data: list) -> int:
 # System.json 전용 플래닝
 # ──────────────────────────────────────────────
 
-# field 이름 → executor action_type 매핑 (정확히 매칭되는 전용 액션)
-_SYSTEM_DEDICATED_FIELDS: dict[str, str] = {
-    "gameTitle": "update_game_title",
-    "game_title": "update_game_title",
-}
-
-# System.json 의 타입 배열들
-_SYSTEM_TYPE_ARRAYS = {
-    "skillTypes", "weaponTypes", "armorTypes", "equipTypes", "elements",
-}
+# SYSTEM_DEDICATED_FIELDS, SYSTEM_TYPE_ARRAY_NAMES 는 agent.constants 에서 import
 
 
 def _extract_system_value(value: dict) -> Any:
@@ -233,7 +213,7 @@ def _plan_system_operation(
     raw_value = _extract_system_value(value)
 
     # 1) 전용 액션이 있는 필드
-    dedicated = _SYSTEM_DEDICATED_FIELDS.get(field)
+    dedicated = SYSTEM_DEDICATED_FIELDS.get(field)
     if dedicated:
         target_info: dict[str, Any] = {}
         if dedicated == "update_game_title":
@@ -249,7 +229,7 @@ def _plan_system_operation(
         }]
 
     # 2) 타입 배열 추가
-    if field in _SYSTEM_TYPE_ARRAYS:
+    if field in SYSTEM_TYPE_ARRAY_NAMES:
         return [{
             "step_id": step_offset,
             "action_type": "append_system_type",
@@ -737,7 +717,7 @@ def _plan_delete(
     ]
 
 
-_ARRAY_FIELDS = frozenset({"traits", "effects", "actions", "dropItems", "learnings"})
+# ARRAY_FIELDS 는 agent.constants 에서 import 됨
 
 
 def _build_updates_dict(
@@ -756,7 +736,7 @@ def _build_updates_dict(
         return dict(value["raw_updates"])
 
     # 범용 배열 요소 조작 — array_op 이 설정되어 있으면 우선 처리
-    if value.get("array_op") and field in _ARRAY_FIELDS and data_path is not None:
+    if value.get("array_op") and field in ARRAY_FIELDS and data_path is not None:
         op = resolve_array_op(target_file, field, value, data_path)
         if op is not None:
             return {"_array_op": op}

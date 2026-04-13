@@ -17,14 +17,21 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from agent.constants import (
+    FILE_NEEDS_COMMON,
+    INT_FIELDS_IN_ACTIONS,
+    INT_FIELDS_IN_DROP_ITEMS,
+    INT_FIELDS_IN_LEARNINGS,
+    INT_FIELDS_TOP_LEVEL,
+    SKIP_FILES,
+)
 from agent.core.llm_client import invoke_llm
 from agent.utils.game_data_io import get_game_data_dir
 from agent.prompts.profiler_prompt import build_profiler_system_prompt, build_profiler_user_prompt
 
 logger = logging.getLogger(__name__)
 
-# profiler 가 skip 하는 파일 (create 가 필요 없거나 의미적 생성이 불필요)
-_SKIP_FILES = frozenset({"System.json", "MapInfos.json", "Map"})
+# SKIP_FILES 는 agent.constants 에서 import
 
 # ──────────────────────────────────────────────
 # 스키마 레퍼런스 로더 — rpgmaker-mz-data-schema-update.md 에서
@@ -39,18 +46,7 @@ _SCHEMA_SECTIONS: dict[str, str] = {}
 # 공통 서브구조 텍스트 (Trait, Damage, Effect, scope 등)
 _COMMON_SUB_SECTIONS: str = ""
 
-# 각 파일이 참조하는 공통 서브구조 키워드
-# (파일 섹션 안에 이미 인라인된 서브구조는 제외)
-_FILE_NEEDS_COMMON: dict[str, list[str]] = {
-    "Enemies.json": ["Trait"],
-    "Actors.json": ["Trait"],
-    "Armors.json": ["Trait"],
-    "Weapons.json": ["Trait"],
-    "Skills.json": ["Damage", "Effect", "scope"],
-    "Items.json": ["Damage", "Effect", "scope"],
-    "Classes.json": ["Trait"],
-    "States.json": ["Trait"],
-}
+# FILE_NEEDS_COMMON 는 agent.constants 에서 import
 
 
 def _load_schema_sections() -> None:
@@ -61,7 +57,7 @@ def _load_schema_sections() -> None:
         return  # 이미 로드됨
 
     if not _SCHEMA_REF_PATH.exists():
-        logger.warning("[profiler] 스키마 레퍼런스 파일 없음: %s", _SCHEMA_REF_PATH)
+        logger.warning("[Profiler] 스키마 레퍼런스 파일 없음: %s", _SCHEMA_REF_PATH)
         return
 
     text = _SCHEMA_REF_PATH.read_text(encoding="utf-8")
@@ -81,7 +77,7 @@ def _load_schema_sections() -> None:
             _SCHEMA_SECTIONS[header] = part
 
     logger.info(
-        "[profiler] 스키마 레퍼런스 로드 완료: %d 섹션", len(_SCHEMA_SECTIONS),
+        "[Profiler] 스키마 레퍼런스 로드 완료: %d 섹션", len(_SCHEMA_SECTIONS),
     )
 
 
@@ -97,7 +93,7 @@ def get_schema_reference(target_file: str) -> str:
         return ""
 
     # 공통 서브구조 중 이 파일이 참조하는 부분만 추출
-    needed = _FILE_NEEDS_COMMON.get(target_file, [])
+    needed = FILE_NEEDS_COMMON.get(target_file, [])
     common_parts: list[str] = []
     if needed and _COMMON_SUB_SECTIONS:
         # ### 헤더 기준으로 서브섹션 분할
@@ -125,19 +121,30 @@ async def profiler(state: dict) -> dict:
 
     execution_plan 내 create step 에 _needs_profiling=True 인 것들에 대해 LLM 호출.
     """
+    import time
+    _t0 = time.perf_counter()
+    logger.info("─── Profiler START ─────────────────────────────────")
+
     plan: list[dict] = state.get("execution_plan", [])
     game_id: str = state.get("game_id", "")
 
     enriched_plan = list(plan)  # shallow copy
+    profiled_count = 0
     for idx, step in enumerate(enriched_plan):
         if not step.get("_needs_profiling"):
             continue
         target_file = step.get("target_file", "")
-        if target_file in _SKIP_FILES:
+        if target_file in SKIP_FILES:
             continue
         enriched = await profile_one(step, game_id=game_id)
         enriched_plan[idx] = enriched
+        profiled_count += 1
 
+    elapsed = time.perf_counter() - _t0
+    logger.info(
+        "─── Profiler END (elapsed=%.2fs, profiled=%d/%d) ──────────",
+        elapsed, profiled_count, len(plan),
+    )
     return {"execution_plan": enriched_plan}
 
 
@@ -175,7 +182,7 @@ async def profile_one(
                 if v is not None:
                     target_info[k] = v
     except Exception as e:
-        logger.error("[profiler] LLM 호출 실패 step=%s: %s", step.get("step_id"), e)
+        logger.error("[Profiler] LLM 호출 실패 step=%s: %s", step.get("step_id"), e)
 
     # LLM 출력 후처리 — 알려진 정수 필드를 강제 변환
     _coerce_int_fields(target_info, target_file)
@@ -185,7 +192,7 @@ async def profile_one(
     enriched_step.pop("_needs_profiling", None)
 
     logger.info(
-        "[profiler] step=%s file=%s name='%s' fields=%s",
+        "[Profiler] step=%s file=%s name='%s' fields=%s",
         step.get("step_id"),
         target_file,
         target_info.get("name", "?"),
@@ -248,21 +255,13 @@ def _parse_json_from_response(text: str) -> dict | None:
 # 후처리 — LLM 이 잘못 넣은 타입을 강제 보정
 # ──────────────────────────────────────────────
 
-# 반드시 int 여야 하는 중첩 필드들
-_INT_FIELDS_IN_ACTIONS = {"conditionParam1", "conditionParam2", "conditionType", "rating", "skillId"}
-_INT_FIELDS_IN_DROP_ITEMS = {"dataId", "denominator", "kind"}
-_INT_FIELDS_IN_LEARNINGS = {"level", "skillId"}
-_INT_TOP_LEVEL = {"exp", "gold", "price", "stypeId", "mpCost", "tpCost", "scope",
-                  "occasion", "hitType", "successRate", "repeats", "tpGain",
-                  "animationId", "itypeId", "wtypeId", "etypeId", "atypeId",
-                  "classId", "initialLevel", "maxLevel", "iconIndex",
-                  "restriction", "priority"}
+# 정수 필드 집합은 agent.constants 에서 import
 
 
 def _coerce_int_fields(info: dict, target_file: str) -> None:
     """알려진 정수 필드에 float 이 들어왔으면 int 로 변환."""
     # top-level
-    for key in _INT_TOP_LEVEL:
+    for key in INT_FIELDS_TOP_LEVEL:
         if key in info and isinstance(info[key], float):
             info[key] = int(info[key])
 
@@ -274,7 +273,7 @@ def _coerce_int_fields(info: dict, target_file: str) -> None:
     if isinstance(info.get("actions"), list):
         for act in info["actions"]:
             if isinstance(act, dict):
-                for k in _INT_FIELDS_IN_ACTIONS:
+                for k in INT_FIELDS_IN_ACTIONS:
                     if k in act and isinstance(act[k], float):
                         act[k] = int(act[k])
 
@@ -282,7 +281,7 @@ def _coerce_int_fields(info: dict, target_file: str) -> None:
     if isinstance(info.get("dropItems"), list):
         for item in info["dropItems"]:
             if isinstance(item, dict):
-                for k in _INT_FIELDS_IN_DROP_ITEMS:
+                for k in INT_FIELDS_IN_DROP_ITEMS:
                     if k in item and isinstance(item[k], float):
                         item[k] = int(item[k])
 
@@ -290,7 +289,7 @@ def _coerce_int_fields(info: dict, target_file: str) -> None:
     if isinstance(info.get("learnings"), list):
         for lr in info["learnings"]:
             if isinstance(lr, dict):
-                for k in _INT_FIELDS_IN_LEARNINGS:
+                for k in INT_FIELDS_IN_LEARNINGS:
                     if k in lr and isinstance(lr[k], float):
                         lr[k] = int(lr[k])
 
