@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from agent.generation.mapgen import calculate_spawn_point
+from agent.generation.mapgen.tile_checker import find_nearest_safe_coord
 from agent.generation.models import GameSpec, MapSpec
 from agent.generation.progress import publish_progress
 from agent.generation.registry.id_table import IdTable
@@ -672,8 +673,25 @@ def build_map_json(spec: MapSpec, tile_data: list[int], events: list[dict]) -> d
     }
 
 
-def translate_map_ids(map_json: dict, id_mapping: dict[int, int]) -> dict:
-    """맵 JSON 내부의 '장소 이동(201)' 이벤트 목적지 ID를 새 번호로 번역."""
+def translate_map_ids(
+    map_json: dict,
+    id_mapping: dict[int, int],
+    map_specs: list[MapSpec] | None = None,
+    map_tiles: dict[int, list[int]] | None = None,
+    tilesets: list | None = None,
+) -> dict:
+    """맵 JSON 내부의 '장소 이동(201)' 이벤트 목적지 ID를 새 번호로 번역 및 좌표 보정.
+
+    1. ID 번역: 삭제된 맵(1~5번) 참조를 이번 게임에서 생성된 유효한 ID로 변경.
+    2. 좌표 보정: 이동 목적지가 통행 불가능한 타일(물 등)인 경우 근처 안전한 타일로 수정.
+    """
+    if not id_mapping:
+        return map_json
+
+    # 리다이렉션할 기본 목적지 후보들 (ID 리스트)
+    valid_ids = sorted(id_mapping.values())
+    fallback_id = valid_ids[0]  # 기본값: 첫 번째 맵
+
     events = map_json.get("events", [])
     for event in events:
         if event is None:
@@ -685,15 +703,52 @@ def translate_map_ids(map_json: dict, id_mapping: dict[int, int]) -> dict:
                 # 코드 201: 장소 이동 (Transfer Player)
                 if cmd.get("code") == 201:
                     params = cmd.get("parameters", [])
-                    if len(params) > 1 and params[0] == 0:
+                    if len(params) > 1 and params[0] == 0:  # 0: 직접 지정 방식
+                        # 1. 맵 ID 번역
                         old_map_id = params[1]
                         if old_map_id in id_mapping:
                             params[1] = id_mapping[old_map_id]
-                            logger.debug(
-                                "이벤트 ID 번역: Map %d -> %d",
+                        else:
+                            params[1] = fallback_id
+                            logger.info(
+                                "후처리 리다이렉션: 존재하지 않는 맵 참조 %d를 유효한 맵 %d로 변경했습니다.",
                                 old_map_id,
-                                id_mapping[old_map_id],
+                                fallback_id,
                             )
+
+                        # 2. 좌표 안전성 체크 (룰베이스 후처리)
+                        target_map_id = params[1]
+                        target_x = params[2] if len(params) > 2 else 0
+                        target_y = params[3] if len(params) > 3 else 0
+
+                        if map_specs and map_tiles and tilesets:
+                            target_spec = next(
+                                (s for s in map_specs if s.map_id == target_map_id), None
+                            )
+                            target_data = map_tiles.get(target_map_id)
+
+                            if target_spec and target_data:
+                                # 비트연산 기반 통행성 체크 및 보정
+                                new_x, new_y = find_nearest_safe_coord(
+                                    target_data,
+                                    target_x,
+                                    target_y,
+                                    target_spec.width,
+                                    target_spec.height,
+                                    target_spec.tileset_id,
+                                    tilesets,
+                                )
+
+                                if (new_x, new_y) != (target_x, target_y):
+                                    params[2], params[3] = new_x, new_y
+                                    logger.info(
+                                        "장소 이동(201) 좌표 보정: Map%d (%d,%d) -> (%d,%d) (안전 타일로 이동)",
+                                        target_map_id,
+                                        target_x,
+                                        target_y,
+                                        new_x,
+                                        new_y,
+                                    )
     return map_json
 
 
@@ -795,7 +850,13 @@ async def integrator(state: GenerationState) -> dict:
             fname = f"Map{spec.map_id:03d}.json"
             map_json = build_map_json(spec, tile_data, events)
             if id_mapping:
-                map_json = translate_map_ids(map_json, id_mapping)
+                map_json = translate_map_ids(
+                    map_json,
+                    id_mapping,
+                    map_specs=map_specs,
+                    map_tiles=map_tiles,
+                    tilesets=tilesets,
+                )
 
             # 캐릭터 에셋 이름 보정 (대소문자/기호 불일치 해결)
             map_json = fix_character_filenames(map_json)
