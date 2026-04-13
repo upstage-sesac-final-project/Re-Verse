@@ -81,8 +81,6 @@ function serveGameFiles() {
 export default defineConfig(({ mode }) => {
   const root = resolve(__dirname, '../..')
   const env = loadEnv(mode, root, '')
-  // 호스트에서 npm run dev: 127.0.0.1 (backend 호스트·도커 8000 포트)
-  // docker compose frontend-dev: 환경변수로 http://backend:8000 주입
   const proxyTarget = env.VITE_DEV_PROXY_TARGET || 'http://127.0.0.1:8000'
 
   return {
@@ -94,8 +92,8 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: proxyTarget,
           changeOrigin: true,
+          ws: true,
         },
-        // 로컬에 파일이 없을 때(또는 compose 안 프론트) 백엔드 StaticFiles로 폴백
         '/game': {
           target: proxyTarget,
           changeOrigin: true,
