@@ -8,6 +8,7 @@ __pycache__/
 .Python
 .venv/
 venv/
+venv.*/
 env/
 .uv/
 dist/
@@ -39,9 +40,8 @@ app/frontend/dist/
 # =============================================================================
 # 환경 변수 / 시크릿
 # =============================================================================
-.env
-.env.local
-.env.*.local
+.env.development
+.env.production
 *.pem
 *.key
 

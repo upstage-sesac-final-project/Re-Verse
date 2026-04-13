@@ -2,22 +2,35 @@
 Configuration Settings
 환경 변수를 관리하는 설정 파일
 
-배포 시(EC2 Docker) GitHub Actions의 ENV_FILE 시크릿으로 .env가 생성되며,
-로컬은 .env 또는 기본값을 사용합니다.
+APP_ENV 환경변수에 따라 .env.development 또는 .env.production을 자동 선택한다.
+배포 시(EC2 Docker) GitHub Actions의 ENV_FILE 시크릿으로 .env.production이 생성되며,
+로컬은 .env.development 또는 기본값을 사용합니다.
 """
 
 import json
+import os
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _resolve_env_file() -> str:
+    """APP_ENV 값에 따라 .env.development 또는 .env.production 경로를 반환한다."""
+    raw = (os.getenv("APP_ENV") or "development").lower().strip()
+    env_name = "production" if raw in ("prod", "production") else "development"
+    candidate = _PROJECT_ROOT / f".env.{env_name}"
+    return str(candidate if candidate.exists() else _PROJECT_ROOT / ".env")
 
 
 class Settings(BaseSettings):
     """애플리케이션 설정"""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_resolve_env_file(),
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
