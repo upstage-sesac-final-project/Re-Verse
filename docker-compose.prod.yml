@@ -8,11 +8,7 @@ services:
       context: .
       dockerfile: docker/backend.Dockerfile
       args:
-        # 다중 MCP 리포 URL (비워두면 해당 키는 빌드 스킵)
-        MCP_REPO_DEFAULT: ${MCP_REPO_DEFAULT:-https://github.com/k4zuki0539/-rpgmaker-mz-mcp.git}
-        MCP_REPO_MAKER: ${MCP_REPO_MAKER:-}
-        MCP_REPO_LOWER: ${MCP_REPO_LOWER:-}
-        MCP_REPO_UNDERSCORE: ${MCP_REPO_UNDERSCORE:-}
+        MCP_REPO: ${MCP_REPO:-https://github.com/rein1225/RPGMakerMZ_MCP.git}
     ports:
       - "8000:8000"  # EC2에서 외부 접근 허용
     env_file: .env.production
