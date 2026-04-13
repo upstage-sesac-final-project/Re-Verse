@@ -2,14 +2,14 @@
 
 8노드:
   router → reader(조회) → END
-  router → definition → game_index_resolve → planner_v2 → [profiler] → executor_v2 → validator_v2 → synthesizer → END
+  router → definition → game_index_resolve → planner_v2 → [profiler] → executor_v2 → validator → synthesizer → END
 
 v2 변경사항:
   - game_index_resolve: 엔티티/참조 ID 를 GameIndex 로 결정론적 확정
   - planner_v2: rule-engine 기반 (LLM 0회)
   - profiler: create step 빈 필드 의미적 채우기
   - executor_v2: RPGMakerCRUD + array_op
-  - validator_v2: schema 검증 + semantic judge + partial retry (backedge 없음)
+  - validator: schema 검증 + semantic judge + partial retry (backedge 없음)
 """
 
 from langgraph.graph import END, START, StateGraph
@@ -22,7 +22,7 @@ from agent.graph.nodes.profiler import profiler
 from agent.graph.nodes.reader import reader
 from agent.graph.nodes.router import router
 from agent.graph.nodes.synthesizer import synthesizer
-from agent.graph.nodes.validator_v2 import validator as validator_v2
+from agent.graph.nodes.validator import validator
 from agent.graph.routing import route_after_definition, route_after_router
 from agent.graph.state import AgentState
 
@@ -47,7 +47,7 @@ def build_graph() -> StateGraph:
                     └→ game_index_resolve → planner_v2
                          ├→ (create step 있음) → profiler → executor_v2
                          └→ (create 없음) → executor_v2
-                              └→ validator_v2 → synthesizer → END
+                              └→ validator → synthesizer → END
     """
     builder = StateGraph(AgentState)
 
@@ -59,7 +59,7 @@ def build_graph() -> StateGraph:
     builder.add_node("planner", planner_v2)
     builder.add_node("profiler", profiler)
     builder.add_node("executor", executor_v2)
-    builder.add_node("validator", validator_v2)
+    builder.add_node("validator", validator)
     builder.add_node("synthesizer", synthesizer)
 
     # ── 진입점 ─────────────────────────────────────────────
@@ -77,7 +77,7 @@ def build_graph() -> StateGraph:
         {"planner": "game_index_resolve", "__end__": END},
     )
     builder.add_edge("game_index_resolve", "planner")
-    # validator_v2 는 내부에서 partial retry 처리. backedge 없이 항상 synthesizer 로.
+    # validator 는 내부에서 partial retry 처리. backedge 없이 항상 synthesizer 로.
     builder.add_edge("validator", "synthesizer")
 
     # planner → profiler 또는 executor (조건부)

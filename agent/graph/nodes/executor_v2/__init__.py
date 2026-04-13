@@ -37,7 +37,7 @@ async def executor(state: dict) -> dict:
     logger.info("─── executor START ─────────────────────────────")
 
     # retry 추적 상태 초기화 (매 실행 시작 시)
-    from agent.graph.nodes.validator_v2.retry_loop import reset_retry_state
+    from agent.graph.nodes.validator.retry_loop import reset_retry_state
     reset_retry_state()
 
     if not game_id:

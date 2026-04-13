@@ -133,7 +133,7 @@ def build_prompt(state: AgentState) -> list[BaseMessage]:
     return _build_summary_prompt(state)
 
 
-# ── semantic judge 프롬프트 (validator_v2 전용) ──────────────────────────
+# ── semantic judge 프롬프트 (validator 전용) ──────────────────────────
 
 def build_judge_system_prompt() -> str:
     return """\
