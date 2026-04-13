@@ -8,9 +8,10 @@ canonical: docs/The_world/game_ending_design.md §check_ending_reachable
 """
 
 import logging
+from collections import deque
 
 from agent.generation.balance import check_balance as simulate_check_balance
-from agent.generation.models import MapSpec
+from agent.generation.models import MapConnectionInfo, MapSpec
 from agent.generation.progress import publish_progress
 from agent.generation.registry.id_table import IdTable
 from agent.generation.registry.switch_table import SwitchTable
@@ -258,12 +259,17 @@ def _check_ending_reachable(
     id_table: IdTable,
     switch_table: SwitchTable,
 ) -> list[str]:
-    """보스 맵에 도달 가능한 엔딩 이벤트(code 353/354) 존재 여부 검증 (R23)."""
+    """마지막 맵(보스 구역)에 도달 가능한 엔딩 이벤트(code 353/354) 존재 여부 검증 (R23).
+
+    map_type은 town/dungeon만 사용하므로, map_id가 가장 큰 맵을 보스 구역으로 간주한다.
+    """
     errors = []
-    boss_maps = [m for m in map_specs if m.map_type == "boss"]
-    if not boss_maps:
-        errors.append("[R23] 보스 맵 없음 — 게임 엔딩 불가")
+    if not map_specs:
+        errors.append("[R23] 맵이 없음 — 게임 엔딩 불가")
         return errors
+
+    # map_id 최대값 = 마지막 맵 = 보스 구역
+    boss_maps = [max(map_specs, key=lambda m: m.map_id)]
 
     for boss_map in boss_maps:
         mid = id_table.get_id("maps", boss_map.name)
@@ -283,6 +289,252 @@ def _check_ending_reachable(
         errors.append("[R23] 보스 처치 스위치(_defeated)가 SwitchTable에 없음")
 
     return errors
+
+
+# ── 맵 도달 가능성 검증 + auto_repair ────────────────────────────────────────
+
+
+def _extract_transfer_graph(
+    compiled_events: dict[int, list[dict]],
+) -> dict[int, set[int]]:
+    """compiled_events에서 TransferEvent(code 201) 기반 이동 그래프 추출.
+
+    Returns:
+        {from_map_id: {to_map_id, ...}} 형태의 인접 리스트
+    """
+    graph: dict[int, set[int]] = {mid: set() for mid in compiled_events}
+    for from_map_id, events in compiled_events.items():
+        for event in events:
+            if event is None:
+                continue
+            for page in event.get("pages", []):
+                for cmd in page.get("list", []):
+                    if cmd.get("code") == 201:
+                        params = cmd.get("parameters", [])
+                        # parameters: [0, to_map_id, to_x, to_y, direction, 0]
+                        if len(params) >= 2 and isinstance(params[1], int) and params[1] > 0:
+                            graph[from_map_id].add(params[1])
+    return graph
+
+
+def _check_map_reachability(
+    compiled_events: dict[int, list[dict]],
+    map_specs: list[MapSpec],
+    id_table: IdTable,
+) -> list[int]:
+    """컴파일된 TransferEvent 기반 BFS로 고립된 맵 ID 목록 반환 (R25).
+
+    시작점: town 맵 우선, 없으면 첫 번째 맵.
+    """
+    if not compiled_events or not map_specs:
+        return []
+
+    # 시작 맵 결정
+    town_specs = [s for s in map_specs if s.map_type == "town"]
+    start_spec = town_specs[0] if town_specs else map_specs[0]
+    start_map_id = id_table.get_id("maps", start_spec.name)
+    if start_map_id is None:
+        return []
+
+    graph = _extract_transfer_graph(compiled_events)
+    all_map_ids = set(compiled_events.keys())
+
+    visited: set[int] = {start_map_id}
+    queue: deque[int] = deque([start_map_id])
+    while queue:
+        cur = queue.popleft()
+        for nxt in graph.get(cur, set()):
+            if nxt in all_map_ids and nxt not in visited:
+                visited.add(nxt)
+                queue.append(nxt)
+
+    isolated = sorted(all_map_ids - visited)
+    if isolated:
+        logger.warning("_check_map_reachability: 고립된 맵 ID %s", isolated)
+    return isolated
+
+
+def _make_warp_event(
+    event_id: int,
+    name: str,
+    x: int,
+    y: int,
+    to_map_id: int,
+    to_x: int,
+    to_y: int,
+) -> dict:
+    """워프 전용 RPG Maker MZ 이벤트 dict 생성 (NPC/스토리 없음)."""
+    return {
+        "id": event_id,
+        "name": name,
+        "note": "",
+        "pages": [
+            {
+                "conditions": {
+                    "actorId": 1,
+                    "actorValid": False,
+                    "itemId": 1,
+                    "itemValid": False,
+                    "selfSwitchCh": "A",
+                    "selfSwitchValid": False,
+                    "switch1Id": 1,
+                    "switch1Valid": False,
+                    "switch2Id": 1,
+                    "switch2Valid": False,
+                    "variableId": 1,
+                    "variableValid": False,
+                    "variableValue": 0,
+                },
+                "directionFix": True,
+                "image": {
+                    "characterIndex": 0,
+                    "characterName": "!Crystal",
+                    "direction": 2,
+                    "pattern": 0,
+                    "tileId": 0,
+                },
+                "list": [
+                    {"code": 201, "indent": 0, "parameters": [0, to_map_id, to_x, to_y, 0, 0]},
+                    {"code": 0, "indent": 0, "parameters": []},
+                ],
+                "moveFrequency": 3,
+                "moveRoute": {
+                    "list": [{"code": 0, "parameters": []}],
+                    "repeat": True,
+                    "skippable": False,
+                    "wait": False,
+                },
+                "moveSpeed": 3,
+                "moveType": 0,
+                "priorityType": 1,
+                "stepAnime": False,
+                "through": False,
+                "trigger": 1,  # player_touch
+                "walkAnime": True,
+            }
+        ],
+        "x": x,
+        "y": y,
+    }
+
+
+def _auto_repair_isolated_maps(
+    isolated_map_ids: list[int],
+    compiled_events: dict[int, list[dict]],
+    final_project: dict,
+    map_specs: list[MapSpec],
+    connection_info: dict[int, MapConnectionInfo],
+    id_table: IdTable,
+) -> tuple[dict[int, list[dict]], dict]:
+    """고립된 맵의 exit_tiles 기반으로 워프 이벤트만 양방향 삽입.
+
+    Returns:
+        수정된 (compiled_events, final_project) 튜플
+    """
+    # id → name 역매핑
+    id_to_map_name: dict[int, str] = {v: k for k, v in id_table.maps.items()}
+    # map_id → MapSpec
+    spec_by_id: dict[int, MapSpec] = {s.map_id: s for s in map_specs}
+
+    for iso_map_id in isolated_map_ids:
+        iso_spec = spec_by_id.get(iso_map_id)
+        if not iso_spec:
+            continue
+
+        ci = connection_info.get(iso_map_id)
+        if not ci or not ci.exit_tiles:
+            logger.warning("auto_repair: map_id=%d exit_tiles 없음 → 스킵", iso_map_id)
+            continue
+
+        for exit_tile in ci.exit_tiles:
+            to_map_id: int = exit_tile.get("to_map_id", 0)
+            ex: int = exit_tile.get("x", iso_spec.width // 2)
+            ey: int = exit_tile.get("y", iso_spec.height // 2)
+            to_map_name = id_to_map_name.get(to_map_id)
+            if not to_map_name:
+                continue
+
+            to_spec = spec_by_id.get(to_map_id)
+            to_x = to_spec.spawn_point[0] if to_spec else 1
+            to_y = to_spec.spawn_point[1] if to_spec else 1
+
+            # ── 고립 맵 → 목적지 워프 삽입 ───────────────────────────────
+            iso_events = compiled_events.get(iso_map_id, [])
+            new_id = max((e.get("id", 0) for e in iso_events), default=0) + 1
+            warp = _make_warp_event(
+                event_id=new_id,
+                name=f"{to_map_name}_워프",
+                x=ex,
+                y=ey,
+                to_map_id=to_map_id,
+                to_x=to_x,
+                to_y=to_y,
+            )
+            iso_events.append(warp)
+            compiled_events[iso_map_id] = iso_events
+
+            map_key = f"Map{iso_map_id:03d}.json"
+            if map_key in final_project:
+                final_project[map_key]["events"].append(warp)
+
+            logger.info(
+                "auto_repair: Map%d → '%s' 워프 이벤트 삽입 (%d,%d)",
+                iso_map_id,
+                to_map_name,
+                ex,
+                ey,
+            )
+
+            # ── 목적지 → 고립 맵 역방향 워프도 누락 시 삽입 ─────────────
+            dest_events = compiled_events.get(to_map_id, [])
+            has_return = any(
+                any(
+                    cmd.get("code") == 201 and cmd.get("parameters", [None, None])[1] == iso_map_id
+                    for cmd in page.get("list", [])
+                )
+                for ev in dest_events
+                for page in ev.get("pages", [])
+            )
+            if not has_return:
+                dest_ci = connection_info.get(to_map_id)
+                ret_tile = next(
+                    (
+                        t
+                        for t in (dest_ci.exit_tiles if dest_ci else [])
+                        if t.get("to_map_id") == iso_map_id
+                    ),
+                    None,
+                )
+                rx = ret_tile["x"] if ret_tile else (to_spec.width // 2 if to_spec else 1)
+                ry = ret_tile["y"] if ret_tile else (to_spec.height // 2 if to_spec else 1)
+
+                ret_id = max((e.get("id", 0) for e in dest_events), default=0) + 1
+                iso_name = id_to_map_name.get(iso_map_id, f"Map{iso_map_id}")
+                ret_warp = _make_warp_event(
+                    event_id=ret_id,
+                    name=f"{iso_name}_워프",
+                    x=rx,
+                    y=ry,
+                    to_map_id=iso_map_id,
+                    to_x=ex,
+                    to_y=ey,
+                )
+                dest_events.append(ret_warp)
+                compiled_events[to_map_id] = dest_events
+
+                dest_key = f"Map{to_map_id:03d}.json"
+                if dest_key in final_project:
+                    final_project[dest_key]["events"].append(ret_warp)
+
+                logger.info(
+                    "auto_repair: Map%d ← '%s' 역방향 워프 이벤트 삽입 (%d,%d)",
+                    iso_map_id,
+                    to_map_name,
+                    rx,
+                    ry,
+                )
+
+    return compiled_events, final_project
 
 
 # ── 경고 전용 검증 ────────────────────────────────────────────────────────────
@@ -327,7 +579,7 @@ def _check_switch_semantic_conflicts(switch_table: SwitchTable) -> list[str]:
 
 
 async def generation_validator(state: GenerationState) -> dict:
-    """I 노드: 생성된 프로젝트 파일 검증 (11개 함수)."""
+    """I 노드: 생성된 프로젝트 파일 검증."""
     gen_id = state["generation_id"]
     await publish_progress(
         gen_id,
@@ -345,6 +597,7 @@ async def generation_validator(state: GenerationState) -> dict:
     map_specs: list[MapSpec] = state.get("map_specs") or []
     map_tiles: dict[int, list[int]] = state.get("map_tiles") or {}
     compiled_events: dict[int, list[dict]] = state.get("compiled_events") or {}
+    connection_info: dict[int, MapConnectionInfo] = state.get("connection_info") or {}
     retry_count: int = state.get("retry_count", 0)
 
     errors: list[str] = []
@@ -360,6 +613,38 @@ async def generation_validator(state: GenerationState) -> dict:
     errors.extend(_check_resource_filenames(final_project))
     if map_specs and compiled_events:
         errors.extend(_check_ending_reachable(map_specs, compiled_events, id_table, switch_table))
+
+    # ── 맵 도달 가능성 검증 (R25) ────────────────────────────────────────────
+    # game_designer 단에서 이미 고립 맵이 발생한 경우 event_planner 재시도로 해결 불가
+    # → 즉시 auto_repair로 워프 이벤트 삽입 (retry 루프 제거로 실행 시간 단축)
+    extra_state: dict = {}
+    if map_specs and compiled_events:
+        isolated = _check_map_reachability(compiled_events, map_specs, id_table)
+        if isolated:
+            iso_names = [
+                next(
+                    (s.name for s in map_specs if id_table.get_id("maps", s.name) == mid),
+                    f"Map{mid}",
+                )
+                for mid in isolated
+            ]
+            logger.warning(
+                "generation_validator: 고립 맵 %s → auto_repair 실행 (retry=%d)",
+                iso_names,
+                retry_count,
+            )
+            compiled_events, final_project = _auto_repair_isolated_maps(
+                isolated_map_ids=isolated,
+                compiled_events=compiled_events,
+                final_project=final_project,
+                map_specs=map_specs,
+                connection_info=connection_info,
+                id_table=id_table,
+            )
+            for name in iso_names:
+                warnings.append(f"[R25] 고립된 맵 '{name}' — 워프 이벤트 자동 삽입됨")
+            extra_state["compiled_events"] = compiled_events
+            extra_state["final_project"] = final_project
 
     # ── warning 검증 (통과, 메시지만) ────────────────────────────────────────
     warnings.extend(_check_balance(final_project))
@@ -405,6 +690,7 @@ async def generation_validator(state: GenerationState) -> dict:
         "validation_warnings": warnings,
         "retry_count": retry_count + (0 if validation_passed else 1),
         "completed_phases": completed,
+        **extra_state,
     }
 
 

@@ -12,7 +12,9 @@ from agent.generation.compilers.dsl_models import (
     ChestEvent,
     DslEvent,
     EndingEvent,
+    GateEvent,
     NpcEvent,
+    QuestChestEvent,
     ShopEvent,
     TransferEvent,
 )
@@ -107,6 +109,10 @@ class EventCompiler:
                 return self._compile_shop(dsl_event)  # type: ignore[arg-type]
             case "ending":
                 return self._compile_ending(dsl_event)  # type: ignore[arg-type]
+            case "gate":
+                return self._compile_gate(dsl_event)  # type: ignore[arg-type]
+            case "quest_chest":
+                return self._compile_quest_chest(dsl_event)  # type: ignore[arg-type]
             case _:
                 raise CompileError(f"미지원 DSL 타입: {dsl_event.type}")
 
@@ -165,9 +171,11 @@ class EventCompiler:
     def _compile_transfer(self, event: TransferEvent) -> dict:
         map_id = self.resolve_map_id(event.to_map)
         direction = _DIRECTION_CODE.get(event.direction, 0)
+        trigger = _trigger_code(event.trigger)
 
-        cmds: list[dict] = []
-        cmds.append(
+        # 이동 커맨드 (조건부/비조건부 공통)
+        transfer_cmds: list[dict] = []
+        transfer_cmds.append(
             {
                 "code": 201,
                 "indent": 0,
@@ -176,13 +184,40 @@ class EventCompiler:
         )
         if event.set_switch:
             sw_id = self.resolve_switch_id(event.set_switch)
-            cmds.append({"code": 121, "indent": 0, "parameters": [sw_id, sw_id, 0]})
-        cmds.append({"code": 0, "indent": 0, "parameters": []})
+            transfer_cmds.append({"code": 121, "indent": 0, "parameters": [sw_id, sw_id, 0]})
+        transfer_cmds.append({"code": 0, "indent": 0, "parameters": []})
+
+        if event.condition_switch:
+            # 조건부 워프: 2페이지 구성
+            # 페이지 1 (조건 OFF): blocked_message 출력 또는 빈 이벤트
+            cond_sw_id = self.resolve_switch_id(event.condition_switch)
+            if event.blocked_message:
+                blocked_cmds = _build_dialogue_commands("", 0, "", [event.blocked_message])
+                blocked_cmds.append({"code": 0, "indent": 0, "parameters": []})
+            else:
+                blocked_cmds = [{"code": 0, "indent": 0, "parameters": []}]
+
+            page1 = _make_page(
+                blocked_cmds,
+                _empty_conditions(),
+                trigger,
+                character_name=event.character_name,
+                character_index=event.character_index,
+            )
+            # 페이지 2 (조건 ON): 실제 이동
+            page2 = _make_page(
+                transfer_cmds,
+                _make_switch_condition(cond_sw_id),
+                trigger,
+                character_name=event.character_name,
+                character_index=event.character_index,
+            )
+            return _make_event(event.name, event.x, event.y, [page1, page2])
 
         page = _make_page(
-            cmds,
+            transfer_cmds,
             _empty_conditions(),
-            _trigger_code(event.trigger),
+            trigger,
             character_name=event.character_name,
             character_index=event.character_index,
         )
@@ -192,13 +227,50 @@ class EventCompiler:
 
     def _compile_chest(self, event: ChestEvent) -> dict:
         item_id = self.resolve_item_id(event.item, event.item_type)
+        chest_cmds = self._build_chest_commands(event, item_id)
+
+        if event.condition_switch:
+            # 조건부 chest: 2페이지 구성
+            # 페이지 1 (조건 OFF): 투명 빈 페이지 — chest가 보이지 않음
+            # 페이지 2 (조건 ON): chest 등장 및 아이템 획득
+            cond_sw_id = self.resolve_switch_id(event.condition_switch)
+            page1 = _make_page(
+                [{"code": 0, "indent": 0, "parameters": []}],
+                _empty_conditions(),
+                trigger=0,
+                character_name="",  # 투명 스프라이트
+                character_index=0,
+                through=True,
+                priority=0,
+            )
+            page2 = _make_page(
+                chest_cmds,
+                _make_switch_condition(cond_sw_id),
+                trigger=0,  # action_button
+                character_name=event.character_name,
+                character_index=event.character_index,
+            )
+            return _make_event(event.name, event.x, event.y, [page1, page2])
+
+        page = _make_page(
+            chest_cmds,
+            _empty_conditions(),
+            _trigger_code("action_button"),
+            character_name=event.character_name,
+            character_index=event.character_index,
+        )
+        return _make_event(event.name, event.x, event.y, [page])
+
+    def _build_chest_commands(self, event: ChestEvent, item_id: int) -> list[dict]:
+        """chest 아이템 획득 커맨드 시퀀스 생성 (조건부/비조건부 공통)."""
         cmds: list[dict] = []
 
         # one_time 블록은 111(If)로 감싸고, 내부 커맨드는 indent 1
+        # parameters[2]=1 → "스위치가 OFF일 때" 실행 (아직 열지 않은 경우에만 동작)
         indent = 0
         if event.one_time and event.chest_switch:
             sw_id = self.resolve_switch_id(event.chest_switch)
-            cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 0]})
+            cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 1]})
             indent = 1
 
         if event.dialogue_before:
@@ -231,14 +303,49 @@ class EventCompiler:
             cmds.append({"code": 412, "indent": 0, "parameters": []})  # End If
 
         cmds.append({"code": 0, "indent": 0, "parameters": []})
-        page = _make_page(
-            cmds,
-            _empty_conditions(),
-            _trigger_code("action_button"),
-            character_name=event.character_name,
-            character_index=event.character_index,
-        )
-        return _make_event(event.name, event.x, event.y, [page])
+        return cmds
+
+    def _build_quest_chest_commands(
+        self,
+        item_id: int,
+        item_type: str,
+        amount: int,
+        chest_switch: str,
+        dialogue_before: str = "",
+        dialogue_after: str = "",
+    ) -> list[dict]:
+        """QuestChestEvent 보물상자 페이지용 커맨드 (one_time 고정)."""
+        cmds: list[dict] = []
+        sw_id = self.resolve_switch_id(chest_switch)
+
+        # one_time: chest_switch OFF일 때만 실행
+        cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 1]})
+        indent = 1
+
+        if dialogue_before:
+            cmds.append({"code": 101, "indent": indent, "parameters": ["", 0, 0, 2, ""]})
+            cmds.append({"code": 401, "indent": indent, "parameters": [dialogue_before]})
+
+        item_code = _item_change_code(item_type)
+        if item_code == 126:
+            cmds.append({"code": 126, "indent": indent, "parameters": [item_id, 0, 0, amount]})
+        elif item_code == 127:
+            cmds.append(
+                {"code": 127, "indent": indent, "parameters": [item_id, 0, 0, amount, False]}
+            )
+        elif item_code == 128:
+            cmds.append(
+                {"code": 128, "indent": indent, "parameters": [item_id, 0, 0, amount, False]}
+            )
+
+        if dialogue_after:
+            cmds.append({"code": 101, "indent": indent, "parameters": ["", 0, 0, 2, ""]})
+            cmds.append({"code": 401, "indent": indent, "parameters": [dialogue_after]})
+
+        cmds.append({"code": 121, "indent": indent, "parameters": [sw_id, sw_id, 0]})
+        cmds.append({"code": 412, "indent": 0, "parameters": []})  # End If
+        cmds.append({"code": 0, "indent": 0, "parameters": []})
+        return cmds
 
     # ── Battle ───────────────────────────────────────────────────────────────
 
@@ -248,10 +355,11 @@ class EventCompiler:
         cmds: list[dict] = []
 
         # one_time 블록은 111(If)로 감싸고, 내부 커맨드는 indent+1
+        # parameters[2]=1 → "스위치가 OFF일 때" 실행 (아직 처치하지 않은 경우에만 전투 발생)
         base_indent = 0
         if event.one_time and event.battle_switch:
             sw_id = self.resolve_switch_id(event.battle_switch)
-            cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 0]})
+            cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 1]})
             base_indent = 1
 
         cmds.append(
@@ -282,8 +390,13 @@ class EventCompiler:
                 )
 
         if event.one_time and event.battle_switch:
-            sw_id = self.switch_table.switches[event.battle_switch]
-            cmds.append({"code": 121, "indent": base_indent + 1, "parameters": [sw_id, sw_id, 0]})
+            # on_win에서 이미 ON한 스위치와 중복이면 생략
+            on_win_switches = {a.set_switch for a in event.on_win if a.set_switch}
+            if event.battle_switch not in on_win_switches:
+                sw_id = self.switch_table.switches[event.battle_switch]
+                cmds.append(
+                    {"code": 121, "indent": base_indent + 1, "parameters": [sw_id, sw_id, 0]}
+                )
 
         # If Escape (602)
         cmds.append({"code": 602, "indent": base_indent, "parameters": []})
@@ -299,10 +412,13 @@ class EventCompiler:
             cmds.append({"code": 412, "indent": 0, "parameters": []})  # End If
 
         cmds.append({"code": 0, "indent": 0, "parameters": []})
+        # through=False(기본) + priorityType=1 → 이동 차단
+        # 차단 시 checkEventTriggerThere([0]) 발동 → action_button(0) 이벤트 자동 실행
+        # 플레이어가 몬스터 방향으로 이동 시도하면 막히면서 전투 발동 (player_touch와 동일 체감)
         page = _make_page(
             cmds,
             _empty_conditions(),
-            _trigger_code(event.trigger),
+            trigger=0,  # action_button: 막힐 때 자동 발동
             character_name=event.character_name,
             character_index=event.character_index,
         )
@@ -323,12 +439,11 @@ class EventCompiler:
         first = event.items[0]
         goods_type = _ITEM_TYPE_TO_GOODS_CODE.get(first.item_type, 0)
         goods_id = self.resolve_item_id(first.item, first.item_type)
-        purchase_flag = 1 if event.purchase_only else 0
         cmds.append(
             {
                 "code": 302,
                 "indent": 0,
-                "parameters": [goods_type, goods_id, 0, 0, purchase_flag, False],
+                "parameters": [goods_type, goods_id, 0, 0, bool(event.purchase_only)],
             }
         )
 
@@ -386,6 +501,213 @@ class EventCompiler:
         ]
         return _make_event(event.name, event.x, event.y, pages)
 
+    # ── Gate ─────────────────────────────────────────────────────────────────
+
+    def _compile_gate(self, event: GateEvent) -> dict:
+        """NPC 문지기 → 워프 전환 이벤트 컴파일.
+
+        페이지 구성:
+          Page 1 (조건 없음):          NPC 스프라이트 + stage_dialogues[0]
+          Page 2 (switch1 ON):         NPC 스프라이트 + stage_dialogues[1]  (2개 조건인 경우)
+          Page N (모든 조건 ON):       워프 스프라이트 + player_touch → 이동
+        """
+        map_id = self.resolve_map_id(event.to_map)
+        direction = _DIRECTION_CODE.get(event.direction, 0)
+        cond_sw_ids = [self.resolve_switch_id(sw) for sw in event.condition_switches]
+
+        # stage_dialogues 정규화:
+        # - condition_switches 수와 일치하도록 자르거나 기본 대사로 패딩
+        # - 빈 문자열은 기본 대사로 교체 (빈 대화창 방지)
+        _fallback_hint = "아직 조건이 충족되지 않았습니다."
+        dialogues: list[str] = [
+            d.strip() or _fallback_hint for d in event.stage_dialogues[: len(cond_sw_ids)]
+        ]
+        while len(dialogues) < len(cond_sw_ids):
+            dialogues.append(_fallback_hint)
+
+        pages: list[dict] = []
+
+        # 힌트 페이지: 조건이 하나씩 충족될수록 다음 페이지로 전환
+        for i, dialogue in enumerate(dialogues):
+            conditions = _empty_conditions()
+            if i >= 1:
+                conditions["switch1Id"] = cond_sw_ids[0]
+                conditions["switch1Valid"] = True
+            if i >= 2 and len(cond_sw_ids) >= 2:
+                conditions["switch2Id"] = cond_sw_ids[1]
+                conditions["switch2Valid"] = True
+
+            cmds = _build_dialogue_commands("", 0, event.name, [dialogue])
+            cmds.append({"code": 0, "indent": 0, "parameters": []})
+
+            pages.append(
+                _make_page(
+                    cmds,
+                    conditions,
+                    trigger=0,  # action_button
+                    character_name=event.keeper_character_name,
+                    character_index=event.keeper_character_index,
+                )
+            )
+
+        # 최종 워프 페이지: 모든 조건 충족 시
+        final_conditions = _empty_conditions()
+        if len(cond_sw_ids) >= 1:
+            final_conditions["switch1Id"] = cond_sw_ids[0]
+            final_conditions["switch1Valid"] = True
+        if len(cond_sw_ids) >= 2:
+            final_conditions["switch2Id"] = cond_sw_ids[1]
+            final_conditions["switch2Valid"] = True
+
+        transfer_cmds = [
+            {
+                "code": 201,
+                "indent": 0,
+                "parameters": [0, map_id, event.to_x, event.to_y, direction, 0],
+            },
+            {"code": 0, "indent": 0, "parameters": []},
+        ]
+        pages.append(
+            _make_page(
+                transfer_cmds,
+                final_conditions,
+                trigger=1,  # player_touch
+                character_name=event.gate_character_name,
+                character_index=event.gate_character_index,
+            )
+        )
+
+        return _make_event(event.name, event.x, event.y, pages)
+
+    # ── QuestChest ────────────────────────────────────────────────────────────
+
+    def _compile_quest_chest(self, event: QuestChestEvent) -> dict:
+        """퀘스트 완료 후 보물상자 전환 이벤트 컴파일.
+
+        NPC 버전:
+          Page 1 (quest_switch OFF): NPC 스프라이트 → 대화 → quest_switch ON
+          Page 2 (quest_switch ON):  !Chest 스프라이트 → 아이템 획득
+        몬스터 버전:
+          Page 1 (quest_switch OFF): Monster 스프라이트 → 전투
+                                     승리 시에만 quest_switch ON (도망/패배 시 유지)
+          Page 2 (quest_switch ON):  !Chest 스프라이트 → 아이템 획득
+        """
+        quest_sw_id = self.resolve_switch_id(event.quest_switch)
+
+        # ── Page 1: 퀘스트 진행 중 ───────────────────────────────────────────
+        if event.quest_type == "npc":
+            # Page 1: 힌트 대사만 출력 — quest_switch는 별도 NpcEvent가 ON시켜야 chest 등장
+            # (여기서 스스로 ON하면 NPC 대화 즉시 chest로 변신 → 너무 쉬운 획득)
+            npc_cmds = _build_dialogue_commands(
+                "", 0, event.name, event.quest_dialogue or ["먼저 퀘스트를 받아야 합니다."]
+            )
+            npc_cmds.append({"code": 0, "indent": 0, "parameters": []})
+
+            page1 = _make_page(
+                npc_cmds,
+                _empty_conditions(),
+                trigger=0,  # action_button
+                character_name=event.quest_character_name,
+                character_index=event.quest_character_index,
+            )
+        else:  # battle
+            if not event.troop:
+                # troop 없으면 npc 타입으로 강제 폴백 (대화만 출력, quest_switch는 ON하지 않음)
+                # ⚠️ quest_switch를 여기서 ON하면 전투 없이 상자 획득이 가능해지므로 절대 금지
+                logger.warning(
+                    "QuestChestEvent '%s': quest_type=battle이지만 troop 없음 → npc 힌트 전용 폴백 (quest_switch ON 없음)",
+                    event.name,
+                )
+                npc_cmds = _build_dialogue_commands(
+                    "",
+                    0,
+                    event.name,
+                    event.quest_dialogue
+                    or ["이 상자를 지키는 무언가가 있다.", "힘으로 제압해야 열릴 것 같다."],
+                )
+                npc_cmds.append({"code": 0, "indent": 0, "parameters": []})
+                page1 = _make_page(
+                    npc_cmds,
+                    _empty_conditions(),
+                    trigger=0,
+                    character_name=event.quest_character_name,
+                    character_index=event.quest_character_index,
+                )
+                # Page 2: quest_switch ON 시 열리는 상자 (battle 이벤트가 quest_switch를 ON해야 함)
+                item_id = self.resolve_item_id(event.item, event.item_type)
+                chest_cmds = self._build_quest_chest_commands(
+                    item_id=item_id,
+                    item_type=event.item_type,
+                    amount=event.amount,
+                    chest_switch=event.chest_switch,
+                    dialogue_before=event.dialogue_before,
+                    dialogue_after=event.dialogue_after,
+                )
+                page2 = _make_page(
+                    chest_cmds,
+                    _make_switch_condition(quest_sw_id),
+                    trigger=0,
+                    character_name=event.chest_character_name,
+                    character_index=event.chest_character_index,
+                )
+                return _make_event(event.name, event.x, event.y, [page1, page2])
+            troop_id = self.resolve_troop_id(event.troop)
+            can_lose = event.lose_condition != "game_over"
+
+            battle_cmds: list[dict] = []
+            battle_cmds.append(
+                {
+                    "code": 301,
+                    "indent": 0,
+                    "parameters": [0, troop_id, event.escape_allowed, can_lose],
+                }
+            )
+            # If Win (601) → quest_switch ON
+            battle_cmds.append({"code": 601, "indent": 0, "parameters": []})
+            battle_cmds.append(
+                {"code": 121, "indent": 1, "parameters": [quest_sw_id, quest_sw_id, 0]}
+            )
+            # If Escape (602) → 아무것도 안 함 (몬스터 유지)
+            battle_cmds.append({"code": 602, "indent": 0, "parameters": []})
+            # If Lose (603)
+            battle_cmds.append({"code": 603, "indent": 0, "parameters": []})
+            if not can_lose:
+                battle_cmds.append({"code": 353, "indent": 1, "parameters": []})  # Game Over
+            # End branch
+            battle_cmds.append({"code": 604, "indent": 0, "parameters": []})
+            battle_cmds.append({"code": 0, "indent": 0, "parameters": []})
+
+            page1 = _make_page(
+                battle_cmds,
+                _empty_conditions(),
+                trigger=0,  # action_button (through=False → 이동 차단, 접촉 시 자동 발동)
+                character_name=event.battle_character_name,
+                character_index=event.battle_character_index,
+                through=False,
+                priority=1,
+            )
+
+        # ── Page 2: 보물상자 ─────────────────────────────────────────────────
+        item_id = self.resolve_item_id(event.item, event.item_type)
+        chest_cmds = self._build_quest_chest_commands(
+            item_id=item_id,
+            item_type=event.item_type,
+            amount=event.amount,
+            chest_switch=event.chest_switch,
+            dialogue_before=event.dialogue_before,
+            dialogue_after=event.dialogue_after,
+        )
+
+        page2 = _make_page(
+            chest_cmds,
+            _make_switch_condition(quest_sw_id),
+            trigger=0,  # action_button
+            character_name=event.chest_character_name,
+            character_index=event.chest_character_index,
+        )
+
+        return _make_event(event.name, event.x, event.y, [page1, page2])
+
 
 # ── 공통 헬퍼 ────────────────────────────────────────────────────────────────
 
@@ -399,13 +721,70 @@ def _item_change_code(item_type: str) -> int:
     return {"item": 126, "weapon": 127, "armor": 128}.get(item_type, 126)
 
 
+def _wrap_text(text: str, max_chars: int = 22) -> list[str]:
+    """RPG Maker MZ 메시지창 너비에 맞게 텍스트 자동 줄바꿈.
+
+    한국어 22자/줄 기준 (screenWidth=816, faceSize=144, fontSize=26).
+    분할 순서:
+      1. 마침표·느낌표·물음표 기준 → 자연스러운 문장 단위 분할
+      2. 여전히 초과 시 공백 기준 분할
+      3. 공백 없고 초과 시 글자 수 강제 분할
+    """
+    import re
+
+    if len(text) <= max_chars:
+        return [text]
+
+    result: list[str] = []
+
+    # 1단계: 문장 끝 구두점 기준 분할 (구두점은 앞 문장에 포함)
+    sentences = [s.strip() for s in re.split(r"(?<=[.。!?！？])\s*", text) if s.strip()]
+    if not sentences:
+        sentences = [text]
+
+    for sentence in sentences:
+        if len(sentence) <= max_chars:
+            result.append(sentence)
+            continue
+
+        # 2단계: 공백 기준 분할
+        words = sentence.split(" ")
+        current = ""
+        for word in words:
+            if not current:
+                current = word
+            elif len(current) + 1 + len(word) <= max_chars:
+                current += " " + word
+            else:
+                if current:
+                    result.append(current)
+                current = word
+
+        # 3단계: 남은 current가 초과면 글자 수 강제 분할
+        while len(current) > max_chars:
+            result.append(current[:max_chars])
+            current = current[max_chars:]
+        if current:
+            result.append(current)
+
+    return [r for r in result if r] or [text]
+
+
 def _build_dialogue_commands(
     face_image: str, face_index: int, speaker: str, lines: list[str]
 ) -> list[dict]:
-    """ShowText 커맨드 시퀀스 (101 + 401×N, 4줄마다 새 101)."""
+    """ShowText 커맨드 시퀀스 (101 + 401×N, 4줄마다 새 101).
+
+    각 라인을 _wrap_text로 분할하여 메시지창 너비 초과를 방지.
+    """
+    # 각 라인을 래핑 후 평탄화 (최대 22자/줄)
+    wrapped: list[str] = []
+    for line in lines:
+        wrapped.extend(_wrap_text(line))
+
     cmds: list[dict] = []
-    for chunk_start in range(0, len(lines), 4):
-        chunk = lines[chunk_start : chunk_start + 4]
+    for chunk_start in range(0, len(wrapped), 4):
+        chunk = wrapped[chunk_start : chunk_start + 4]
         cmds.append(
             {
                 "code": 101,
@@ -464,6 +843,7 @@ def _make_page(
     step_anime: bool = False,
     character_name: str = "",
     character_index: int = 0,
+    through: bool = False,
 ) -> dict:
     return {
         "conditions": conditions,
@@ -487,7 +867,7 @@ def _make_page(
         "moveType": 0,
         "priorityType": priority,
         "stepAnime": step_anime,
-        "through": False,
+        "through": through,
         "trigger": trigger,
         "walkAnime": walk_anime,
     }

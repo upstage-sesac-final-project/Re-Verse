@@ -158,4 +158,26 @@ def _build_switch_table(spec: GameSpec) -> SwitchTable:
     # 4. 게임 클리어 스위치
     table, _ = table.allocate_switch("game_cleared")
 
+    # 5. 아이템/무기/방어구 획득 체스트 스위치 (story_planner acquisitions chest_switch용)
+    for item_name in spec.key_items:
+        table, _ = table.allocate_switch(f"{item_name}_chest")
+    for weapon_name in spec.weapons:
+        table, _ = table.allocate_switch(f"{weapon_name}_chest")
+    for armor_name in spec.armors:
+        table, _ = table.allocate_switch(f"{armor_name}_chest")
+
+    # 6. 맵별 NPC 퀘스트 스위치 (story_planner NPC set_switch용, 맵당 최대 3개)
+    for m in spec.maps:
+        for idx in range(1, 4):
+            table, _ = table.allocate_switch(f"{m.name}_npc{idx}_talked")
+
+    # 7. 배틀 quest_chest 전용 독립 스위치 (NPC talked 스위치와 충돌 방지)
+    #    battle quest_chest.quest_switch는 반드시 이 스위치를 사용해야 함
+    for item_name in spec.key_items:
+        table, _ = table.allocate_switch(f"{item_name}_battle_won")
+    for weapon_name in spec.weapons:
+        table, _ = table.allocate_switch(f"{weapon_name}_battle_won")
+    for armor_name in spec.armors:
+        table, _ = table.allocate_switch(f"{armor_name}_battle_won")
+
     return table

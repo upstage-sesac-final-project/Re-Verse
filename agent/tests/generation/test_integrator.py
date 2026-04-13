@@ -54,12 +54,31 @@ def test_build_map_json_events_index_zero_null() -> None:
 
 
 def test_build_map_json_dungeon_has_encounter_list() -> None:
-    """dungeon 타입 맵은 encounterList가 비어있지 않아야 함."""
+    """전투는 이벤트 기반(BattleEvent)으로만 진행하므로 encounterList는 항상 빈 배열."""
+    spec = _make_map_spec("dungeon")
+    tile_data = [0] * (17 * 13 * 6)
+    battle_event = {
+        "pages": [
+            {
+                "list": [
+                    {"code": 301, "parameters": [0, 3, True, True]},
+                    {"code": 0, "parameters": []},
+                ]
+            }
+        ]
+    }
+    result = build_map_json(spec, tile_data, [battle_event])
+
+    assert result["encounterList"] == []
+
+
+def test_build_map_json_dungeon_no_battle_empty_encounter_list() -> None:
+    """dungeon 타입이라도 battle 이벤트가 없으면 encounterList는 빈 배열이어야 함."""
     spec = _make_map_spec("dungeon")
     tile_data = [0] * (17 * 13 * 6)
     result = build_map_json(spec, tile_data, [])
 
-    assert len(result["encounterList"]) > 0
+    assert result["encounterList"] == []
 
 
 def test_build_map_json_town_empty_encounter_list() -> None:

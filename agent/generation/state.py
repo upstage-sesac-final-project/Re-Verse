@@ -5,7 +5,7 @@ canonical: docs/The_world/full_generation_plan.md
 
 from typing import Any, TypedDict
 
-from agent.generation.models import GameSpec, MapConnectionInfo, MapSpec
+from agent.generation.models import GameSpec, MapConnectionInfo, MapScreenplay, MapSpec
 from agent.generation.registry.id_table import IdTable
 from agent.generation.registry.switch_table import SwitchTable
 
@@ -15,12 +15,14 @@ class GenerationState(TypedDict, total=False):
     user_input: str
     game_id: str
     generation_id: str
+    options: dict[str, Any]  # 추가: playtime_minutes 등 설정 저장
 
     # ── B 노드 (asset_planner) 출력 ───────────────────────
     id_table: IdTable | None
     switch_table: SwitchTable | None
     generation_order: list[str]
     phase_limit: str | None  # "assets" | "maps" | None
+    map_source: str | None  # "algorithmic" (기본, D+E) | "samples" (샘플맵 선택기)
 
     # ── A+C 노드 출력 ──────────────────────────────────────
     game_spec: GameSpec | None
@@ -31,7 +33,10 @@ class GenerationState(TypedDict, total=False):
     map_tiles: dict[int, list[int]]  # map_id → flat 1D (width×height×6)
     connection_info: dict[int, MapConnectionInfo]
 
-    # ── F+G 노드 출력 ──────────────────────────────────────
+    # ── F 노드 (story_planner) 출력 ───────────────────────
+    story_script: dict[int, MapScreenplay] | None  # map_id → MapScreenplay
+
+    # ── G+H 노드 출력 ─────────────────────────────────────
     event_dsl: dict[int, list]
     compiled_events: dict[int, list[dict]]
 

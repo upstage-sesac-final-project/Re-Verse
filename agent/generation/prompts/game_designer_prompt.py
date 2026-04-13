@@ -12,8 +12,9 @@ RPG Maker MZ 게임의 기획서를 JSON으로 작성합니다.
 - 캐릭터(characters): 2~4명. role은 "주인공" 또는 "서포터".
   role_type: 전투 역할 (warrior/mage/healer/thief/balanced 중 선택. 시스템이 스탯 성장에 반영)
 - 적(enemies): 5~10종. tier는 weak/normal/elite/boss 중 하나. boss는 반드시 1종 포함
-- 맵(maps): 3~4개. type은 town/dungeon/boss/field 중 하나.
-  - 반드시 town 1개, boss 1개 포함
+- 맵(maps): playtime_minutes에 비례 (5분→3개, 10분→6개, 15분→9개). type은 town 또는 dungeon 중 하나.
+  - 첫 번째 맵은 반드시 town, 나머지는 dungeon
+  - 마지막 dungeon 맵이 보스 구역이 됨 (type은 dungeon으로 작성)
   - connects_to는 연결된 맵 이름 목록 (양방향 일치해야 함)
   - 모든 맵이 BFS로 연결되어야 함 (고립 맵 금지)
 - key_items: 0~5개
@@ -51,10 +52,9 @@ RPG Maker MZ 게임의 기획서를 JSON으로 작성합니다.
     {{"name": "마왕 다르크", "tier": "boss", "location": "마왕의 성"}}
   ],
   "maps": [
-    {{"name": "출발 마을", "type": "town", "description": "평화로운 시작 마을", "connects_to": ["서쪽 들판"]}},
-    {{"name": "서쪽 들판", "type": "field", "description": "마을과 던전 사이의 들판", "connects_to": ["출발 마을", "어둠의 던전"]}},
-    {{"name": "어둠의 던전", "type": "dungeon", "description": "마왕의 부하가 숨어있는 던전", "connects_to": ["서쪽 들판", "마왕의 성"]}},
-    {{"name": "마왕의 성", "type": "boss", "description": "마왕이 기다리는 최종 보스 구역", "connects_to": ["어둠의 던전"]}}
+    {{"name": "출발 마을", "type": "town", "description": "평화로운 시작 마을", "connects_to": ["어둠의 던전"]}},
+    {{"name": "어둠의 던전", "type": "dungeon", "description": "마왕의 부하가 숨어있는 던전", "connects_to": ["출발 마을", "마왕의 성"]}},
+    {{"name": "마왕의 성", "type": "dungeon", "description": "마왕이 기다리는 최종 보스 구역 (마지막 맵)", "connects_to": ["어둠의 던전"]}}
   ],
   "key_items": ["성스러운 검", "마왕의 열쇠"],
   "skills": [

@@ -55,11 +55,14 @@ async def _run_generation_in_background(
 
     try:
         phase_limit = options.get("phase_limit")  # None → 전체 생성
+        map_source = options.get("map_source")  # "samples" → 샘플맵 선택기 사용
         final_state = await run_generation_workflow(
             prompt=prompt,
             game_id=game_id,
             generation_id=generation_id,
             phase_limit=phase_limit,
+            map_source=map_source,
+            options=options,
         )
 
         is_success = final_state.get("is_success", False)
