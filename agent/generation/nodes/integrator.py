@@ -673,7 +673,19 @@ def build_map_json(spec: MapSpec, tile_data: list[int], events: list[dict]) -> d
 
 
 def translate_map_ids(map_json: dict, id_mapping: dict[int, int]) -> dict:
-    """맵 JSON 내부의 '장소 이동(201)' 이벤트 목적지 ID를 새 번호로 번역."""
+    """맵 JSON 내부의 '장소 이동(201)' 이벤트 목적지 ID를 새 번호로 번역.
+
+    이 기능은 파이썬 기반의 후처리(Post-processing) 규칙입니다.
+    만약 목적지 ID가 id_mapping에 없거나 삭제된 맵(1~5번)을 가리키는 경우,
+    이번 게임에서 실제로 생성/선택된 맵 중 하나로 안전하게 연결하여 게임 끊김을 방지합니다.
+    """
+    if not id_mapping:
+        return map_json
+
+    # 리다이렉션할 기본 목적지 후보들 (ID 리스트)
+    valid_ids = sorted(id_mapping.values())
+    fallback_id = valid_ids[0]  # 기본값: 첫 번째 맵
+
     events = map_json.get("events", [])
     for event in events:
         if event is None:
@@ -685,14 +697,17 @@ def translate_map_ids(map_json: dict, id_mapping: dict[int, int]) -> dict:
                 # 코드 201: 장소 이동 (Transfer Player)
                 if cmd.get("code") == 201:
                     params = cmd.get("parameters", [])
-                    if len(params) > 1 and params[0] == 0:
+                    if len(params) > 1 and params[0] == 0:  # 0: 직접 지정 방식
                         old_map_id = params[1]
                         if old_map_id in id_mapping:
                             params[1] = id_mapping[old_map_id]
-                            logger.debug(
-                                "이벤트 ID 번역: Map %d -> %d",
+                        else:
+                            # 룰베이스 후처리: 삭제된 맵(1~5)이나 누락된 참조를 유효한 ID로 교체
+                            params[1] = fallback_id
+                            logger.info(
+                                "후처리 리다이렉션: 존재하지 않는 맵 참조 %d를 유효한 맵 %d로 변경했습니다.",
                                 old_map_id,
-                                id_mapping[old_map_id],
+                                fallback_id,
                             )
     return map_json
 
