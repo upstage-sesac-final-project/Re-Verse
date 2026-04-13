@@ -107,7 +107,7 @@ async def event_planner(state: GenerationState) -> dict:
         # NpcEvent condition_switch 검증: 존재하지 않는 _defeated 스위치 자동 교체
         result = _fix_npc_defeated_conditions(result, switch_table, spec.map_id)
         # 이동 이벤트 코드 생성 (condition = acquisitions.chest_switch)
-        result = result + _build_move_events(screenplay, conn, id_table, spec)
+        result = result + _build_move_events(screenplay, conn, id_table, spec, map_specs)
 
         event_dsl[spec.map_id] = result
 
@@ -1074,6 +1074,7 @@ def _build_move_events(
     conn: MapConnectionInfo,
     id_table: IdTable,
     spec: "MapSpec | None" = None,
+    map_specs: "list | None" = None,
 ) -> list:
     """screenplay.moves를 읽어 gate/transfer 이벤트를 코드로 직접 생성한다.
 
@@ -1225,15 +1226,21 @@ def _build_move_events(
             )
 
         elif move.direction == "backward":
+            # backward 목적지: 이전 맵의 하단(플레이어가 forward로 나간 위치 근처)
+            target_spec = None
+            if map_specs:
+                target_spec = next((s for s in map_specs if s.map_id == dest_id), None)
+            to_y_back = (target_spec.height - 2) if target_spec else max(ey, 2)
+            to_x_back = (target_spec.width // 2) if target_spec else ex
             events.append(
                 TransferEvent(
                     type="transfer",
-                    name=f"{move.to_map_name}_이동",
+                    name=f"{move.to_map_name}_귀환",
                     x=ex,
                     y=ey,
                     to_map=move.to_map_name,
-                    to_x=ex,
-                    to_y=1,
+                    to_x=to_x_back,
+                    to_y=to_y_back,
                     character_name="!Crystal",
                     character_index=4,
                 )

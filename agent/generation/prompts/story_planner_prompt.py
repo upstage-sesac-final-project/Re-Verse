@@ -24,7 +24,7 @@ _SYSTEM = """\
 
 ## NPC(npcs) 작성 규칙
 
-1. 맵당 최대 3명, boss 맵은 0명도 가능합니다.
+1. 맵당 최대 3명, 마지막 맵(보스 구역)은 0명도 가능합니다.
 2. NPC 이름은 반드시 주인공 이름 목록과 달라야 합니다.
 3. dialogues는 한 문장씩, 마침표·느낌표·물음표로 끝내세요.
 4. set_switch: 대화 완료 후 ON할 스위치. 반드시 아래 스위치 목록에서 선택하세요.
@@ -46,15 +46,15 @@ _SYSTEM = """\
   각 아이템/무기/방어구에 대해 `{이름}_chest` 형식의 스위치가 준비되어 있습니다.
   예: 아이템 "청동 검"의 chest_switch → "청동 검_chest"
 - 단계별 배분:
-  - 1막(town): 기본 무기 또는 기본 방어구 1개
-  - 2막(dungeon/field): 중급 아이템/무기/방어구 1~2개
-  - 3막(boss): 최고급 무기 또는 방어구 1개 (보스 처치 후 보상)
+  - town 맵: 기본 무기 또는 기본 방어구 1개
+  - dungeon 맵 (중간): 중급 아이템/무기/방어구 1~2개
+  - 마지막 dungeon 맵 (보스 구역): 최고급 무기 또는 방어구 1개 (보스 처치 후 보상)
 
 ## 이동(moves) 작성 규칙
 
 - forward: 다음 맵으로 이동 (조건 있는 게이트). 맵당 **최대 1개**.
 - backward: 이전 맵으로 귀환 (조건 없음). 맵당 최대 1개.
-- boss 맵은 moves를 비워두세요 (엔딩으로 종료, 이동 이벤트 없음).
+- **마지막 맵(map_id가 가장 큰 맵)은 moves를 비워두세요** (엔딩으로 종료, 이동 이벤트 없음).
 - forward의 게이트 조건은 코드가 이 맵의 acquisitions[].chest_switch로 자동 구성합니다.
   condition_switches 필드는 없습니다. 직접 지정하지 마세요.
 - forward의 stage_dialogues: 이 맵의 **acquisitions 수와 반드시 동일한 수**로 작성하세요.
@@ -63,14 +63,14 @@ _SYSTEM = """\
   예시: "먼저 도움을 주고 장비를 받으세요.", "모든 준비가 끝나야 이곳을 통과할 수 있어요."
 - backward는 stage_dialogues 불필요.
 
-⚠️ **forward move 필수 규칙**: 아래 "맵 연결 구조"에서 forward 출구가 있는 모든 맵은
-반드시 해당 목적지로의 forward move를 포함해야 합니다.
-forward move가 없으면 플레이어가 다음 맵으로 진행할 수 없습니다 (게임 진행 불가).
-acquisitions가 0개인 경우에도 forward move를 작성하고, stage_dialogues는 빈 배열([])로 두세요.
+⚠️ **이동 이벤트 필수 규칙**:
+- forward: "맵 연결 구조"에서 forward 출구가 있는 모든 맵에 반드시 포함. 없으면 다음 맵 진행 불가.
+  acquisitions가 0개인 경우에도 forward move를 작성하고, stage_dialogues는 빈 배열([])로 두세요.
+- backward: forward 출구가 있는 맵이라면 backward도 함께 작성하세요. 플레이어가 이전 맵으로 돌아갈 수 있어야 합니다.
 
 ## 보스(has_boss) 작성 규칙
 
-- boss 맵 타입에만 has_boss: true로 설정합니다.
+- **마지막 맵(map_id가 가장 큰 맵)에만** has_boss: true로 설정합니다.
 - boss_name: 제공된 적 목록에서 tier="boss"인 적의 이름을 사용합니다.
 
 ## 모든 맵 생성 필수
@@ -105,7 +105,7 @@ def build_story_planner_prompt(
         if idx > 0:
             prev = sorted_specs[idx - 1]
             parts.append(f"{prev.name}({prev.map_type}, backward)")
-        if idx < len(sorted_specs) - 1 and s.map_type != "boss":
+        if idx < len(sorted_specs) - 1:  # 마지막 맵은 forward 없음
             nxt = sorted_specs[idx + 1]
             parts.append(f"{nxt.name}({nxt.map_type}, forward)")
         if parts:

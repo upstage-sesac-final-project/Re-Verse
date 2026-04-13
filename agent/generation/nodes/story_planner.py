@@ -42,26 +42,33 @@ def _is_forbidden_set_switch(sw: str) -> bool:
 
 
 def _align_map_types_with_game_spec(map_specs: list[MapSpec], game_spec: GameSpec) -> list[MapSpec]:
-    """game_spec.maps 순서에 맞춰 map_type을 보정한다.
+    """game_spec.maps 순서에 맞춰 map_type을 town/dungeon으로 보정한다.
 
-    샘플 맵 선택기는 map_type을 town/dungeon 두 가지만 구분하기 때문에
-    boss/field 타입이 game_spec에 명시되어 있어도 반영되지 않는다.
-    map_id 오름차순 = game_spec.maps 순서로 가정하고 보정한다.
+    - game_spec의 type이 town/dungeon 외의 값(boss, field 등 레거시)이면 dungeon으로 정규화
+    - 첫 번째 맵(map_id 최솟값)은 반드시 town
+    - 나머지는 dungeon (마지막 맵이 보스 구역이 됨)
     """
     sorted_specs = sorted(map_specs, key=lambda s: s.map_id)
     corrected: list[MapSpec] = []
     for i, ms in enumerate(sorted_specs):
         if i < len(game_spec.maps):
-            game_type = game_spec.maps[i].type
-            if ms.map_type != game_type:
-                logger.info(
-                    "_align_map_types: map_id=%d '%s' 타입 보정 %s → %s",
-                    ms.map_id,
-                    ms.name,
-                    ms.map_type,
-                    game_type,
-                )
-                ms = ms.model_copy(update={"map_type": game_type})
+            raw_type = game_spec.maps[i].type
+            # town/dungeon 외는 dungeon으로 정규화
+            game_type = raw_type if raw_type in {"town", "dungeon"} else "dungeon"
+        else:
+            game_type = "dungeon"
+        # 첫 번째 맵은 항상 town
+        if i == 0:
+            game_type = "town"
+        if ms.map_type != game_type:
+            logger.info(
+                "_align_map_types: map_id=%d '%s' 타입 보정 %s → %s",
+                ms.map_id,
+                ms.name,
+                ms.map_type,
+                game_type,
+            )
+            ms = ms.model_copy(update={"map_type": game_type})
         corrected.append(ms)
     return corrected
 
@@ -102,10 +109,13 @@ async def story_planner(state: GenerationState) -> dict:
         story_script = _fallback_screenplay(map_specs)
 
     # LLM이 일부 맵을 누락한 경우 폴백으로 보완
+    last_map_id = max((s.map_id for s in map_specs), default=-1)
     for spec in map_specs:
         if spec.map_id not in story_script:
             logger.warning("story_planner: map_id=%d 누락 → 폴백", spec.map_id)
-            story_script[spec.map_id] = _fallback_single_map(spec)
+            story_script[spec.map_id] = _fallback_single_map(
+                spec, is_last=(spec.map_id == last_map_id)
+            )
 
     logger.info("story_planner 완료: %d개 맵 대본", len(story_script))
 
@@ -142,7 +152,7 @@ def _validate_screenplay(
             logger.warning("story_planner: 알 수 없는 map_id=%d → 스킵", ms.map_id)
             continue
 
-        map_type = map_id_to_type.get(ms.map_id, "dungeon")
+        map_type = map_id_to_type.get(ms.map_id, "dungeon")  # noqa : F841
 
         # ── NPC 검증 ──────────────────────────────────────────────────────────
         fixed_npcs = []
@@ -219,9 +229,12 @@ def _validate_screenplay(
             fixed_acq.append(acq)
 
         # ── 이동 검증 ─────────────────────────────────────────────────────────
-        # boss 맵은 moves 비워야 함
-        if map_type == "boss" and ms.moves:
-            logger.warning("story_planner: boss 맵(map_id=%d) moves 존재 → 제거", ms.map_id)
+        # 마지막 맵(보스 구역)은 moves 비워야 함
+        sorted_map_ids = sorted(s.map_id for s in map_specs)
+        is_last_map = bool(sorted_map_ids) and ms.map_id == sorted_map_ids[-1]
+
+        if is_last_map and ms.moves:
+            logger.warning("story_planner: 마지막 맵(map_id=%d) moves 존재 → 제거", ms.map_id)
             ms = ms.model_copy(update={"moves": []})
 
         # forward 최대 1개, backward 최대 1개
@@ -231,19 +244,19 @@ def _validate_screenplay(
 
         spec_obj = next((s for s in map_specs if s.map_id == ms.map_id), None)
 
-        # 이 맵의 sequential 인덱스 (map_id 오름차순)
-        sorted_map_ids = sorted(s.map_id for s in map_specs)
+        # 이 맵의 sequential 인덱스 (map_id 오름차순, 위에서 이미 계산됨)
         cur_idx = sorted_map_ids.index(ms.map_id) if ms.map_id in sorted_map_ids else -1
 
-        # 이 맵에서 이동 가능한 목적지: spec.exits 우선, 없으면 순서 기반(forward/backward)
+        # 이 맵에서 이동 가능한 목적지: spec.exits 우선, 없거나 유효한 맵이 없으면 순서 기반
+        # 주의: 샘플 맵 exits는 원본 DB ID를 가리키므로 현재 game map_id와 불일치할 수 있음
         valid_exit_names: set[str] = set()
         if spec_obj and spec_obj.exits:
             for ex in spec_obj.exits:
                 dest_name = map_id_to_name.get(ex.to_map_id)
                 if dest_name:
                     valid_exit_names.add(dest_name)
-        elif cur_idx >= 0:
-            # exits 없으면 순서 기반: 이전 맵(backward) + 다음 맵(forward)
+        # exits가 있어도 유효한 목적지가 없으면(원본 DB ID 불일치) 순서 기반으로 폴백
+        if not valid_exit_names and cur_idx >= 0:
             if cur_idx > 0:
                 prev_name = map_id_to_name.get(sorted_map_ids[cur_idx - 1])
                 if prev_name:
@@ -285,8 +298,8 @@ def _validate_screenplay(
                 backward_count += 1
 
         # ── forward move 누락 보완 ─────────────────────────────────────────────
-        # boss 맵이 아니고, 마지막 맵이 아닌데 forward move가 없으면 순서 기반으로 자동 삽입
-        if map_type != "boss" and forward_count == 0 and cur_idx >= 0:
+        # 마지막 맵이 아닌데 forward move가 없으면 순서 기반으로 자동 삽입
+        if not is_last_map and forward_count == 0 and cur_idx >= 0:
             if cur_idx < len(sorted_map_ids) - 1:
                 next_id = sorted_map_ids[cur_idx + 1]
                 dest_name = map_id_to_name.get(next_id)
@@ -304,23 +317,51 @@ def _validate_screenplay(
                         dest_name,
                     )
 
+        # ── backward move 누락 보완 ────────────────────────────────────────────
+        # 첫 번째 맵이 아닌데 backward move가 없으면 이전 맵으로 자동 삽입
+        if cur_idx > 0 and backward_count == 0:
+            prev_id = sorted_map_ids[cur_idx - 1]
+            prev_name = map_id_to_name.get(prev_id)
+            if prev_name:
+                fallback_backward = MoveScript(
+                    direction="backward",
+                    to_map_name=prev_name,
+                    stage_dialogues=[],
+                )
+                fixed_moves.append(fallback_backward)
+                logger.info(
+                    "story_planner: map_id=%d backward move 누락 → '%s'으로 자동 삽입",
+                    ms.map_id,
+                    prev_name,
+                )
+
+        # has_boss는 마지막 맵만 True로 강제 — LLM 응답 무관하게 보장
         out[ms.map_id] = ms.model_copy(
-            update={"npcs": fixed_npcs, "acquisitions": fixed_acq, "moves": fixed_moves}
+            update={
+                "npcs": fixed_npcs,
+                "acquisitions": fixed_acq,
+                "moves": fixed_moves,
+                "has_boss": is_last_map,
+            }
         )
 
     return out
 
 
 def _fallback_screenplay(map_specs: list[MapSpec]) -> dict[int, MapScreenplay]:
-    return {spec.map_id: _fallback_single_map(spec) for spec in map_specs}
+    last_map_id = max((s.map_id for s in map_specs), default=-1)
+    return {
+        spec.map_id: _fallback_single_map(spec, is_last=(spec.map_id == last_map_id))
+        for spec in map_specs
+    }
 
 
-def _fallback_single_map(spec: MapSpec) -> MapScreenplay:
+def _fallback_single_map(spec: MapSpec, is_last: bool = False) -> MapScreenplay:
     return MapScreenplay(
         map_id=spec.map_id,
         narrative=f"{spec.name}에서의 여정이 시작된다.",
         npcs=[],
         acquisitions=[],
         moves=[],
-        has_boss=(spec.map_type == "boss"),
+        has_boss=is_last,
     )
