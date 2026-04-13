@@ -5,7 +5,9 @@ import pytest
 from agent.generation.compilers.dsl_models import (
     ChestEvent,
     EndingEvent,
+    GateEvent,
     NpcEvent,
+    QuestChestEvent,
     ShopEvent,
     ShopItem,
     TransferEvent,
@@ -139,3 +141,75 @@ def test_compile_transfer_unknown_map_raises(compiler: EventCompiler) -> None:
     )
     with pytest.raises(CompileError):
         compiler.compile(event)
+
+
+def test_compile_gate_multi_page(compiler: EventCompiler) -> None:
+    """GateEvent: 조건 스위치 수 + 1개 페이지, 마지막은 워프(player_touch)."""
+    event = GateEvent(
+        type="gate",
+        name="던전 문지기",
+        x=10,
+        y=5,
+        to_map="어둠의 던전",
+        to_x=1,
+        to_y=1,
+        condition_switches=["열쇠A", "열쇠B"],
+        stage_dialogues=["열쇠A가 필요합니다.", "열쇠B도 필요합니다."],
+    )
+    result = compiler.compile(event)
+    # 2개 힌트 페이지 + 1개 워프 페이지 = 3페이지
+    assert len(result["pages"]) == 3
+    # 마지막 페이지는 player_touch(1) + 이동 커맨드(201)
+    last_page = result["pages"][-1]
+    assert last_page["trigger"] == 1
+    codes = [cmd["code"] for cmd in last_page["list"]]
+    assert 201 in codes
+
+
+def test_compile_quest_chest_npc_type(compiler: EventCompiler) -> None:
+    """QuestChestEvent(npc): 2페이지 — 힌트 대사 + 보물상자."""
+    event = QuestChestEvent(
+        type="quest_chest",
+        name="퀘스트 상자",
+        x=7,
+        y=3,
+        quest_type="npc",
+        quest_switch="촌장_퀘스트",
+        quest_dialogue=["먼저 촌장과 대화하세요."],
+        item="회복 포션",
+        item_type="item",
+        amount=1,
+        chest_switch="chest_quest_01",
+    )
+    result = compiler.compile(event)
+    assert len(result["pages"]) == 2
+    # 페이지 2는 quest_switch ON 조건
+    assert result["pages"][1]["conditions"]["switch1Valid"] is True
+    # 페이지 2에 아이템 획득 커맨드(126)
+    codes_p2 = [cmd["code"] for cmd in result["pages"][1]["list"]]
+    assert 126 in codes_p2
+
+
+def test_compile_quest_chest_battle_type(compiler: EventCompiler) -> None:
+    """QuestChestEvent(battle): 전투(301) + 승리 시 quest_switch ON."""
+    event = QuestChestEvent(
+        type="quest_chest",
+        name="몬스터 상자",
+        x=5,
+        y=8,
+        quest_type="battle",
+        quest_switch="슬라임_처치",
+        troop="슬라임 × 2",
+        item="마나 포션",
+        item_type="item",
+        amount=1,
+        chest_switch="chest_battle_01",
+    )
+    result = compiler.compile(event)
+    assert len(result["pages"]) == 2
+    # 페이지 1에 전투 커맨드(301)
+    codes_p1 = [cmd["code"] for cmd in result["pages"][0]["list"]]
+    assert 301 in codes_p1
+    # 승리 분기(601) + 스위치 ON(121)
+    assert 601 in codes_p1
+    assert 121 in codes_p1

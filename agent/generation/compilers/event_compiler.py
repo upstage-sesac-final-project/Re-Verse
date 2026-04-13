@@ -82,9 +82,22 @@ class EventCompiler:
         raise CompileError(f"아이템 '{name}' (type={item_type})을 id_table에서 찾을 수 없음")
 
     def resolve_troop_id(self, name: str) -> int:
-        if name not in self.id_table.troops:
-            raise CompileError(f"트루프 '{name}'을 id_table에서 찾을 수 없음")
-        return self.id_table.troops[name]
+        if name in self.id_table.troops:
+            return self.id_table.troops[name]
+        # 정규화: 공백→밑줄, × 통일
+        from agent.generation.registry.switch_table import normalize_switch_name
+
+        normalized = normalize_switch_name(name).replace("x", "×")
+        for troop_name, tid in self.id_table.troops.items():
+            if normalize_switch_name(troop_name).replace("x", "×") == normalized:
+                return tid
+        # 부분 매칭: 적 이름이 포함된 troop
+        base_name = name.split("×")[0].split("_")[0].strip()
+        for troop_name, tid in self.id_table.troops.items():
+            if base_name in troop_name:
+                logger.warning("troop '%s' → '%s' 퍼지 매칭", name, troop_name)
+                return tid
+        raise CompileError(f"트루프 '{name}'을 id_table에서 찾을 수 없음")
 
     def resolve_switch_id(self, name: str) -> int:
         """스위치 이름 → ID. 없으면 새로 할당 (SwitchTable 불변, model_copy 패턴)."""

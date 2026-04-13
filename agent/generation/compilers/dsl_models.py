@@ -24,12 +24,6 @@ class NpcEvent(BaseModel):
     condition_switch: str | None = None
     alt_dialogue: list[str] | None = None
     set_switch: str | None = None
-    required_item: str | None = None  # 아이템 소지 시 alt_dialogue 분기
-    consume_item: bool = False  # True면 아이템 소비 후 alt_dialogue
-    give_item: str | None = None  # 대화 후 아이템 지급
-    hint_switch: str | None = None  # 힌트 페이지 조건 스위치
-    hint_dialogue: list[str] | None = None  # 힌트 대사
-    unlock_switch: str | None = None  # 보상 시 해제할 게이트 스위치
 
 
 class TransferEvent(BaseModel):
@@ -114,7 +108,6 @@ class ShopEvent(BaseModel):
     dialogue: str = ""
     items: list[ShopItem]
     purchase_only: bool = False
-    condition_switch: str | None = None  # 스위치 ON일 때만 상점 활성
     character_name: str = "People1"  # 상점 NPC 스프라이트
     character_index: int = 0
 
