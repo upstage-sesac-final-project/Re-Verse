@@ -23,10 +23,10 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def _resolve_map_path(map_arg: str) -> Path:
+def _resolve_map_path(map_arg: str, game_id: str = "game_001") -> Path:
     s = map_arg.strip().strip('"')
     if s.isdigit():
-        return _project_root() / "storage" / "games" / "game_001" / "data" / f"Map{int(s):03d}.json"
+        return _project_root() / "storage" / "games" / game_id / "data" / f"Map{int(s):03d}.json"
     p = Path(s)
     if p.is_absolute():
         return p
@@ -123,7 +123,7 @@ def _find_free_event_id(events: list[Any]) -> int:
     return len(events)
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str], game_id: str = "game_001") -> int:
     parser = argparse.ArgumentParser(
         description=(
             f"Add a villager NPC event at fixed position (x={NPC_X},y={NPC_Y}) with graphic "
@@ -141,7 +141,7 @@ def main(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
 
-    map_path = _resolve_map_path(args.map)
+    map_path = _resolve_map_path(args.map, game_id)
     if not map_path.exists():
         print(f"ERROR: Map file not found: {map_path}", file=sys.stderr)
         return 1

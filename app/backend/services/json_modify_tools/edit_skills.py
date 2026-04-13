@@ -8,20 +8,20 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def _actors_path() -> Path:
-    return _project_root() / "storage" / "games" / "game_001" / "data" / "Actors.json"
+def _actors_path(game_id: str = "game_001") -> Path:
+    return _project_root() / "storage" / "games" / game_id / "data" / "Actors.json"
 
 
-def _classes_path() -> Path:
-    return _project_root() / "storage" / "games" / "game_001" / "data" / "Classes.json"
+def _classes_path(game_id: str = "game_001") -> Path:
+    return _project_root() / "storage" / "games" / game_id / "data" / "Classes.json"
 
 
-def _skills_path() -> Path:
-    return _project_root() / "storage" / "games" / "game_001" / "data" / "Skills.json"
+def _skills_path(game_id: str = "game_001") -> Path:
+    return _project_root() / "storage" / "games" / game_id / "data" / "Skills.json"
 
 
-def _system_path() -> Path:
-    return _project_root() / "storage" / "games" / "game_001" / "data" / "System.json"
+def _system_path(game_id: str = "game_001") -> Path:
+    return _project_root() / "storage" / "games" / game_id / "data" / "System.json"
 
 
 def _detect_newline(text: str) -> str:
@@ -265,7 +265,7 @@ def _ensure_class_learns_skill_at_level_one(cl: dict[str, Any], skill_id: int) -
     learnings.append({"level": 1, "note": "", "skillId": skill_id})
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str], game_id: str = "game_001") -> int:
     """
     Actor1에게 스킬을 추가
 
@@ -291,15 +291,20 @@ def main(argv: list[str]) -> int:
         print(f"Available skills: {', '.join(SKILL_PRESETS.keys())}", file=sys.stderr)
         return 2
 
-    for p in (_actors_path(), _classes_path(), _skills_path(), _system_path()):
+    for p in (
+        _actors_path(game_id),
+        _classes_path(game_id),
+        _skills_path(game_id),
+        _system_path(game_id),
+    ):
         if not p.exists():
             print(f"Missing file: {p}", file=sys.stderr)
             return 2
 
-    actors, actors_nl = _load_array_json(_actors_path())
-    classes, classes_nl = _load_array_json(_classes_path())
-    skills, skills_nl = _load_array_json(_skills_path())
-    system, system_nl = _load_object_json(_system_path())
+    actors, actors_nl = _load_array_json(_actors_path(game_id))
+    classes, classes_nl = _load_array_json(_classes_path(game_id))
+    skills, skills_nl = _load_array_json(_skills_path(game_id))
+    system, system_nl = _load_object_json(_system_path(game_id))
 
     lead = _get_actor(actors, 1)
     class_id = int(lead.get("classId") or 0)
@@ -314,9 +319,9 @@ def main(argv: list[str]) -> int:
     _ensure_class_has_skill_type(cl, preset["stypeId"])
     _ensure_class_learns_skill_at_level_one(cl, skill_id)
 
-    _dump_rmmz_array_json(_skills_path(), skills, skills_nl)
-    _dump_rmmz_object_json(_system_path(), system, system_nl)
-    _dump_rmmz_array_json(_classes_path(), classes, classes_nl)
+    _dump_rmmz_array_json(_skills_path(game_id), skills, skills_nl)
+    _dump_rmmz_object_json(_system_path(game_id), system, system_nl)
+    _dump_rmmz_array_json(_classes_path(game_id), classes, classes_nl)
 
     actor_name = str(lead.get("name") or "Actor1")
     class_name = str(cl.get("name") or f"Class{class_id}")

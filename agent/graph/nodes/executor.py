@@ -2167,7 +2167,7 @@ async def _execute_one_structured_step(
 
             logger.debug("[Executor] dispatcher 입력: '%s'", user_input)
             try:
-                r = await asyncio.to_thread(dispatcher_func, user_input)
+                r = await asyncio.to_thread(dispatcher_func, user_input, game_id)
                 step_results[sid] = {**r, "step_id": sid}
                 return {
                     "step_id": sid,
@@ -3101,7 +3101,7 @@ async def executor(state: AgentState) -> dict:
                 )
             else:
                 logger.debug("[Executor MVP] Dispatcher 분기 사용: %s", tool_call.tool_name)
-                result = await asyncio.to_thread(tool_function, tool_call.user_input)
+                result = await asyncio.to_thread(tool_function, tool_call.user_input, game_id)
 
             changes_log.append(
                 {

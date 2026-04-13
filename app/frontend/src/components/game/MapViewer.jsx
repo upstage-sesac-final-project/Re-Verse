@@ -370,6 +370,7 @@ export default function MapViewer({ gameId, refreshKey }) {
     const canvas = canvasRef.current
     if (!canvas || !mapData) return
     const { width, height, data } = mapData
+    if (!data) return
 
     canvas.width  = width  * cellSize
     canvas.height = height * cellSize
@@ -414,7 +415,7 @@ export default function MapViewer({ gameId, refreshKey }) {
     drawCanvas()
   }, [drawCanvas])
 
-  const events = mapData ? mapData.events.filter(Boolean) : []
+  const events = mapData ? (mapData.events ?? []).filter(Boolean) : []
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
