@@ -17,6 +17,19 @@ logger = logging.getLogger(__name__)
 # 지원 파일 집합
 # ──────────────────────────────────────────────
 
+ALL_SUPPORTED: frozenset[str] = frozenset(
+    {
+        "Actors.json",
+        "Classes.json",
+        "Skills.json",
+        "Items.json",
+        "Weapons.json",
+        "Armors.json",
+        "Enemies.json",
+        "States.json",
+        "System.json",
+    }
+)
 
 # action 정규화
 _ACTION_ALIASES: dict[str, str] = {

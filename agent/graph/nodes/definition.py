@@ -5,6 +5,12 @@ import os
 import time
 from typing import Any, cast
 
+from agent.constants import (
+    CATEGORY_TO_FILE,
+    CATEGORY_TO_ID_FIELD,
+    CATEGORY_TO_PLURAL,
+    PROPERTY_TO_FIELD,
+)
 from agent.core.llm_client import invoke_llm
 from agent.graph.schemas import (
     FinalDefinitionResponse,
@@ -22,16 +28,6 @@ from agent.rag.vectorstore import vector_store
 from agent.utils.game_data_io import get_next_entity_id, get_system_context
 
 logger = logging.getLogger(__name__)
-
-# --- 공통 매핑 상수 (agent.constants 에서 가져옴) ---
-from agent.constants import (
-    ARRAY_FIELDS,
-    CATEGORY_TO_FILE,
-    CATEGORY_TO_ID_FIELD,
-    CATEGORY_TO_PLURAL,
-    PROPERTY_TO_FIELD,
-    TRAIT_CODE_TO_HINT,
-)
 
 # 복수형(파일명/폴더명) -> 단수형(내부 타겟명) 변환용
 PLURAL_TO_SINGULAR = {v.lower(): k for k, v in CATEGORY_TO_PLURAL.items()}
@@ -58,11 +54,38 @@ def filter_category_labels(classifications: list[dict[str, Any]]) -> list[dict[s
        예: "루시퍼 액터 추가" → '루시퍼'는 유지, '액터'(지칭어)는 제거.
     2. 동일 카테고리에 구체 이름과 지칭어가 공존하면, 지칭어를 제거한다.
     3. 지칭어만 있으면(예: "액터 전부 삭제") 그대로 유지한다.
+    4. 지칭어 제거 시, 같은 카테고리가 아닌 구체 entity 중 create 대상(id=NEW)이
+       있으면 지칭어의 카테고리로 덮어쓴다.
+       예: "방어구에 치유의 목걸이 만들어줘" → '방어구' 제거 + '치유의 목걸이'를 Armor로 보정.
     """
     categories_with_real_names = {
         cls["category"] for cls in classifications if not cls.get("is_category_label")
     }
     has_non_label_entity = any(not c.get("is_category_label") for c in classifications)
+
+    # 제거될 지칭어의 카테고리 수집
+    label_categories: list[str] = []
+    if has_non_label_entity:
+        for cls in classifications:
+            if cls.get("is_category_label"):
+                label_categories.append(cls["category"])
+
+    # 지칭어 카테고리를 create(NEW) 대상에 전파
+    if label_categories:
+        label_cat = label_categories[0]  # 지칭어가 여러 개면 첫 번째 사용
+        for cls in classifications:
+            if cls.get("is_category_label"):
+                continue
+            # 신규 생성 대상이고 지칭어 카테고리와 다르면 보정
+            is_new = cls.get("mapped_id") == "NEW" or cls.get("mapped_id") is None
+            if is_new and cls["category"] != label_cat:
+                logger.info(
+                    "[Definition] 지칭어 카테고리 전파: %s의 카테고리 %s → %s",
+                    cls["name"],
+                    cls["category"],
+                    label_cat,
+                )
+                cls["category"] = label_cat
 
     result: list[dict[str, Any]] = []
     for cls in classifications:
@@ -423,6 +446,29 @@ async def definition(state: AgentState) -> dict:
     )
     classifications = [cls.model_dump() for cls in response_2.classifications]
     logger.debug("[Definition] Step 2 완료 - 분류된 엔티티 수: %d", len(classifications))
+
+    # category=None 보정: 한국어 키워드 매핑으로 복구 가능하면 복구, 아니면 제거
+    from agent.constants import KEYWORD_TO_CATEGORY
+
+    kept: list[dict] = []
+    removed_count = 0
+    for cls in classifications:
+        if cls.get("category") is not None:
+            kept.append(cls)
+            continue
+        name = (cls.get("name") or "").strip()
+        matched_cat = KEYWORD_TO_CATEGORY.get(name)
+        if matched_cat:
+            cls["category"] = matched_cat
+            cls["is_category_label"] = True
+            logger.info("[Definition] 키워드 매핑으로 카테고리 복구: %s -> %s", name, matched_cat)
+            kept.append(cls)
+        else:
+            removed_count += 1
+    classifications = kept
+    if removed_count:
+        logger.info("[Definition] category=None 분류 %d건 제거 (수치 표현 등)", removed_count)
+
     bulk_scope_targets = _detect_bulk_scope_targets(extractions, classifications)
     unsupported_bulk_targets = _detect_unsupported_bulk_targets(extractions, classifications)
     if bulk_scope_targets:
@@ -514,6 +560,7 @@ async def definition(state: AgentState) -> dict:
 
         # [일반 케이스: GameIndex 기반 검색 — RAG 대체]
         from agent.game_index import find_entity as gi_find
+
         target_file = CATEGORY_TO_FILE.get(cls["category"].lower(), "")
         gi_results = gi_find(game_id, cls["name"])
         # target_file 에 맞는 결과만 필터
@@ -535,21 +582,42 @@ async def definition(state: AgentState) -> dict:
                     cls["mapped_id"] = best.id
                     cls["actual_name"] = best.name
                     cls["reason"] += f" (중복 이름 발견: {best.name} ID:{best.id})"
-                    logger.debug("[Definition] Step 4 중복 이름 발견: %s -> ID:%s", cls["name"], best.id)
+                    logger.debug(
+                        "[Definition] Step 4 중복 이름 발견: %s -> ID:%s", cls["name"], best.id
+                    )
                 else:
                     cls["mapped_id"] = "NEW"
-                    cls["reason"] += f" (새로운 이름으로 판단: {best.name}와 유사도 {similarity:.2f}로 낮음)"
-                    logger.debug("[Definition] Step 4 신규 생성(낮은 유사도): %s (vs %s: %.2f)", cls["name"], best.name, similarity)
+                    cls["reason"] += (
+                        f" (새로운 이름으로 판단: {best.name}와 유사도 {similarity:.2f}로 낮음)"
+                    )
+                    logger.debug(
+                        "[Definition] Step 4 신규 생성(낮은 유사도): %s (vs %s: %.2f)",
+                        cls["name"],
+                        best.name,
+                        similarity,
+                    )
             else:
                 if similarity >= 0.5:
                     cls["mapped_id"] = best.id
                     cls["actual_name"] = best.name
                     cls["reason"] += f" (매칭 성공: {best.name} ID:{best.id})"
-                    logger.debug("[Definition] Step 4 매칭 성공: %s -> ID:%s (유사도 %.2f)", cls["name"], best.id, similarity)
+                    logger.debug(
+                        "[Definition] Step 4 매칭 성공: %s -> ID:%s (유사도 %.2f)",
+                        cls["name"],
+                        best.id,
+                        similarity,
+                    )
                 else:
                     cls["mapped_id"] = "NEW"
-                    cls["reason"] += f" (데이터를 찾을 수 없어 신규 생성으로 전환: {best.name}와 유사도 {similarity:.2f}로 낮음)"
-                    logger.debug("[Definition] Step 4 매칭 실패(신규 전환): %s (vs %s: %.2f)", cls["name"], best.name, similarity)
+                    cls["reason"] += (
+                        f" (데이터를 찾을 수 없어 신규 생성으로 전환: {best.name}와 유사도 {similarity:.2f}로 낮음)"
+                    )
+                    logger.debug(
+                        "[Definition] Step 4 매칭 실패(신규 전환): %s (vs %s: %.2f)",
+                        cls["name"],
+                        best.name,
+                        similarity,
+                    )
         else:
             cls["mapped_id"] = "NEW"
             cls["reason"] += " (GameIndex 에서 미발견 → 신규 생성)"
@@ -585,7 +653,10 @@ async def definition(state: AgentState) -> dict:
     # --- [4.6단계: 코드 기반 operation IR 직접 생성 시도] ---
     # Step 1~4 결과만으로 operation_tuples 를 만들 수 있으면 Step 5 LLM 호출을 건너뜀.
     direct_ops = _extractions_to_operation_tuples(
-        extractions, final_classifications, final_extracted_ids, game_id,
+        extractions,
+        final_classifications,
+        final_extracted_ids,
+        game_id,
     )
     if direct_ops:
         logger.info(
@@ -603,7 +674,8 @@ async def definition(state: AgentState) -> dict:
         }
         logger.info(
             "─── ✅ Definition END (elapsed=%.2fs, direct_ops=%d) ──",
-            time.perf_counter() - _t0, len(direct_ops),
+            time.perf_counter() - _t0,
+            len(direct_ops),
         )
         return result
 
@@ -737,12 +809,19 @@ async def definition(state: AgentState) -> dict:
 
     if not resolved_params_sufficient:
         logger.info("[Definition] params_sufficient=False - 규격 보정/신규 ID 할당을 중단합니다.")
+        # 사용자에게 보여줄 메시지가 없으면 기본 메시지 생성
+        if not resolved_message_for_user:
+            resolved_message_for_user = (
+                "요청을 처리하기 위한 정보가 부족합니다. "
+                "구체적인 수치나 대상을 포함해서 다시 말씀해주세요."
+            )
         result = {
             "target_files": resolved_target_files,
             "modifications": resolved_modifications,
             "extracted_ids": final_extracted_ids,
             "params_sufficient": False,
             "message_for_user": resolved_message_for_user,
+            "final_response": resolved_message_for_user,
         }
         logger.info(
             "─── ⚠️ Definition END (elapsed=%.2fs, targets=%d, mods=%d, ids=%d, params_ok=%s) ──",
@@ -788,9 +867,7 @@ async def definition(state: AgentState) -> dict:
     logger.info("[Definition] 노드 완료 - 생성된 modification 수: %d", len(strictly_formatted_mods))
 
     # operation IR 변환 (planner_v2 가 소비)
-    operation_tuples = _to_operation_ir(
-        strictly_formatted_mods, final_extracted_ids
-    )
+    operation_tuples = _to_operation_ir(strictly_formatted_mods, final_extracted_ids)
     logger.info("[Definition] operation IR 변환 완료: %d tuples", len(operation_tuples))
 
     # 최종 결과 반환
@@ -821,7 +898,11 @@ async def definition(state: AgentState) -> dict:
 # _TARGET_TO_FILE, ARRAY_FIELDS, TRAIT_CODE_TO_HINT, CATEGORY_TO_FILE
 # → agent.constants 의 CATEGORY_TO_FILE, ARRAY_FIELDS, TRAIT_CODE_TO_HINT 로 통합
 # System.json 전용 확장
-_TARGET_TO_FILE: dict[str, str] = {**CATEGORY_TO_FILE, "element": "System.json", "system": "System.json"}
+_TARGET_TO_FILE: dict[str, str] = {
+    **CATEGORY_TO_FILE,
+    "element": "System.json",
+    "system": "System.json",
+}
 
 
 # ──────────────────────────────────────────────
@@ -856,7 +937,8 @@ def _extractions_to_operation_tuples(
 
     logger.debug(
         "[Step4.6] cls_by_name keys=%s, extractions=%d",
-        list(cls_by_name.keys()), len(extractions),
+        list(cls_by_name.keys()),
+        len(extractions),
     )
 
     ops: list[dict] = []
@@ -883,16 +965,31 @@ def _extractions_to_operation_tuples(
             if prop and value_str and action == "UPDATE":
                 sys_field = _detect_system_field(subject, prop)
                 if sys_field:
-                    logger.info("[Step4.6] System.json 수정 감지: %s.%s = %s", subject, sys_field, value_str)
-                    ops.append({
-                        "op": "update",
-                        "file": "System.json",
-                        "subject": None,
-                        "field": sys_field,
-                        "value": {"kind": "string", "ref": None, "new_value": value_str, "type_hint": None, "array_op": None, "match_hint": None},
-                    })
+                    logger.info(
+                        "[Step4.6] System.json 수정 감지: %s.%s = %s", subject, sys_field, value_str
+                    )
+                    ops.append(
+                        {
+                            "op": "update",
+                            "file": "System.json",
+                            "subject": None,
+                            "field": sys_field,
+                            "value": {
+                                "kind": "string",
+                                "ref": None,
+                                "new_value": value_str,
+                                "type_hint": None,
+                                "array_op": None,
+                                "match_hint": None,
+                            },
+                        }
+                    )
                     continue
-            logger.info("[Step4.6] subject '%s' not in cls_by_name %s → fallback", subject, list(cls_by_name.keys()))
+            logger.info(
+                "[Step4.6] subject '%s' not in cls_by_name %s → fallback",
+                subject,
+                list(cls_by_name.keys()),
+            )
             return []
 
         sub_cat = (sub_cls.get("category") or "").lower()
@@ -910,35 +1007,41 @@ def _extractions_to_operation_tuples(
 
         # CREATE
         if action == "CREATE":
-            ops.append({
-                "op": "create",
-                "file": sub_file or "System.json",
-                "subject": {"name": subject, "id": None, "scope": "single"},
-                "field": None,
-                "value": None,
-            })
+            ops.append(
+                {
+                    "op": "create",
+                    "file": sub_file or "System.json",
+                    "subject": {"name": subject, "id": None, "scope": "single"},
+                    "field": None,
+                    "value": None,
+                }
+            )
             continue
 
         # DELETE
         if action == "DELETE":
-            ops.append({
-                "op": "delete",
-                "file": sub_file or "System.json",
-                "subject": {"name": subject, "id": sub_id, "scope": "single"},
-                "field": None,
-                "value": None,
-            })
+            ops.append(
+                {
+                    "op": "delete",
+                    "file": sub_file or "System.json",
+                    "subject": {"name": subject, "id": sub_id, "scope": "single"},
+                    "field": None,
+                    "value": None,
+                }
+            )
             continue
 
         # READ
         if action == "READ":
-            ops.append({
-                "op": "read",
-                "file": sub_file or "System.json",
-                "subject": {"name": subject, "id": sub_id, "scope": "single"},
-                "field": prop if prop else None,
-                "value": None,
-            })
+            ops.append(
+                {
+                    "op": "read",
+                    "file": sub_file or "System.json",
+                    "subject": {"name": subject, "id": sub_id, "scope": "single"},
+                    "field": prop if prop else None,
+                    "value": None,
+                }
+            )
             continue
 
         # UPDATE — property 로 field 결정
@@ -973,16 +1076,23 @@ def _extractions_to_operation_tuples(
 
             # value 구성
             ir_value = _build_direct_ir_value(
-                field, kind, value_str, val_cls, extracted_ids, prop=prop,
+                field,
+                kind,
+                value_str,
+                val_cls,
+                extracted_ids,
+                prop=prop,
             )
 
-            ops.append({
-                "op": "update",
-                "file": sub_file,
-                "subject": {"name": subject, "id": sub_id, "scope": "single"},
-                "field": field,
-                "value": ir_value,
-            })
+            ops.append(
+                {
+                    "op": "update",
+                    "file": sub_file,
+                    "subject": {"name": subject, "id": sub_id, "scope": "single"},
+                    "field": field,
+                    "value": ir_value,
+                }
+            )
             continue
 
         # 알 수 없는 action
@@ -1160,24 +1270,32 @@ def _to_operation_ir(
 
 
 def _create_to_ir(
-    file: str, target: str, params: dict, extracted_ids: dict,
+    file: str,
+    target: str,
+    params: dict,
+    extracted_ids: dict,
 ) -> list[dict]:
     """create modification → operation IR.
 
     profiler 가 세부 필드를 채우므로, IR 은 name 만 담는다.
     """
     name = params.get("name") or params.get(f"{target}_name") or ""
-    return [{
-        "op": "create",
-        "file": file,
-        "subject": {"name": name, "id": None, "scope": "single"} if name else None,
-        "field": None,
-        "value": None,
-    }]
+    return [
+        {
+            "op": "create",
+            "file": file,
+            "subject": {"name": name, "id": None, "scope": "single"} if name else None,
+            "field": None,
+            "value": None,
+        }
+    ]
 
 
 def _update_to_ir(
-    file: str, target: str, params: dict, extracted_ids: dict,
+    file: str,
+    target: str,
+    params: dict,
+    extracted_ids: dict,
 ) -> list[dict]:
     """update modification → operation IR.
 
@@ -1213,31 +1331,44 @@ def _update_to_ir(
 
     # profiler 가 채울 복합 필드(traits, effects, params 등)는 버리고,
     # 스칼라 + 참조 필드(equips, classId 등)는 남긴다.
-    _PROFILER_FIELDS = {"traits", "effects", "damage", "params", "actions", "dropItems", "learnings"}
+    _PROFILER_FIELDS = {
+        "traits",
+        "effects",
+        "damage",
+        "params",
+        "actions",
+        "dropItems",
+        "learnings",
+    }
     filtered_updates = {k: v for k, v in updates.items() if k not in _PROFILER_FIELDS}
 
     if not filtered_updates:
         return []
 
-    return [{
-        "op": "update",
-        "file": file,
-        "subject": subject,
-        "field": None,
-        "value": {
-            "kind": "updates",
-            "ref": None,
-            "new_value": None,
-            "type_hint": None,
-            "array_op": None,
-            "match_hint": None,
-            "raw_updates": filtered_updates,
-        },
-    }]
+    return [
+        {
+            "op": "update",
+            "file": file,
+            "subject": subject,
+            "field": None,
+            "value": {
+                "kind": "updates",
+                "ref": None,
+                "new_value": None,
+                "type_hint": None,
+                "array_op": None,
+                "match_hint": None,
+                "raw_updates": filtered_updates,
+            },
+        }
+    ]
 
 
 def _delete_to_ir(
-    file: str, target: str, params: dict, extracted_ids: dict,
+    file: str,
+    target: str,
+    params: dict,
+    extracted_ids: dict,
 ) -> list[dict]:
     selector = params.get("selector") or {}
     if isinstance(selector, dict):
@@ -1249,24 +1380,28 @@ def _delete_to_ir(
     if sub_id is None and sub_name:
         sub_id = extracted_ids.get(sub_name)
 
-    return [{
-        "op": "delete",
-        "file": file,
-        "subject": {"name": sub_name, "id": sub_id, "scope": "single"},
-        "field": None,
-        "value": None,
-    }]
+    return [
+        {
+            "op": "delete",
+            "file": file,
+            "subject": {"name": sub_name, "id": sub_id, "scope": "single"},
+            "field": None,
+            "value": None,
+        }
+    ]
 
 
 def _read_to_ir(file: str, target: str, params: dict) -> list[dict]:
     name = params.get("searchTerm") or params.get("name")
-    return [{
-        "op": "read",
-        "file": file,
-        "subject": {"name": name, "id": None, "scope": "single"} if name else None,
-        "field": None,
-        "value": None,
-    }]
+    return [
+        {
+            "op": "read",
+            "file": file,
+            "subject": {"name": name, "id": None, "scope": "single"} if name else None,
+            "field": None,
+            "value": None,
+        }
+    ]
 
 
 # _build_ir_value 삭제 — _update_to_ir 에서 스칼라만 통과시키므로 불필요.

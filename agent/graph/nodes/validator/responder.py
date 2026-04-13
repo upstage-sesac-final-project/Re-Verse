@@ -14,10 +14,14 @@ def build_final_response(
     summary: str,
     changes_log: list[dict[str, Any]],
     details: list[str] | None = None,
+    judge_feedback: str = "",
 ) -> str:
     """최종 사용자 응답 문자열 생성."""
     if success:
-        return _success_response(changes_log)
+        resp = _success_response(changes_log)
+        if judge_feedback:
+            resp += f"\n\n참고: {judge_feedback}"
+        return resp
     return _failure_response(summary, changes_log, details)
 
 
@@ -39,10 +43,7 @@ def _format_query_result(target: str, data: Any) -> str:
     if isinstance(data, list):
         if not data:
             return f"  - {target}: 해당하는 항목이 없습니다."
-        names = [
-            str(e.get("name", f"id={e.get('id', '?')}"))
-            for e in data if isinstance(e, dict)
-        ]
+        names = [str(e.get("name", f"id={e.get('id', '?')}")) for e in data if isinstance(e, dict)]
         if len(names) <= 10:
             listing = ", ".join(names)
         else:
@@ -76,7 +77,9 @@ def _success_response(changes_log: list[dict]) -> str:
             lines.append(f"  - {target}: id={entity_id} 삭제")
         elif action == "append_system_type":
             if isinstance(data, dict):
-                lines.append(f"  - System.json: {data.get('system_key')}에 '{data.get('value')}' 추가")
+                lines.append(
+                    f"  - System.json: {data.get('system_key')}에 '{data.get('value')}' 추가"
+                )
         elif action in ("get", "search", "list"):
             lines.append(_format_query_result(target, data))
         else:
@@ -90,6 +93,17 @@ def _failure_response(
     changes_log: list[dict],
     details: list[str] | None,
 ) -> str:
+    # 전체가 UNSUPPORTED인 경우 간결한 안내 메시지
+    fail = [e for e in changes_log if not e.get("success")]
+    all_unsupported = fail and all(
+        "UNSUPPORTED" in str(e.get("tool_name", "")) or "UNSUPPORTED" in str(e.get("error", ""))
+        for e in fail
+    )
+    if all_unsupported:
+        return (
+            "현재 지원하지 않는 기능입니다. 다른 방식으로 요청하시거나, 버그 리포트에 작성해주세요."
+        )
+
     lines = [f"요청 처리 중 문제가 발생했습니다: {summary}"]
 
     # 부분 성공 알림
@@ -105,7 +119,6 @@ def _failure_response(
         for d in details:
             lines.append(f"  - {d}")
 
-    fail = [e for e in changes_log if not e.get("success")]
     if fail:
         lines.append(f"\n실행 실패 ({len(fail)} 건):")
         for entry in fail:

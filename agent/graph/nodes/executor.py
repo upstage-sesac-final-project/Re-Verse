@@ -2120,13 +2120,55 @@ async def _execute_one_structured_step(
                     "timestamp": ts,
                 }
 
-        # 위 조건에 없는 target/action 조합은 현재 MVP에서 아직 구현되지 않았다는 뜻이다.
-        # (MCP 핸들러 없음 + 레거시 매니저 핸들러 없음)인 "정의되지 않은 액션"이다.
+        # ── executor_v2 dispatch 최종 fallback ──────────────────
+        # MCP 매핑 없음 + 레거시 매니저 매핑 없음인 경우,
+        # executor_v2 의 dispatch_step (순수 Python CRUD) 으로 최종 시도한다.
+        # dispatch_step 은 entity 8종 + System.json + Map 을 커버하므로
+        # 대부분의 미지원 action 을 여기서 처리할 수 있다.
+        logger.info(
+            "[Executor] MCP/레거시 미지원 → executor_v2 dispatch 최종 fallback: %s.%s (step %d)",
+            target_file,
+            action,
+            sid,
+        )
+        try:
+            async with game_locks[game_id]:
+                r = await asyncio.to_thread(
+                    dispatch_step, data_path, action, target_file, target_info
+                )
+            if r.get("success"):
+                step_results[sid] = {**r, "step_id": sid}
+                return {
+                    "step_id": sid,
+                    "tool_name": f"structured_{target_file.replace('.json', '').lower()}_{action}",
+                    "success": True,
+                    "stdout": r.get("message", ""),
+                    "stderr": "",
+                    "entity_id": r.get("entity_id"),
+                    "modified_files": r.get("modified_files", []),
+                    "structured": True,
+                    "timestamp": ts,
+                }
+            # dispatch_step 도 실패한 경우 아래 UNSUPPORTED 로 진행
+            logger.warning(
+                "[Executor] executor_v2 dispatch 도 실패: %s (step %d)",
+                r.get("error", "unknown"),
+                sid,
+            )
+        except Exception as e:
+            logger.warning(
+                "[Executor] executor_v2 dispatch 예외: %s (step %d)",
+                e,
+                sid,
+            )
+
+        # ── 최종 미지원 ──────────────────────────────────────
+        # MCP, 레거시 매니저, executor_v2 dispatch 모두 실패한 경우.
         err = _structured_error(
             "UNSUPPORTED_STRUCTURED_STEP",
             target_file,
             action,
-            "no mcp/legacy handler",
+            "no mcp/legacy/dispatch handler",
             hint=f"raw_action={raw_action}",
         )
         logger.error("[Executor] 미지원 스텝: %s", err)
@@ -2826,6 +2868,10 @@ async def executor(state: AgentState) -> dict:
         result = {
             "changes_log": [
                 {
+                    "step_id": -1,
+                    "tool_name": "guard_error",
+                    "target_file": "",
+                    "action": "guard",
                     "success": False,
                     "error": "최대 재시도(2) 초과. 수행 불가.",
                     "timestamp": datetime.now().isoformat(),
@@ -2841,6 +2887,11 @@ async def executor(state: AgentState) -> dict:
         result = {
             "changes_log": [
                 {
+                    "step_id": -1,
+                    "tool_name": "guard_error",
+                    "target_file": "",
+                    "action": "guard",
+                    "success": False,
                     "error": "execution_plan이 비어있습니다.",
                     "timestamp": datetime.now().isoformat(),
                 }

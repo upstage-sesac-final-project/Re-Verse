@@ -1,4 +1,7 @@
-"""Partial retry loop — 실패한 create step 만 profiler 재호출 후 재실행.
+"""Partial retry loop — 실패한 step 재실행 + judge 실패는 feedback 만.
+
+- exec 실패 (success=False): profiler 재호출 → execute_one 재실행
+- judge 실패 (의미 불일치): 재실행 없이 feedback 만 반환 (중복 생성 방지)
 
 중요: create step 은 retry 시 새 엔트리를 만들지 않고,
 이전에 만든 엔트리를 update 하는 방식으로 수정한다.
@@ -30,11 +33,12 @@ async def run_partial_retry(
 
     Returns {"success": bool, "changes_log": list, "summary": str}
     """
-    from agent.graph.nodes.executor import execute_one
+    from agent.graph.nodes.executor_v2 import execute_one
     from agent.graph.nodes.profiler import profile_one
 
     patched_log: list[dict] = []
     all_ok = True
+    retried_any = False
     prev_log = previous_changes_log or []
 
     for failure in failures:
@@ -56,15 +60,14 @@ async def run_partial_retry(
             prev_entity_id = _find_prev_entity_id(sid, prev_log)
 
             # profiler 재호출
-            enriched = await profile_one(
-                step, game_id=game_id, feedback=feedback_text
-            )
+            enriched = await profile_one(step, game_id=game_id, feedback=feedback_text)
 
             if prev_entity_id is not None:
                 # 이전에 만든 엔트리를 update 하는 방식으로 전환
                 logger.info(
                     "[retry] step=%s create→update 전환 (entity_id=%d)",
-                    sid, prev_entity_id,
+                    sid,
+                    prev_entity_id,
                 )
                 enriched = dict(enriched)
                 enriched["action_type"] = "update"
@@ -75,6 +78,7 @@ async def run_partial_retry(
                 ti["updates"] = updates
                 enriched["target_info"] = ti
 
+            retried_any = True
             result = await execute_one(game_id, enriched)
             patched_log.append(result)
 
@@ -82,14 +86,34 @@ async def run_partial_retry(
                 all_ok = False
                 logger.warning(
                     "[retry] step=%s 재실행 실패: %s",
-                    step.get("step_id"), result.get("error"),
+                    step.get("step_id"),
+                    result.get("error"),
                 )
+
+    # 재시도 대상이 하나도 없으면 실패로 반환 (원본 실패가 삼켜지지 않게)
+    if not retried_any:
+        return {
+            "success": False,
+            "changes_log": [],
+            "summary": "재시도 대상 없음 — 실행 실패 유지",
+        }
 
     return {
         "success": all_ok,
         "changes_log": patched_log,
         "summary": "부분 재시도 성공" if all_ok else "부분 재시도 실패",
     }
+
+
+def build_judge_feedback(judge_failures: list[dict]) -> str:
+    """judge 실패 목록을 사용자 응답에 포함할 피드백 텍스트로 변환."""
+    if not judge_failures:
+        return ""
+    lines = ["의미 검증에서 다음 사항이 감지되었습니다:"]
+    for f in judge_failures:
+        reason = f.get("reason", "알 수 없음")
+        lines.append(f"  - {reason}")
+    return "\n".join(lines)
 
 
 def _find_prev_entity_id(step_id: int | None, changes_log: list[dict]) -> int | None:
@@ -102,9 +126,7 @@ def _find_prev_entity_id(step_id: int | None, changes_log: list[dict]) -> int | 
     return None
 
 
-def _find_target_steps(
-    failure: dict, plan: list[dict]
-) -> list[dict]:
+def _find_target_steps(failure: dict, plan: list[dict]) -> list[dict]:
     """failure 정보에서 재시도 대상 step 을 추출."""
     # step_id 직접 지정
     step_id = failure.get("step_id")
@@ -114,12 +136,8 @@ def _find_target_steps(
     # operation 기반 (judge 실패) — 해당 op 의 create step 만
     op_idx = failure.get("op_idx")
     if op_idx is not None:
-        # plan 에서 해당 op 에 속하는 create step 만 반환
-        # (이전 버그: 전체 create step 을 반환하고 있었음)
         return [
-            s for s in plan
-            if s.get("action_type") == "create"
-            and s.get("_op_action") == "create"
+            s for s in plan if s.get("action_type") == "create" and s.get("_op_action") == "create"
         ]
 
     return []

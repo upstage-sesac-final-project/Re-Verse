@@ -9,9 +9,12 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from agent.core.llm_client import invoke_llm
-from agent.utils.game_data_io import get_game_data_dir
-from agent.utils.traits_reference import describe_effects_list, describe_params, describe_traits_list
 from agent.prompts.validator_prompt import build_judge_system_prompt, build_judge_user_prompt
+from agent.utils.traits_reference import (
+    describe_effects_list,
+    describe_params,
+    describe_traits_list,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +52,9 @@ async def judge_operation(
         judgment = _parse_judgment(response_text)
         logger.info(
             "[judge] match=%s confidence=%.2f reason='%s'",
-            judgment.get("match"), judgment.get("confidence", 0), judgment.get("reason", "")[:80],
+            judgment.get("match"),
+            judgment.get("confidence", 0),
+            judgment.get("reason", "")[:80],
         )
         return judgment
     except Exception as e:
@@ -77,6 +82,12 @@ def _build_result_summary(
             continue
 
         data = entry.get("data")
+
+        # MCP executor 경로는 data 를 안 남기는 경우가 있다.
+        # 이때 entity_id + target_file 로 실제 파일에서 읽어 보강.
+        if not isinstance(data, dict) and entry.get("entity_id") is not None:
+            data = _load_entity_from_file(game_id, target, entry["entity_id"])
+
         if isinstance(data, dict):
             summary_parts = [f"step {sid} ({target}.{action}): 성공"]
             if data.get("name"):
@@ -203,3 +214,19 @@ def _describe_equips(equips: list, game_id: str) -> str:
         return "[" + ", ".join(parts) + "]"
     except Exception:
         return str(equips)
+
+
+def _load_entity_from_file(game_id: str, target_file: str, entity_id: int) -> dict | None:
+    """게임 파일에서 entity_id 에 해당하는 엔트리를 직접 읽어온다."""
+    try:
+        from agent.utils.game_data_io import read_game_json
+
+        data = read_game_json(game_id, target_file)
+        if not isinstance(data, list):
+            return None
+        for entry in data:
+            if isinstance(entry, dict) and entry.get("id") == entity_id:
+                return entry
+    except Exception:
+        pass
+    return None
