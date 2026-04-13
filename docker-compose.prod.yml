@@ -8,7 +8,7 @@ services:
       context: .
       dockerfile: docker/backend.Dockerfile
       args:
-        MCP_REPO: ${MCP_REPO:-https://github.com/rein1225/RPGMakerMZ_MCP.git}
+        MCP_REPO: ${MCP_REPO:-https://github.com/upstage-sesac-final-project/integration_MCP.git}
     ports:
       - "8000:8000"  # EC2에서 외부 접근 허용
     env_file: .env.production
