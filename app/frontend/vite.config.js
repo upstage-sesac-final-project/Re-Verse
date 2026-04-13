@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve, join, extname, sep } from 'path'
 import { createReadStream, existsSync, statSync } from 'fs'
@@ -22,46 +22,85 @@ const MIME_TYPES = {
 }
 
 // storage/games 디렉토리를 /game 경로로 정적 서빙하는 플러그인
+// 프로젝트별 파일(data/) 없으면 base_game으로 fallback
 function serveGameFiles() {
   const storagePath = resolve(__dirname, '../../storage/games')
+  const baseGamePath = resolve(__dirname, '../../storage/games/base_game')
+
+  function serveFile(filePath, res) {
+    const ext = extname(filePath)
+    res.setHeader('Content-Type', MIME_TYPES[ext] || 'application/octet-stream')
+    createReadStream(filePath).pipe(res)
+  }
+
   return {
     name: 'serve-game-files',
     configureServer(server) {
       server.middlewares.use('/game', (req, res, next) => {
-        // Strip query string before resolving path
-        const urlPath = decodeURIComponent(req.url.split('?')[0])
-        const filePath = resolve(join(storagePath, urlPath))
-        // Guard against path traversal (e.g. ../../etc/passwd)
+        const rawUrl = decodeURIComponent(req.url.split('?')[0])
+        const normalized = rawUrl.replace(/^\//, '')
+        const filePath = resolve(join(storagePath, normalized))
         if (!filePath.startsWith(storagePath + sep) && filePath !== storagePath) {
           return next()
         }
         if (existsSync(filePath) && statSync(filePath).isFile()) {
           const ext = extname(filePath)
           res.setHeader('Content-Type', MIME_TYPES[ext] || 'application/octet-stream')
+          if (ext === '.json' || ext === '.html') {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+          }
           createReadStream(filePath).pipe(res)
-        } else {
-          next()
+          return
         }
+
+        const slashIdx = normalized.indexOf('/')
+        if (slashIdx === -1) return next()
+
+        const gameId = normalized.slice(0, slashIdx)
+        const filePart = normalized.slice(slashIdx + 1) || 'index.html'
+
+        // 1) 프로젝트별 파일 (data/ JSON 등)
+        const projectFile = resolve(join(storagePath, gameId, filePart))
+        if (projectFile.startsWith(storagePath + sep) && existsSync(projectFile) && statSync(projectFile).isFile()) {
+          return serveFile(projectFile, res)
+        }
+
+        // 2) base_game 공유 에셋 fallback (img, js, css, audio 등)
+        const baseFile = resolve(join(baseGamePath, filePart))
+        if (baseFile.startsWith(baseGamePath + sep) && existsSync(baseFile) && statSync(baseFile).isFile()) {
+          return serveFile(baseFile, res)
+        }
+
+        next()
       })
     },
   }
 }
 
-export default defineConfig({
-  plugins: [react(), serveGameFiles()],
-  envDir: resolve(__dirname, '../..'), // 루트 .env 참조
-  server: {
-    port: 3000,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      // 새로 추가 - docker로 프론트/백엔드 같이 띄울 때 필요한 설정
-      '/game': {
-        target: 'http://backend:8000',
-        changeOrigin: true,
+// https://vitejs.dev/config/
+export default defineConfig(({ mode }) => {
+  const root = resolve(__dirname, '../..')
+  const env = loadEnv(mode, root, '')
+  // 호스트에서 npm run dev: 127.0.0.1 (backend 호스트·도커 8000 포트)
+  // docker compose frontend-dev: 환경변수로 http://backend:8000 주입
+  const proxyTarget = env.VITE_DEV_PROXY_TARGET || 'http://127.0.0.1:8000'
+
+  return {
+    plugins: [react(), serveGameFiles()],
+    envDir: root,
+    server: {
+      port: 3000,
+      proxy: {
+        '/api': {
+          target: proxyTarget,
+          changeOrigin: true,
+        },
+        // 로컬에 파일이 없을 때(또는 compose 안 프론트) 백엔드 StaticFiles로 폴백
+        '/game': {
+          target: proxyTarget,
+          changeOrigin: true,
+        },
       },
     },
-  },
+  }
 })

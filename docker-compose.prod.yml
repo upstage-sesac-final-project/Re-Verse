@@ -7,15 +7,23 @@ services:
     build:
       context: .
       dockerfile: docker/backend.Dockerfile
+      args:
+        # 다중 MCP 리포 URL (비워두면 해당 키는 빌드 스킵)
+        MCP_REPO_DEFAULT: ${MCP_REPO_DEFAULT:-https://github.com/k4zuki0539/-rpgmaker-mz-mcp.git}
+        MCP_REPO_MAKER: ${MCP_REPO_MAKER:-}
+        MCP_REPO_LOWER: ${MCP_REPO_LOWER:-}
+        MCP_REPO_UNDERSCORE: ${MCP_REPO_UNDERSCORE:-}
     ports:
       - "8000:8000"  # EC2에서 외부 접근 허용
-    env_file: .env
+    env_file: .env.production
     environment:
+      - APP_ENV=production
       - ENVIRONMENT=production
       - DEBUG=false
-      # STORAGE_BACKEND, DATABASE_URL, S3_* 는 EC2의 .env(또는 GitHub ENV_FILE)에서 주입 권장
+      # STORAGE_BACKEND, DATABASE_URL, S3_* 는 EC2의 .env.production(또는 GitHub ENV_FILE)에서 주입 권장
     volumes: []  # 프로덕션에서는 볼륨 마운트 제거 (override)
     restart: unless-stopped
+    stop_grace_period: 30s  # shutdown hook이 S3 업로드할 시간 확보
 
     # 로그 설정
     logging:

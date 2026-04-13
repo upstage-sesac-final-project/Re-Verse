@@ -92,6 +92,7 @@ async def router(state: AgentState) -> dict:
         result["final_response"] = output.response or "조금 더 구체적으로 말씀해주시겠어요?"
         logger.info("─── 🛑 Router END → %s (terminal) ─────────────────────", intent)
     else:
-        logger.info("─── ✅ Router END → %s (next: definition) ──────────────", intent)
+        next_node = "reader" if intent == "게임_요소_조회" else "definition"
+        logger.info("─── ✅ Router END → %s (next: %s) ──────────────", intent, next_node)
 
     return result

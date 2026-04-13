@@ -4,6 +4,13 @@ from operator import add
 from typing import Annotated, Literal, TypedDict
 
 
+def _merge_dict(left: dict, right: dict) -> dict:
+    """dict 병합 reducer. right가 비어 있으면 left를 그대로 유지한다."""
+    if not right:
+        return left
+    return {**left, **right}
+
+
 class AgentState(TypedDict, total=False):
     # ── 입력 ────────────────────────────────────────────────
     user_input: str  # 사용자 원본 입력
@@ -55,5 +62,7 @@ class AgentState(TypedDict, total=False):
     tool_results: Annotated[list, add]  # 툴 호출 결과 누적
 
     # ── 4단계 Executor 추가 필드들 (MVP) ──────────────────────
-    backup_paths: dict  # 백업 파일 경로들 {"Skills.json": "/path/to/backup.bak"}
+    backup_paths: Annotated[
+        dict, _merge_dict
+    ]  # 백업 파일 경로들 {"Skills.json": "/path/to/backup.bak"} — retry 시 첫 실행 경로 보존
     operation_id: str  # 실행 추적용 고유 ID

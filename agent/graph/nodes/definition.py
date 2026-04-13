@@ -3,7 +3,7 @@
 import logging
 import os
 import time
-from typing import cast
+from typing import Any, cast
 
 from agent.core.llm_client import invoke_llm
 from agent.graph.schemas import (
@@ -18,6 +18,7 @@ from agent.prompts.definition_prompt import (
     build_step5_prompt,
 )
 from agent.rag.retriever import RPGRetriever
+from agent.rag.vectorstore import vector_store
 from agent.utils.game_data_io import get_next_entity_id, get_system_context
 
 logger = logging.getLogger(__name__)
@@ -54,10 +55,259 @@ PLURAL_TO_SINGULAR = {v.lower(): k for k, v in CATEGORY_TO_PLURAL.items()}
 # 특수 케이스 추가
 PLURAL_TO_SINGULAR.update({"enemies": "enemy", "actors": "actor"})
 
+SUPPORTED_BULK_TARGETS = {
+    "actor": {"target_file": "Actors.json", "rag_category": "Actors"},
+    "enemy": {"target_file": "Enemies.json", "rag_category": "Enemies"},
+    "item": {"target_file": "Items.json", "rag_category": "Items"},
+    "weapon": {"target_file": "Weapons.json", "rag_category": "Weapons"},
+    "armor": {"target_file": "Armors.json", "rag_category": "Armors"},
+    "class": {"target_file": "Classes.json", "rag_category": "Classes"},
+    "state": {"target_file": "States.json", "rag_category": "States"},
+    "element": {"target_file": "System.json", "rag_category": None},
+}
+UNSUPPORTED_BULK_TARGETS = {"skill"}
+
+
+def filter_category_labels(classifications: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """지칭어(is_category_label)와 구체 이름이 섞여 있을 때 지칭어를 제거한다.
+
+    규칙:
+    1. 구체 이름(non-label)이 하나라도 있으면, 모든 카테고리 지칭어를 제거한다.
+       예: "루시퍼 액터 추가" → '루시퍼'는 유지, '액터'(지칭어)는 제거.
+    2. 동일 카테고리에 구체 이름과 지칭어가 공존하면, 지칭어를 제거한다.
+    3. 지칭어만 있으면(예: "액터 전부 삭제") 그대로 유지한다.
+    """
+    categories_with_real_names = {
+        cls["category"] for cls in classifications if not cls.get("is_category_label")
+    }
+    has_non_label_entity = any(not c.get("is_category_label") for c in classifications)
+
+    result: list[dict[str, Any]] = []
+    for cls in classifications:
+        if cls.get("is_category_label") and has_non_label_entity:
+            logger.info(
+                "[Definition] 구체 대상이 있어 카테고리 지칭어 분류 제외: %s",
+                cls.get("name"),
+            )
+            continue
+        if cls.get("is_category_label") and cls["category"] in categories_with_real_names:
+            logger.info(
+                "[Definition] 중복 지칭어 제거: %s (카테고리 %s에 구체적 대상 존재)",
+                cls["name"],
+                cls["category"],
+            )
+            continue
+        result.append(cls)
+    return result
+
 
 def _normalize_category_to_plural(cat: str) -> str:
     """단수형 카테고리를 RPG Maker MZ 파일용 복수형으로 변환 (예: Enemy -> Enemies)"""
     return CATEGORY_TO_PLURAL.get(cat.lower(), cat.capitalize())
+
+
+def _normalize_target_category(cat: str) -> str:
+    """카테고리명을 내부 target 규격(단수형 소문자)으로 정규화한다."""
+    normalized = PLURAL_TO_SINGULAR.get(cat.lower(), cat.lower())
+    if normalized == cat.lower() and normalized.endswith("s") and len(normalized) > 1:
+        normalized = normalized[:-1]
+    return normalized
+
+
+def _detect_bulk_scope_targets(
+    extractions: list[dict], classifications: list[dict]
+) -> dict[str, dict[str, str]]:
+    """LLM의 구조화 결과를 바탕으로 bulk selector 후보를 계산한다."""
+    bulk_targets: dict[str, dict[str, str]] = {}
+    has_structured_update_intent = any(
+        str(ext.get("action") or "").upper() == "UPDATE"
+        and (ext.get("property") is not None or ext.get("value") is not None)
+        for ext in extractions
+    )
+
+    if not has_structured_update_intent:
+        return bulk_targets
+
+    categories_with_real_names = {
+        _normalize_target_category(str(cls.get("category") or ""))
+        for cls in classifications
+        if not cls.get("is_category_label")
+    }
+
+    for cls in classifications:
+        category = _normalize_target_category(str(cls.get("category") or ""))
+
+        if category not in SUPPORTED_BULK_TARGETS:
+            continue
+        if not cls.get("is_category_label"):
+            continue
+        if category in categories_with_real_names:
+            continue
+
+        cls["bulk_scope"] = "all"
+        bulk_targets[category] = {
+            "mode": "all",
+            "target_file": SUPPORTED_BULK_TARGETS[category]["target_file"],
+        }
+
+    return bulk_targets
+
+
+def _detect_unsupported_bulk_targets(
+    extractions: list[dict], classifications: list[dict]
+) -> set[str]:
+    """구조화 결과상 bulk로 보이지만 현재 미지원인 카테고리를 식별한다."""
+    has_structured_update_intent = any(
+        str(ext.get("action") or "").upper() == "UPDATE"
+        and (ext.get("property") is not None or ext.get("value") is not None)
+        for ext in extractions
+    )
+    if not has_structured_update_intent:
+        return set()
+
+    categories_with_real_names = {
+        _normalize_target_category(str(cls.get("category") or ""))
+        for cls in classifications
+        if not cls.get("is_category_label")
+    }
+
+    unsupported: set[str] = set()
+    for cls in classifications:
+        category = _normalize_target_category(str(cls.get("category") or ""))
+        if category not in UNSUPPORTED_BULK_TARGETS:
+            continue
+        if not cls.get("is_category_label"):
+            continue
+        if category in categories_with_real_names:
+            continue
+        unsupported.add(category)
+
+    return unsupported
+
+
+def _build_extracted_ids(classifications: list[dict]) -> dict[str, Any]:
+    """분류 단계에서 확정된 ID를 state 전이용 요약 딕셔너리로 구성한다."""
+    extracted_ids: dict[str, Any] = {}
+    for cls in classifications:
+        mapped_id = cls.get("mapped_id")
+        if not mapped_id or mapped_id == "NEW":
+            continue
+
+        if cls.get("system_ref"):
+            extracted_ids[cls["system_ref"]] = mapped_id
+
+        if cls["name"] not in extracted_ids:
+            extracted_ids[cls["name"]] = mapped_id
+
+    return extracted_ids
+
+
+def _has_valid_bulk_selector(
+    modifications: list[dict], target: str, required_action: str | None = None
+) -> bool:
+    """selector.mode=all 형태의 유효한 bulk modification이 있는지 확인한다."""
+    normalized_target = _normalize_target_category(target)
+
+    for mod in modifications:
+        mod_target = _normalize_target_category(str(mod.get("target") or ""))
+        mod_type = str(mod.get("type") or "").lower()
+        if mod_target != normalized_target:
+            continue
+        if required_action and mod_type != required_action:
+            continue
+
+        params = mod.get("params", {}) or {}
+        selector = params.get("selector")
+        if not (isinstance(selector, dict) and selector.get("mode") == "all"):
+            continue
+
+        if mod_type == "update":
+            updates = params.get("updates")
+            if not isinstance(updates, dict) or not updates:
+                continue
+
+        return True
+
+    return False
+
+
+def _has_conflicting_bulk_create(
+    modifications: list[dict], bulk_scope_targets: dict[str, dict[str, str]]
+) -> bool:
+    """지원되는 bulk 대상 요청이 create로 잘못 변환되었는지 확인한다."""
+    if not bulk_scope_targets:
+        return False
+
+    bulk_targets = set(bulk_scope_targets.keys())
+    for mod in modifications:
+        if str(mod.get("type") or "").lower() != "create":
+            continue
+        if _normalize_target_category(str(mod.get("target") or "")) in bulk_targets:
+            return True
+    return False
+
+
+def _get_missing_bulk_targets(
+    modifications: list[dict], bulk_scope_targets: dict[str, dict[str, str]]
+) -> list[str]:
+    """지원되는 bulk 대상 중 selector 기반 update가 빠진 카테고리를 계산한다."""
+    missing: list[str] = []
+    for target in bulk_scope_targets:
+        if not _has_valid_bulk_selector(modifications, target, required_action="update"):
+            missing.append(target)
+    return missing
+
+
+async def _build_bulk_scope_context(
+    retriever: RPGRetriever, game_id: str, bulk_scope_targets: dict[str, dict[str, str]]
+) -> dict[str, Any]:
+    """bulk 대상에 대한 RAG 기반 요약 컨텍스트를 만든다."""
+    context: dict[str, Any] = {}
+
+    for target, config in bulk_scope_targets.items():
+        rag_category = SUPPORTED_BULK_TARGETS.get(target, {}).get("rag_category")
+        target_file = config["target_file"]
+
+        if rag_category:
+            await retriever.index_category(rag_category)
+            total_count = vector_store.count(
+                retriever.collection_name, where={"category": rag_category, "game_id": game_id}
+            )
+            sample_limit = min(total_count, 25)
+            rows = vector_store.search_by_metadata(
+                retriever.collection_name,
+                where={"category": rag_category, "game_id": game_id},
+                limit=sample_limit,
+            )
+            context[target] = {
+                "scope": "all",
+                "target_file": target_file,
+                "total_count": total_count,
+                "sample_entities": [
+                    {
+                        "id": row.get("metadata", {}).get("id"),
+                        "name": row.get("metadata", {}).get("name"),
+                    }
+                    for row in rows
+                ],
+            }
+            continue
+
+        if target == "element":
+            sys_info = get_system_context(game_id)
+            elements = [
+                {"id": idx, "name": name}
+                for idx, name in enumerate(sys_info.get("elements", []))
+                if name
+            ]
+            context[target] = {
+                "scope": "all",
+                "target_file": target_file,
+                "total_count": len(elements),
+                "sample_entities": elements[:25],
+            }
+
+    return context
 
 
 def _format_to_progress_spec(modifications: list[dict], classifications: list[dict]) -> list[dict]:
@@ -92,8 +342,15 @@ def _format_to_progress_spec(modifications: list[dict], classifications: list[di
         # 3. 해당 타겟의 ID 필드명 결정
         id_field = CATEGORY_TO_ID_FIELD.get(target, f"{target}_id")
 
-        # 4. 파라미터 정제 (기존 ID 필드들을 대소문자 구분 없이 찾아서 추출)
+        # 4. selector 기반 bulk update/read는 ID 보정 없이 그대로 보존
         raw_params = mod.get("params", {})
+        selector = raw_params.get("selector")
+        if isinstance(selector, dict) and selector.get("mode"):
+            clean_params = dict(raw_params)
+            formatted_mods.append({"type": action_type, "target": target, "params": clean_params})
+            continue
+
+        # 5. 파라미터 정제 (기존 ID 필드들을 대소문자 구분 없이 찾아서 추출)
         clean_params = {}
         llm_provided_id = None
 
@@ -115,7 +372,7 @@ def _format_to_progress_spec(modifications: list[dict], classifications: list[di
             else:
                 clean_params[k] = v
 
-        # 5. ID 값 확정
+        # 6. ID 값 확정
         mapped_id = None
         target_name = clean_params.get("name")
 
@@ -177,13 +434,19 @@ async def definition(state: AgentState) -> dict:
 
     # --- [2단계: 카테고리 분류] ---
     logger.info("[Definition] Step 2: 추출된 대상들 카테고리 분류 중...")
-    messages_2 = build_step2_prompt(extractions)
+    messages_2 = build_step2_prompt(extractions, user_input=user_input)
     response_2 = cast(
         Step2ClassificationResponse,
         await invoke_llm(messages=messages_2, structured_output=Step2ClassificationResponse),
     )
     classifications = [cls.model_dump() for cls in response_2.classifications]
     logger.debug("[Definition] Step 2 완료 - 분류된 엔티티 수: %d", len(classifications))
+    bulk_scope_targets = _detect_bulk_scope_targets(extractions, classifications)
+    unsupported_bulk_targets = _detect_unsupported_bulk_targets(extractions, classifications)
+    if bulk_scope_targets:
+        logger.info("[Definition] bulk 범위 감지: %s", bulk_scope_targets)
+    if unsupported_bulk_targets:
+        logger.info("[Definition] 미지원 bulk 범위 감지: %s", sorted(unsupported_bulk_targets))
 
     # --- [3단계: 파이썬 기반 시스템 문맥 보정 (비용 0)] ---
     # 결과물 중에 시스템 참조(system_ref)가 있을 때만 작동
@@ -230,6 +493,9 @@ async def definition(state: AgentState) -> dict:
     from difflib import SequenceMatcher
 
     retriever = RPGRetriever(game_id)
+    bulk_context = await _build_bulk_scope_context(retriever, game_id, bulk_scope_targets)
+    if bulk_context:
+        logger.info("[Definition] bulk RAG 컨텍스트 확보: %s", bulk_context)
     if not sys_info:  # 시스템 정보 미리 확보
         sys_info = get_system_context(game_id)
 
@@ -364,22 +630,7 @@ async def definition(state: AgentState) -> dict:
         logger.debug("[Definition] 분류 사유: %s", cls["reason"])
 
     # --- [4.5단계: 중복 및 지칭어 필터링] ---
-    # 동일 카테고리에 구체적인 이름이 있는 엔티티와 '지칭어'가 섞여있으면 지칭어 제거
-    final_classifications = []
-    categories_with_real_names = {
-        cls["category"] for cls in classifications if not cls.get("is_category_label")
-    }
-
-    for cls in classifications:
-        # 지칭어인데 해당 카테고리에 이미 구체적인 이름의 엔티티가 있다면 제외
-        if cls.get("is_category_label") and cls["category"] in categories_with_real_names:
-            logger.info(
-                "[Definition] 중복 지칭어 제거: %s (카테고리 %s에 구체적 대상 존재)",
-                cls["name"],
-                cls["category"],
-            )
-            continue
-        final_classifications.append(cls)
+    final_classifications = filter_category_labels(classifications)
 
     # --- [5단계: 최종 조립 (Specification)] ---
     logger.info("[Definition] Step 5: 최종 수정 명세 생성 중...")
@@ -399,7 +650,13 @@ async def definition(state: AgentState) -> dict:
             schema2_content = f.read()
 
     messages_5 = build_step5_prompt(
-        state, extractions, final_classifications, sys_info, schema1_content, schema2_content
+        state,
+        extractions,
+        final_classifications,
+        sys_info,
+        schema1_content,
+        schema2_content,
+        bulk_context=bulk_context,
     )
 
     final_response = cast(
@@ -407,26 +664,111 @@ async def definition(state: AgentState) -> dict:
         await invoke_llm(messages=messages_5, structured_output=FinalDefinitionResponse),
     )
     logger.debug("[Definition] Step 5 완료 - 대상 파일: %s", final_response.target_files)
+    resolved_target_files = list(final_response.target_files)
+    resolved_modifications = list(final_response.modifications)
+    resolved_params_sufficient = final_response.params_sufficient
+    resolved_message_for_user = final_response.message_for_user
+
+    should_retry_bulk_step5 = False
+    retry_reason_parts: list[str] = []
+    if bulk_scope_targets:
+        initial_missing_bulk_targets = _get_missing_bulk_targets(
+            resolved_modifications, bulk_scope_targets
+        )
+        if initial_missing_bulk_targets:
+            should_retry_bulk_step5 = True
+            retry_reason_parts.append(
+                "selector 기반 bulk update가 빠진 대상: " + ", ".join(initial_missing_bulk_targets)
+            )
+        if _has_conflicting_bulk_create(resolved_modifications, bulk_scope_targets):
+            should_retry_bulk_step5 = True
+            retry_reason_parts.append("bulk update 요청이 create 작업으로 잘못 변환됨")
+        if not resolved_params_sufficient:
+            should_retry_bulk_step5 = True
+            retry_reason_parts.append("bulk 요청인데 params_sufficient=false로 응답됨")
+
+    if should_retry_bulk_step5:
+        logger.warning("[Definition] Step 5 bulk 재시도: %s", " / ".join(retry_reason_parts))
+        retry_messages_5 = build_step5_prompt(
+            state,
+            extractions,
+            final_classifications,
+            sys_info,
+            schema1_content,
+            schema2_content,
+            bulk_context=bulk_context,
+            previous_response=final_response.model_dump(),
+            extra_instructions=(
+                "- 이전 응답이 bulk contract를 어겼습니다. 이전 응답을 그대로 반복하지 말고 다시 작성하십시오.\n"
+                '- bulk update는 반드시 `type="update"` + `params.selector.mode="all"` + `params.updates` 형태여야 합니다.\n'
+                "- bulk_context의 total_count가 0이어도 `create`나 추가 정보 질문으로 바꾸지 말고 그대로 bulk update를 반환하십시오.\n"
+                "- 지원되는 bulk 대상(actor/enemy/item/weapon/armor/class/state/element)은 빈 집합이어도 params_sufficient=true 여야 합니다."
+            ),
+        )
+        retried_response = cast(
+            FinalDefinitionResponse,
+            await invoke_llm(messages=retry_messages_5, structured_output=FinalDefinitionResponse),
+        )
+        resolved_target_files = list(retried_response.target_files)
+        resolved_modifications = list(retried_response.modifications)
+        resolved_params_sufficient = retried_response.params_sufficient
+        resolved_message_for_user = retried_response.message_for_user
+        logger.debug("[Definition] Step 5 bulk 재시도 완료 - 대상 파일: %s", resolved_target_files)
+
+    missing_supported_bulk_targets: list[str] = []
+    for target, config in bulk_scope_targets.items():
+        if _has_valid_bulk_selector(resolved_modifications, target, required_action="update"):
+            resolved_target_files = sorted({*(resolved_target_files or []), config["target_file"]})
+            continue
+        if resolved_params_sufficient:
+            missing_supported_bulk_targets.append(target)
+
+    if missing_supported_bulk_targets:
+        logger.warning(
+            "[Definition] bulk 요청인데 selector 기반 응답이 없어 불충분 처리합니다: %s",
+            missing_supported_bulk_targets,
+        )
+        resolved_params_sufficient = False
+        if not resolved_message_for_user:
+            targets_str = ", ".join(missing_supported_bulk_targets)
+            resolved_message_for_user = f"전체 대상 수정으로 해석됐지만 selector 기반 작업으로 정리되지 않았습니다: {targets_str}"
+
+    if unsupported_bulk_targets and resolved_params_sufficient:
+        logger.warning(
+            "[Definition] 미지원 bulk 대상이 포함되어 불충분 처리합니다: %s",
+            sorted(unsupported_bulk_targets),
+        )
+        resolved_params_sufficient = False
+        if not resolved_message_for_user:
+            targets_str = ", ".join(sorted(unsupported_bulk_targets))
+            resolved_message_for_user = (
+                f"현재 전체 대상 bulk 수정은 {targets_str} 카테고리를 지원하지 않습니다."
+            )
+
+    final_extracted_ids = _build_extracted_ids(classifications)
+
+    if not resolved_params_sufficient:
+        logger.info("[Definition] params_sufficient=False - 규격 보정/신규 ID 할당을 중단합니다.")
+        result = {
+            "target_files": resolved_target_files,
+            "modifications": resolved_modifications,
+            "extracted_ids": final_extracted_ids,
+            "params_sufficient": False,
+            "message_for_user": resolved_message_for_user,
+        }
+        logger.info(
+            "─── ⚠️ Definition END (elapsed=%.2fs, targets=%d, mods=%d, ids=%d, params_ok=%s) ──",
+            time.perf_counter() - _t0,
+            len(resolved_target_files),
+            len(resolved_modifications),
+            len(final_extracted_ids),
+            resolved_params_sufficient,
+        )
+        return result
 
     # --- [규격 강제 보정 로직 호출] ---
     logger.info("[Definition] Step 6: 규격 준수 여부 확인 및 보정 중...")
-    strictly_formatted_mods = _format_to_progress_spec(
-        final_response.modifications, classifications
-    )
-
-    # --- [상태 전이용 ID 맵핑 강화 및 중복 제거] ---
-    final_extracted_ids = {}
-    # 2. 분류 단계에서 확정된 ID들 병합 (system_ref 우선)
-    for cls in classifications:
-        m_id = cls.get("mapped_id")
-        if m_id and m_id != "NEW":
-            # system_ref가 있으면 그것을 키로 사용 (중복 방지용 메인 키)
-            if cls.get("system_ref"):
-                final_extracted_ids[cls["system_ref"]] = m_id
-
-            # 원문 이름 추가 (해당 ID가 이미 다른 키로 저장되어 있더라도 검색 편의를 위해 추가)
-            if cls["name"] not in final_extracted_ids:
-                final_extracted_ids[cls["name"]] = m_id
+    strictly_formatted_mods = _format_to_progress_spec(resolved_modifications, classifications)
 
     # --- [7단계: 신규 ID 실제 할당 (NEW -> Last ID + 1)] ---
     logger.info("[Definition] Step 7: 신규 생성 대상 ID 할당 중...")
@@ -437,6 +779,9 @@ async def definition(state: AgentState) -> dict:
         id_field = CATEGORY_TO_ID_FIELD.get(target, f"{target}_id")
         action_type = mod.get("type")
         params = mod.get("params", {})
+
+        if isinstance(params.get("selector"), dict):
+            continue
 
         if action_type == "create" or params.get(id_field) == "NEW":
             if target not in next_id_cache:
@@ -455,18 +800,18 @@ async def definition(state: AgentState) -> dict:
     logger.info("[Definition] 노드 완료 - 생성된 modification 수: %d", len(strictly_formatted_mods))
     # 최종 결과 반환
     result = {
-        "target_files": final_response.target_files,
+        "target_files": resolved_target_files,
         "modifications": strictly_formatted_mods,
         "extracted_ids": final_extracted_ids,
-        "params_sufficient": final_response.params_sufficient,
-        # "final_response": final_response.message_for_user,
+        "params_sufficient": resolved_params_sufficient,
+        "message_for_user": resolved_message_for_user,
     }
     logger.info(
         "─── ✅ Definition END (elapsed=%.2fs, targets=%d, mods=%d, ids=%d, params_ok=%s) ──",
         time.perf_counter() - _t0,
-        len(final_response.target_files),
+        len(resolved_target_files),
         len(strictly_formatted_mods),
         len(final_extracted_ids),
-        final_response.params_sufficient,
+        resolved_params_sufficient,
     )
     return result

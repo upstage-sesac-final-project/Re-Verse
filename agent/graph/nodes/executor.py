@@ -13,6 +13,7 @@ MVP 버전: 기존 dispatcher 재활용 + 기본 LLM 번역 + 백업/롤백
 """
 
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -25,11 +26,16 @@ from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from agent.core.llm_client import invoke_llm
 from agent.graph.state import AgentState
-from agent.mcp_toolbox import build_stdio_server_parameters, call_mcp_tool, is_mcp_enabled
+from agent.mcp_toolbox import (
+    build_stdio_server_parameters,
+    call_mcp_tool,
+    is_mcp_enabled,
+    resolve_mcp_server_key,
+)
 from app.backend.core.game_paths import get_game_data_path
 from app.backend.services.json_modify_tools.dispatcher import (
     run_enemies,
@@ -56,6 +62,8 @@ game_locks: defaultdict[str, asyncio.Lock] = defaultdict(lambda: asyncio.Lock())
 # Actors.json `update`는 레거시(ActorManager 클래스 변경)용이므로 MCP `update_actor`는 action `update_actor`로 구분.
 # ────────────────────────────────────────────────────────────
 MCP_TOOL_MAP: dict[tuple[str, str], dict[str, Any]] = {
+    # (선택) "mcp_server": "MCP_SERVERS_JSON" 키 — 없으면 .env 의 MCP_SERVER_BY_TOOL_JSON /
+    # MCP_SERVER_BY_TARGET_FILE_JSON → MCP_DEFAULT_SERVER 순으로 결정.
     # Actors.json
     ("Actors.json", "list"): {"tool": "get_actors", "backup_files": []},
     ("Actors.json", "search"): {"tool": "search_actors", "backup_files": []},
@@ -112,6 +120,218 @@ MCP_TOOL_MAP: dict[tuple[str, str], dict[str, Any]] = {
 }
 
 
+def _coerce_list_from_mcp_search_payload(data: Any) -> list[Any]:
+    """MCP 검색 응답 JSON 형태가 제각각일 때 리스트 후보를 꺼낸다."""
+    if data is None:
+        return []
+    if isinstance(data, list):
+        return data
+    if not isinstance(data, dict):
+        return []
+    for key in ("items", "results", "matches", "data", "actors", "skills", "enemies"):
+        v = data.get(key)
+        if isinstance(v, list):
+            return v
+    for key in ("item", "actor", "skill", "enemy", "result"):
+        v = data.get(key)
+        if isinstance(v, dict):
+            return [v]
+    return []
+
+
+def _first_numeric_id_from_row(row: Any, keys: tuple[str, ...]) -> int | None:
+    if not isinstance(row, dict):
+        return None
+    for k in keys:
+        if k not in row or row[k] is None:
+            continue
+        try:
+            return int(row[k])
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _row_name_matches_search_term(row: dict[str, Any], term: str) -> bool:
+    """검색어가 있을 때 MCP 행이 실제로 그 대상인지(이름 기준) 완화 검증한다."""
+    t = (term or "").strip().lower()
+    if not t:
+        return True
+    nm = str(row.get("name") or row.get("displayName") or "").strip().lower()
+    if not nm:
+        return False
+    return t in nm or nm == t
+
+
+def _items_local_search_by_name(data_path: Path, term: str) -> tuple[bool, int | None]:
+    """MCP가 hits를 안 주거나 exists를 안 넣어도 Items.json으로 존재 여부를 판별한다."""
+    t = (term or "").strip().lower()
+    if not t:
+        return False, None
+    fp = data_path / "Items.json"
+    if not fp.is_file():
+        return False, None
+    try:
+        raw = json.loads(fp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, None
+    if not isinstance(raw, list):
+        return False, None
+    for idx, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip().lower()
+        if not name:
+            continue
+        # 검색어가 이름의 부분 문자열일 때만 매칭 (name in term 은 'actor' in 'zzz_actor_…' 같은 오탐을 만든다)
+        if t in name:
+            rid = entry.get("id")
+            try:
+                return True, int(rid) if rid is not None else idx
+            except (TypeError, ValueError):
+                return True, idx
+    return False, None
+
+
+def _actors_local_search_by_name(data_path: Path, term: str) -> tuple[bool, int | None]:
+    t = (term or "").strip().lower()
+    if not t:
+        return False, None
+    fp = data_path / "Actors.json"
+    if not fp.is_file():
+        return False, None
+    try:
+        raw = json.loads(fp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, None
+    if not isinstance(raw, list):
+        return False, None
+    for idx, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip().lower()
+        if not name:
+            continue
+        if t in name:
+            rid = entry.get("id")
+            try:
+                return True, int(rid) if rid is not None else idx
+            except (TypeError, ValueError):
+                return True, idx
+    return False, None
+
+
+def _skills_local_search_by_name(data_path: Path, term: str) -> tuple[bool, int | None]:
+    t = (term or "").strip().lower()
+    if not t:
+        return False, None
+    fp = data_path / "Skills.json"
+    if not fp.is_file():
+        return False, None
+    try:
+        raw = json.loads(fp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, None
+    if not isinstance(raw, list):
+        return False, None
+    for idx, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip().lower()
+        if not name:
+            continue
+        if t in name:
+            rid = entry.get("id")
+            try:
+                return True, int(rid) if rid is not None else idx
+            except (TypeError, ValueError):
+                return True, idx
+    return False, None
+
+
+def _enrich_mcp_search_tool_result(
+    tool_name: str,
+    r: dict[str, Any],
+    *,
+    data_path: Path,
+    norm_args: dict[str, Any],
+) -> dict[str, Any]:
+    """조건부 create 스킵용으로 검색 MCP 결과에 exists·첫 id를 채운다.
+
+    Node MCP는 JSON에 exists를 안 넣는 경우가 많아, 성공(success)만으로는
+    '이미 있음 → create 생략'이 동작하지 않는다.
+    """
+    out = dict(r)
+    data = r.get("data")
+    st = str(
+        norm_args.get("searchTerm") or norm_args.get("search_term") or norm_args.get("query") or ""
+    ).strip()
+
+    cfg = {
+        "search_items": (("id", "itemId"), _items_local_search_by_name),
+        "search_actors": (("id", "actorId"), _actors_local_search_by_name),
+        "search_skills": (("id", "skillId"), _skills_local_search_by_name),
+    }
+    if tool_name not in cfg:
+        return out
+
+    id_keys, local_fn = cfg[tool_name]
+    rows = _coerce_list_from_mcp_search_payload(data)
+    first_id: int | None = None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if not st:
+            # 빈 검색어로는 MCP 행을 신뢰하지 않는다(목록 전체가 올 수 있음).
+            continue
+        if not _row_name_matches_search_term(row, st):
+            continue
+        rid = _first_numeric_id_from_row(row, id_keys)
+        if rid is not None:
+            first_id = rid
+            break
+    # 빈 객체 리스트만 오거나 exists 플래그만 true인 경우 오판하지 않도록, id 확보 또는 로컬 매칭이 있을 때만 존재로 본다.
+    exists = first_id is not None
+
+    if not exists and st:
+        exists, first_id = local_fn(data_path, st)
+
+    out["exists"] = exists
+    if first_id is not None:
+        if tool_name == "search_items":
+            out["item_id"] = first_id
+        elif tool_name == "search_actors":
+            out["actor_id"] = first_id
+        elif tool_name == "search_skills":
+            out["skill_id"] = first_id
+    return out
+
+
+def _enrich_items_target_info_from_deps(
+    step: dict, step_results: dict[int, dict], target_info: dict[str, Any]
+) -> dict[str, Any]:
+    """선행 Items 검색 스텝에 item_id가 있으나 update 스텝에 빠진 경우 채운다."""
+    ti = dict(target_info)
+    if ti.get("item_id") is not None or ti.get("itemId") is not None:
+        return ti
+    for d in step.get("depends_on") or []:
+        try:
+            did = int(d)
+        except (TypeError, ValueError):
+            continue
+        prev = step_results.get(did)
+        if not isinstance(prev, dict):
+            continue
+        iid = prev.get("item_id")
+        if iid is not None:
+            ti["item_id"] = iid
+            logger.debug(
+                "[Executor] 선행 검색에서 item_id 보강 step=%s item_id=%s", step.get("step_id"), iid
+            )
+            break
+    return ti
+
+
 def _as_int(v: Any) -> Any:
     try:
         return int(v)
@@ -135,6 +355,10 @@ def _normalize_mcp_arguments(
         return out
 
     if target_file == "Actors.json" and action == "search":
+        if not (out.get("searchTerm") or out.get("search_term") or out.get("query")):
+            nm = out.get("actor_name") or out.get("name")
+            if nm is not None:
+                out["searchTerm"] = str(nm)
         return {"searchTerm": _search_term()}
 
     if target_file == "Actors.json" and action == "query_by_id":
@@ -166,6 +390,10 @@ def _normalize_mcp_arguments(
         return {"skillId": _as_int(sid)}
 
     if target_file == "Skills.json" and action == "search":
+        if not (out.get("searchTerm") or out.get("search_term") or out.get("query")):
+            nm = out.get("skill_name") or out.get("name")
+            if nm is not None:
+                out["searchTerm"] = str(nm)
         return {"searchTerm": _search_term()}
 
     if target_file == "Skills.json" and action == "update":
@@ -204,11 +432,27 @@ def _normalize_mcp_arguments(
 
     if target_file == "Items.json" and action == "update":
         iid = out.get("itemId", out.get("item_id"))
-        updates = out.get("updates")
-        built = {}
+        # 플래너가 updates 없이 new_description·damage 등만 줄 때가 많아 MCP 스키마용 updates로 합친다.
+        updates: dict[str, Any] = {}
+        if isinstance(out.get("updates"), dict):
+            updates = dict(out["updates"])
+        nd = out.get("new_description")
+        if nd is not None and "description" not in updates:
+            updates["description"] = str(nd)
+        desc = out.get("description")
+        if desc is not None and "description" not in updates:
+            updates["description"] = str(desc)
+        new_name = out.get("new_name") or out.get("newName")
+        if new_name is not None and "name" not in updates:
+            updates["name"] = str(new_name)
+        if isinstance(out.get("damage"), dict) and "damage" not in updates:
+            updates["damage"] = dict(out["damage"])
+        if isinstance(out.get("effects"), list) and "effects" not in updates:
+            updates["effects"] = list(out["effects"])
+        built: dict[str, Any] = {}
         if iid is not None:
             built["itemId"] = _as_int(iid)
-        if isinstance(updates, dict):
+        if updates:
             built["updates"] = updates
         return built
 
@@ -286,10 +530,14 @@ def _normalize_structured_action(target_file: str, action: str, target_info: dic
             ti = target_info
             has_aid = ti.get("actor_id") is not None or ti.get("actorId") is not None
             has_updates = isinstance(ti.get("updates"), dict) and bool(ti.get("updates"))
+            selector = ti.get("selector")
+            has_bulk_selector = isinstance(selector, dict) and selector.get("mode") == "all"
             has_class = (
                 bool(str(ti.get("class_name") or "").strip()) or ti.get("class_id") is not None
             )
 
+            if has_updates and has_bulk_selector:
+                return "update_actor_bulk"
             if has_updates and has_aid:
                 return "update_actor"
 
@@ -546,12 +794,29 @@ def _enrich_actors_target_info_from_deps(
     step_results: dict[int, dict],
     target_info: dict[str, Any],
 ) -> dict[str, Any]:
-    """선행 step(create/query 등)의 actor_id를 이어 받는다."""
+    """선행 step(create/query 등)의 actor_id를 이어 받는다.
+
+    플래너가 query→update에서 서로 다른 actor_id를 주는 경우(예: 설명은 미쉘인데 id=1),
+    선행 스텝의 step_results.actor_id가 있으면 update에서 그 값을 우선한다.
+    """
     ti = dict(target_info)
+    action = str(step.get("action_type") or "").lower()
+    dep_actor_id = None
+    for d in reversed(step.get("depends_on") or []):
+        try:
+            did = int(d)
+        except (TypeError, ValueError):
+            continue
+        prev = step_results.get(did)
+        if isinstance(prev, dict) and prev.get("actor_id") is not None:
+            dep_actor_id = prev["actor_id"]
+            break
+    if action == "update" and dep_actor_id is not None:
+        ti["actor_id"] = dep_actor_id
+
     if ti.get("actor_id") is not None or ti.get("actorId") is not None:
         return ti
-    deps = step.get("depends_on") or []
-    for d in reversed(deps):
+    for d in reversed(step.get("depends_on") or []):
         try:
             did = int(d)
         except (TypeError, ValueError):
@@ -566,22 +831,85 @@ def _enrich_actors_target_info_from_deps(
     return ti
 
 
+# update_actor: 플래너가 Actors.json 필드를 updates 밖 최상위에 둘 때 MCP updates로 합친다.
+_ACTOR_UPDATE_RESERVED_KEYS = frozenset(
+    {
+        "actor_id",
+        "actorId",
+        "actor_name",
+        "old_name",
+        "oldName",
+        "new_name",
+        "newName",
+        "class_name",
+        "id",
+        "updates",
+        "searchTerm",
+        "search_term",
+        "query",
+        "list_actors",
+        "list_all_actors",
+        "scope",
+        "description",
+        "condition",
+        "_context_corrected",
+    }
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _actor_target_info_patch_field_names() -> frozenset[str]:
+    """agent.schemas.actors.Actor 기준 패치 허용 필드(MZ JSON camelCase). id는 슬롯 식별용이라 제외."""
+    from agent.schemas.actors import Actor
+
+    return frozenset(n for n in Actor.model_fields if n != "id")
+
+
+def _planner_key_to_actor_schema_field(key: str, allowed: frozenset[str]) -> str | None:
+    """camelCase 그대로 또는 snake_case → camelCase 로 Actor 필드명에 맞춘다."""
+    if key in allowed:
+        return key
+    if "_" not in key:
+        return None
+    parts = [p for p in key.split("_") if p]
+    if not parts:
+        return None
+    camel = parts[0].lower() + "".join(p[0].upper() + p[1:].lower() for p in parts[1:] if p)
+    return camel if camel in allowed else None
+
+
 def _coerce_actors_update_actor_target_info(target_info: dict[str, Any]) -> dict[str, Any]:
-    """update_actor용: updates 없이 new_name·name만 온 경우 MCP/매니저가 기대하는 형태로 맞춘다."""
+    """update_actor용: updates·이름 변경·최상위 Actor 스키마 필드를 MCP updates dict로 합친다."""
     ti = dict(target_info)
-    updates = ti.get("updates")
-    if isinstance(updates, dict) and updates:
-        return ti
+    merged: dict[str, Any] = {}
+    if isinstance(ti.get("updates"), dict):
+        merged.update(ti["updates"])
+
     aid = ti.get("actorId", ti.get("actor_id"))
     new_nm = str(ti.get("new_name") or ti.get("newName") or "").strip()
     old_nm = str(ti.get("actor_name") or ti.get("old_name") or ti.get("oldName") or "").strip()
     if new_nm and (aid is not None or old_nm):
-        ti["updates"] = {"name": new_nm}
-        return ti
-    nm = str(ti.get("name") or "").strip()
-    has_class = bool(str(ti.get("class_name") or "").strip()) or ti.get("class_id") is not None
-    if nm and aid is not None and not has_class:
-        ti["updates"] = {"name": nm}
+        merged["name"] = new_nm
+    else:
+        nm = str(ti.get("name") or "").strip()
+        has_class = bool(str(ti.get("class_name") or "").strip()) or ti.get("class_id") is not None
+        if nm and aid is not None and not has_class and "name" not in merged:
+            merged["name"] = nm
+
+    allowed = _actor_target_info_patch_field_names()
+    for k, v in ti.items():
+        if k in _ACTOR_UPDATE_RESERVED_KEYS:
+            continue
+        field = _planner_key_to_actor_schema_field(k, allowed)
+        if field is None:
+            continue
+        if field == "name" and "name" in merged:
+            continue
+        if v is not None:
+            merged[field] = v
+
+    if merged:
+        ti["updates"] = merged
     return ti
 
 
@@ -597,6 +925,320 @@ def _structured_error(
     suffix = f" hint={hint}" if hint else ""
     # 외부(LLM/플래너/집계기)가 파싱할 수 있게 고정 포맷으로 반환한다.
     return f"[{code}] target_file={target_file} action={action} message={message}{suffix}"
+
+
+def _normalize_query_result_for_log(
+    step: dict[str, Any],
+    entry: dict[str, Any],
+    raw_result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    target_file = str(step.get("target_file") or entry.get("target_file") or "").strip()
+    target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
+    action = _normalize_structured_action(
+        target_file,
+        str(step.get("action_type") or entry.get("action") or ""),
+        dict(target_info),
+    )
+    if action not in {"query", "query_by_id", "search"}:
+        return None
+
+    base = raw_result if isinstance(raw_result, dict) else entry
+    data = base.get("data") if isinstance(base.get("data"), dict) else {}
+
+    def _as_bool(value: Any) -> bool | None:
+        return value if isinstance(value, bool) else None
+
+    def _as_int_list(value: Any) -> list[int]:
+        if not isinstance(value, list):
+            return []
+        normalized: list[int] = []
+        for item in value:
+            try:
+                normalized.append(int(item))
+            except (TypeError, ValueError):
+                continue
+        return normalized
+
+    def _as_str_list(value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value if str(item).strip()]
+
+    matched_ids: list[int] = []
+    matched_names: list[str] = []
+    exists = _as_bool(base.get("exists"))
+
+    if target_file == "Actors.json":
+        actor_id = base.get("actor_id")
+        if actor_id is None:
+            actor_id = data.get("id")
+        try:
+            actor_id_int = int(actor_id) if actor_id is not None else None
+        except (TypeError, ValueError):
+            actor_id_int = None
+        if actor_id_int is not None:
+            matched_ids = [actor_id_int]
+        if data.get("name"):
+            matched_names = [str(data["name"])]
+        if exists is None:
+            exists = actor_id_int is not None
+    elif target_file == "Classes.json":
+        class_id = base.get("class_id")
+        if class_id is None:
+            class_id = data.get("id")
+        try:
+            class_id_int = int(class_id) if class_id is not None else None
+        except (TypeError, ValueError):
+            class_id_int = None
+        if class_id_int is not None:
+            matched_ids = [class_id_int]
+        if data.get("name"):
+            matched_names = [str(data["name"])]
+        if exists is None:
+            exists = class_id_int is not None
+    else:
+        matched_ids = _as_int_list(data.get("matched_ids"))
+        matched_names = _as_str_list(data.get("matched_names"))
+        if exists is None:
+            found = _as_bool(data.get("found"))
+            if found is not None:
+                exists = found
+            elif matched_ids or matched_names:
+                exists = True
+
+    if exists is None:
+        exists = False
+
+    hit_count = len(matched_ids)
+    if hit_count == 0 and exists:
+        hit_count = 1
+
+    query_result = {
+        "query_type": action,
+        "query": dict(target_info),
+        "hit_count": hit_count,
+        "matched_ids": matched_ids,
+        "not_found": not exists,
+    }
+    if matched_names:
+        query_result["matched_names"] = matched_names
+    return query_result
+
+
+def _is_query_like_result(result: dict[str, Any]) -> bool:
+    action = str(result.get("action") or "").strip().lower()
+    tool_name = str(result.get("tool_name") or "").strip().lower()
+    return (
+        bool(result.get("query_result"))
+        or action in {"query", "query_by_id", "search"}
+        or "query" in tool_name
+        or "search" in tool_name
+    )
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_log_name(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _extract_log_target_identity(
+    target_file: str,
+    step: dict[str, Any],
+    log: dict[str, Any],
+) -> tuple[int | None, str]:
+    target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
+
+    if target_file == "Actors.json":
+        actor_id = _coerce_optional_int(log.get("actor_id"))
+        if actor_id is None:
+            actor_id = _coerce_optional_int(
+                target_info.get("actor_id") or target_info.get("actorId")
+            )
+        actor_name = _normalize_log_name(
+            log.get("actor_name")
+            or target_info.get("actor_name")
+            or target_info.get("name")
+            or target_info.get("new_name")
+        )
+        return actor_id, actor_name
+
+    if target_file == "Classes.json":
+        class_id = _coerce_optional_int(log.get("class_id"))
+        if class_id is None:
+            class_id = _coerce_optional_int(
+                target_info.get("class_id") or target_info.get("classId")
+            )
+        class_name = _normalize_log_name(
+            log.get("class_name") or target_info.get("class_name") or target_info.get("name")
+        )
+        return class_id, class_name
+
+    return None, ""
+
+
+def _extract_query_identity_from_log(
+    target_file: str,
+    query_result: dict[str, Any],
+) -> tuple[int | None, list[int], set[str]]:
+    query = query_result.get("query") if isinstance(query_result.get("query"), dict) else {}
+    matched_ids = [_coerce_optional_int(item) for item in query_result.get("matched_ids", [])]
+    normalized_ids = [item for item in matched_ids if item is not None]
+    matched_names = {
+        _normalize_log_name(item)
+        for item in query_result.get("matched_names", [])
+        if _normalize_log_name(item)
+    }
+
+    if target_file == "Actors.json":
+        query_id = _coerce_optional_int(query.get("actor_id") or query.get("actorId"))
+        query_name = _normalize_log_name(query.get("actor_name") or query.get("name"))
+    elif target_file == "Classes.json":
+        query_id = _coerce_optional_int(query.get("class_id") or query.get("classId"))
+        query_name = _normalize_log_name(query.get("class_name") or query.get("name"))
+    else:
+        query_id = None
+        query_name = ""
+
+    if query_name:
+        matched_names.add(query_name)
+    return query_id, normalized_ids, matched_names
+
+
+def _query_reference_match_score_for_log(
+    target_file: str,
+    step: dict[str, Any],
+    log: dict[str, Any],
+    query_result: dict[str, Any],
+) -> int:
+    target_id, target_name = _extract_log_target_identity(target_file, step, log)
+    if target_id is None and not target_name:
+        return 0
+
+    query_id, matched_ids, matched_names = _extract_query_identity_from_log(
+        target_file, query_result
+    )
+    score = 0
+
+    if target_id is not None:
+        if query_id is not None:
+            if query_id != target_id:
+                return 0
+            score += 3
+        if matched_ids:
+            if target_id not in matched_ids:
+                return 0
+            score += 2
+
+    if target_name:
+        if matched_names:
+            if target_name not in matched_names:
+                return 0
+            score += 1
+
+    return score
+
+
+def _find_direct_source_query_step_ids(
+    step: dict[str, Any],
+    log: dict[str, Any],
+    step_results: dict[int, dict],
+) -> list[int]:
+    target_file = str(log.get("target_file") or step.get("target_file") or "").strip()
+    current_step_id = _coerce_optional_int(log.get("step_id") or step.get("step_id"))
+    if not target_file or current_step_id is None:
+        return []
+
+    best_score = 0
+    best_step_id: int | None = None
+    for candidate_step_id in sorted(step_results, reverse=True):
+        if candidate_step_id >= current_step_id:
+            continue
+        candidate_log = step_results.get(candidate_step_id)
+        if not isinstance(candidate_log, dict):
+            continue
+        candidate_target = str(candidate_log.get("target_file") or "").strip()
+        candidate_query_result = candidate_log.get("query_result")
+        if candidate_target != target_file or not isinstance(candidate_query_result, dict):
+            continue
+        score = _query_reference_match_score_for_log(target_file, step, log, candidate_query_result)
+        if score > best_score:
+            best_score = score
+            best_step_id = candidate_step_id
+
+    return [best_step_id] if best_step_id is not None else []
+
+
+def _enrich_changes_log_entry(
+    step: dict[str, Any],
+    entry: dict[str, Any],
+    raw_result: dict[str, Any] | None,
+    step_results: dict[int, dict],
+) -> dict[str, Any]:
+    enriched = dict(entry)
+    target_file = str(step.get("target_file") or enriched.get("target_file") or "").strip()
+    target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
+    action = _normalize_structured_action(
+        target_file,
+        str(step.get("action_type") or enriched.get("action") or ""),
+        dict(target_info),
+    )
+
+    if target_file and "target_file" not in enriched:
+        enriched["target_file"] = target_file
+    if action and "action" not in enriched:
+        enriched["action"] = action
+
+    source = raw_result if isinstance(raw_result, dict) else {}
+    for key in (
+        "exists",
+        "actor_id",
+        "actor_name",
+        "class_id",
+        "class_name",
+        "updated_fields",
+        "original_values",
+        "modified_files",
+    ):
+        if key not in enriched and key in source:
+            enriched[key] = source[key]
+
+    query_result = enriched.get("query_result")
+    if not isinstance(query_result, dict):
+        query_result = _normalize_query_result_for_log(step, enriched, source)
+        if query_result is not None:
+            enriched["query_result"] = query_result
+
+    if "exists" not in enriched and isinstance(query_result, dict):
+        enriched["exists"] = not bool(query_result.get("not_found"))
+
+    if action in {"query", "query_by_id", "search"} and "modified_files" not in enriched:
+        enriched["modified_files"] = []
+
+    if action not in {"query", "query_by_id", "search"} and (
+        enriched.get("success") is True or enriched.get("skipped")
+    ):
+        source_query_step_ids = _find_direct_source_query_step_ids(step, enriched, step_results)
+        if source_query_step_ids:
+            decision_basis = (
+                enriched.get("decision_basis")
+                if isinstance(enriched.get("decision_basis"), dict)
+                else {}
+            )
+            if not isinstance(
+                decision_basis.get("source_query_step_ids"), list
+            ) or not decision_basis.get("source_query_step_ids"):
+                decision_basis["source_query_step_ids"] = source_query_step_ids
+            if not str(decision_basis.get("reason") or "").strip():
+                decision_basis["reason"] = "matched prior query_result by target identity"
+            enriched["decision_basis"] = decision_basis
+
+    return enriched
 
 
 def _supports_legacy_fallback(target_file: str, action: str) -> bool:
@@ -615,6 +1257,7 @@ def _supports_legacy_fallback(target_file: str, action: str) -> bool:
         ("Actors.json", "create"),
         ("Actors.json", "update"),
         ("Actors.json", "update_actor"),
+        ("Actors.json", "update_actor_bulk"),
         ("System.json", "update"),
         ("System.json", "update_game_title"),
         ("System.json", "set_variable_name"),
@@ -682,6 +1325,56 @@ def _collect_structured_target_files(execution_plan: list[dict]) -> set[str]:
         if isinstance(tf, str) and tf.endswith(".json"):
             files.add(tf)
     return files
+
+
+def _backup_files_for_structured_step(step: dict[str, Any]) -> list[str]:
+    """read-only step은 제외하고 실제 백업이 필요한 파일만 계산한다."""
+    if not isinstance(step, dict):
+        return []
+
+    target_file = str(step.get("target_file") or "").strip()
+    if not target_file.endswith(".json"):
+        return []
+
+    target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
+    action = _normalize_structured_action(
+        target_file,
+        str(step.get("action_type") or ""),
+        dict(target_info),
+    )
+    if not action:
+        return []
+
+    mcp_entry = MCP_TOOL_MAP.get((target_file, action))
+    if isinstance(mcp_entry, dict):
+        raw_backup_files = mcp_entry.get("backup_files")
+        if isinstance(raw_backup_files, list):
+            return [
+                str(file_name)
+                for file_name in raw_backup_files
+                if isinstance(file_name, str) and file_name.endswith(".json")
+            ]
+
+    if action in {
+        "query",
+        "query_by_id",
+        "search",
+        "list",
+        "list_variables",
+        "list_switches",
+        "get_game_title",
+    }:
+        return []
+
+    return [target_file]
+
+
+def _collect_structured_backup_files(execution_plan: list[dict]) -> list[str]:
+    files: set[str] = set()
+    for step in execution_plan:
+        for file_name in _backup_files_for_structured_step(step):
+            files.add(file_name)
+    return sorted(files)
 
 
 def _topological_sort_steps(execution_plan: list[dict]) -> list[dict]:
@@ -802,6 +1495,8 @@ async def _execute_one_structured_step(
     target_file = (step.get("target_file") or "").strip()
     target_info = step.get("target_info") if isinstance(step.get("target_info"), dict) else {}
     target_info = dict(target_info)
+    if target_file == "Items.json":
+        target_info = _enrich_items_target_info_from_deps(step, step_results, target_info)
     if target_file == "Actors.json":
         print(f"🔧 [EXECUTOR DEBUG] 액터 스텝 처리 시작: step_id={sid}")
         logger.warning("🔧 [EXECUTOR DEBUG] 액터 스텝 처리 시작: step_id=%s", sid)
@@ -847,7 +1542,27 @@ async def _execute_one_structured_step(
         # 성공 시 즉시 반환. 실패·미설정 시 아래 Class/Actor/System 매니저로 폴백한다.
         if is_mcp_enabled():
             mcp_entry = MCP_TOOL_MAP.get((target_file, action))
-            if mcp_entry and build_stdio_server_parameters() is not None:
+            mcp_server_id: str | None = None
+            if isinstance(mcp_entry, dict):
+                _explicit = (
+                    str(mcp_entry["mcp_server"]).strip() if mcp_entry.get("mcp_server") else None
+                )
+                _tool_nm = str(mcp_entry["tool"]).strip() if mcp_entry.get("tool") else None
+                mcp_server_id = resolve_mcp_server_key(target_file, _tool_nm, _explicit)
+                _eff_srv = (
+                    mcp_server_id
+                    or os.environ.get("MCP_DEFAULT_SERVER", "default").strip()
+                    or "default"
+                )
+                logger.debug(
+                    "[Executor] MCP 서버 키=%s (effective=%s) target_file=%s tool=%s step=%d",
+                    mcp_server_id,
+                    _eff_srv,
+                    target_file,
+                    _tool_nm,
+                    sid,
+                )
+            if mcp_entry and build_stdio_server_parameters(mcp_server=mcp_server_id) is not None:
                 logger.debug("[Executor] MCP 시도: tool=%s, step=%d", mcp_entry["tool"], sid)
                 # MCP 툴은 구조화 step의 target_info를 툴 inputSchema에 맞게 정규화한 뒤 호출한다.
                 # 결과 성공 여부는 call_mcp_tool이 {success,data,error,modified_files}로 정리한 값을 사용한다.
@@ -859,28 +1574,49 @@ async def _execute_one_structured_step(
                         norm,
                         data_path,
                         path_arg_name=path_key,
+                        mcp_server=mcp_server_id,
                     )
                 if r.get("success"):
                     modified_files = r.get("modified_files") or mcp_entry.get(
                         "backup_files", [target_file]
                     )
+                    r_out = _enrich_mcp_search_tool_result(
+                        mcp_entry["tool"],
+                        r,
+                        data_path=data_path,
+                        norm_args=norm,
+                    )
+                    if mcp_entry.get("tool") == "get_actor":
+                        aid_norm = norm.get("actorId") if norm else None
+                        if aid_norm is not None:
+                            r_out["actor_id"] = _as_int(aid_norm)
                     logger.info(
-                        "[Executor] MCP 성공: step=%d, tool=%s, files=%s",
+                        "[Executor] MCP 성공: step=%d, tool=%s, files=%s exists=%s",
                         sid,
                         mcp_entry["tool"],
                         modified_files,
+                        r_out.get("exists"),
                     )
-                    step_results[sid] = {**r, "step_id": sid}
-                    return {
+                    step_results[sid] = {**r_out, "step_id": sid}
+                    entry: dict[str, Any] = {
                         "step_id": sid,
                         "tool_name": mcp_entry["tool"],
                         "success": True,
-                        "stdout": str(r.get("data", "")),
-                        "stderr": r.get("error") or "",
+                        "stdout": str(r_out.get("data", "")),
+                        "stderr": r_out.get("error") or "",
                         "modified_files": modified_files,
                         "structured": True,
                         "timestamp": ts,
                     }
+                    if "exists" in r_out:
+                        entry["exists"] = r_out["exists"]
+                    if r_out.get("item_id") is not None:
+                        entry["item_id"] = r_out["item_id"]
+                    if r_out.get("actor_id") is not None:
+                        entry["actor_id"] = r_out["actor_id"]
+                    if r_out.get("skill_id") is not None:
+                        entry["skill_id"] = r_out["skill_id"]
+                    return entry
                 logger.warning(
                     "[Executor] MCP 실패, 레거시 매니저로 폴백 step_id=%s err=%s",
                     sid,
@@ -1062,6 +1798,36 @@ async def _execute_one_structured_step(
                 "timestamp": ts,
             }
 
+        if target_file == "Actors.json" and action == "update_actor_bulk":
+            logger.debug("[Executor] 레거시 분기: Actors.update_actor_bulk (일괄 속성)")
+            mgr = ActorManager(data_path, f"struct_{sid}")
+            r = await mgr.execute("update_general_bulk", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_actors_bulk_update_general",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "structured": True,
+                "timestamp": ts,
+            }
+
+        if False and target_file == "Actors.json" and action == "update_actor_bulk":
+            logger.debug("[Executor] 레거시 분기: Actors.update_actor_bulk (일괄 수정)")
+            mgr = ActorManager(data_path, f"struct_{sid}")
+            r = await mgr.execute("update_general_bulk", target_info=target_info)
+            step_results[sid] = {**r, "step_id": sid}
+            return {
+                "step_id": sid,
+                "tool_name": "structured_actors_bulk_update_general",
+                "success": bool(r.get("success")),
+                "stdout": r.get("message", ""),
+                "stderr": r.get("error") or "",
+                "structured": True,
+                "timestamp": ts,
+            }
+
         if target_file == "Actors.json" and action == "update_actor":
             logger.debug("[Executor] 레거시 분기: Actors.update_actor (일반 속성)")
             mgr = ActorManager(data_path, f"struct_{sid}")
@@ -1186,7 +1952,49 @@ async def _execute_one_structured_step(
                 "timestamp": ts,
             }
 
-        # Items/Enemies는 dispatcher 함수를 통해 처리 (매니저가 없음)
+        # Items/Enemies 신규 생성: Definition이 item_id/enemy_id를 주면 JSON에 직접 쓴다.
+        # (MCP에 create_item이 없고, dispatcher.run_*는 고정 키워드만 지원하는 한계를 우회)
+        if target_file == "Items.json" and action == "create":
+            if target_info.get("item_id") is not None or target_info.get("itemId") is not None:
+                logger.debug("[Executor] 구조화: Items.json.create → JSON 직접 저장")
+                async with game_locks[game_id]:
+                    r = await asyncio.to_thread(
+                        _structured_create_item_sync, data_path, target_info
+                    )
+                step_results[sid] = {**r, "step_id": sid}
+                mf = r.get("modified_files") or ["Items.json"]
+                return {
+                    "step_id": sid,
+                    "tool_name": "structured_items_create_json",
+                    "success": bool(r.get("success")),
+                    "stdout": r.get("stdout", ""),
+                    "stderr": r.get("stderr", ""),
+                    "modified_files": mf,
+                    "structured": True,
+                    "timestamp": ts,
+                }
+
+        if target_file == "Enemies.json" and action == "create":
+            if target_info.get("enemy_id") is not None or target_info.get("enemyId") is not None:
+                logger.debug("[Executor] 구조화: Enemies.json.create → JSON 직접 저장")
+                async with game_locks[game_id]:
+                    r = await asyncio.to_thread(
+                        _structured_create_enemy_sync, data_path, target_info
+                    )
+                step_results[sid] = {**r, "step_id": sid}
+                mf = r.get("modified_files") or ["Enemies.json"]
+                return {
+                    "step_id": sid,
+                    "tool_name": "structured_enemies_create_json",
+                    "success": bool(r.get("success")),
+                    "stdout": r.get("stdout", ""),
+                    "stderr": r.get("stderr", ""),
+                    "modified_files": mf,
+                    "structured": True,
+                    "timestamp": ts,
+                }
+
+        # Items/Enemies는 그 외에 dispatcher 함수를 통해 처리 (매니저가 없음)
         if target_file in ("Items.json", "Enemies.json") and action in (
             "create",
             "update",
@@ -1287,6 +2095,459 @@ async def _execute_one_structured_step(
         return result
 
 
+_ITEM_CREATE_SKIP_KEYS = frozenset(
+    {
+        "item_id",
+        "itemId",
+        "updates",
+        "new_description",
+        "new_name",
+        "newName",
+        "query",
+        "searchTerm",
+        "search_term",
+        "item_name",
+    }
+)
+
+
+def _sanitize_mz_item_effects_for_schema(effects: Any) -> list[dict[str, Any]]:
+    """MZ 관례(code 11/12는 회복량을 value2에 두는 경우가 많음)에 맞게 보정한다."""
+    if not isinstance(effects, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for raw in effects:
+        if not isinstance(raw, dict):
+            continue
+        e = dict(raw)
+        code = e.get("code")
+        if code in (11, 12):
+            v1, v2 = e.get("value1", 0), e.get("value2", 0)
+            try:
+                v1n = float(v1)
+                v2n = float(v2)
+            except (TypeError, ValueError):
+                v1n, v2n = 0.0, 0.0
+            if v1n > 10 and v2n == 0:
+                e["value2"] = v1
+                e["value1"] = 0
+        out.append(e)
+    return out
+
+
+def _structured_create_item_sync(data_path: Path, target_info: dict[str, Any]) -> dict[str, Any]:
+    """구조화 플랜의 target_info로 Items.json 슬롯에 아이템을 기록한다 (MCP create_item 미노출 대응)."""
+    from agent.schemas.items import Item
+
+    ts = datetime.now().isoformat()
+    raw_id = target_info.get("item_id") or target_info.get("itemId")
+    if raw_id is None:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Items create: item_id가 필요합니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+    try:
+        item_id = int(raw_id)
+    except (TypeError, ValueError):
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"Items create: 잘못된 item_id: {raw_id!r}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    fp = data_path / "Items.json"
+    if not fp.is_file():
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Items.json 파일이 없습니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    try:
+        arr = json.loads(fp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"Items.json 읽기 실패: {e}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    if not isinstance(arr, list) or not arr:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Items.json 루트는 비어 있지 않은 배열이어야 합니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    while len(arr) <= item_id:
+        arr.append(None)
+
+    existing = arr[item_id]
+    new_name = str(target_info.get("name") or "").strip()
+    if existing is not None and isinstance(existing, dict):
+        ex_name = str(existing.get("name") or "").strip()
+        if ex_name and new_name and ex_name != new_name:
+            return {
+                "success": False,
+                "exit_code": 2,
+                "stdout": "",
+                "stderr": (f"item_id={item_id} 슬롯에 이미 다른 아이템이 있습니다 ({ex_name!r})."),
+                "modified_files": [],
+                "timestamp": ts,
+            }
+
+    payload: dict[str, Any] = {}
+    for k, v in target_info.items():
+        if k in _ITEM_CREATE_SKIP_KEYS:
+            continue
+        if k == "damage" and isinstance(v, dict):
+            payload["damage"] = dict(v)
+        elif k == "effects" and isinstance(v, list):
+            payload["effects"] = _sanitize_mz_item_effects_for_schema(v)
+        elif isinstance(v, dict | list | str | int | float | bool) or v is None:
+            payload[k] = v
+
+    payload["id"] = item_id
+    if not str(payload.get("name") or "").strip():
+        payload["name"] = new_name or f"Item {item_id}"
+
+    if "damage" not in payload:
+        payload["damage"] = {
+            "type": 0,
+            "elementId": 0,
+            "formula": "0",
+            "variance": 20,
+            "critical": False,
+        }
+    else:
+        d = payload["damage"]
+        if isinstance(d, dict):
+            d.setdefault("critical", False)
+            d.setdefault("variance", 20)
+
+    payload.setdefault("effects", [])
+
+    try:
+        model = Item.model_validate(payload)
+        final_obj = model.model_dump(mode="json")
+    except ValidationError as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"아이템 스키마 검증 실패: {e}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    arr[item_id] = final_obj
+    try:
+        fp.write_text(json.dumps(arr, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except OSError as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": str(e),
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    return {
+        "success": True,
+        "exit_code": 0,
+        "stdout": f"Items.json에 아이템 id={item_id} ({final_obj.get('name')}) 저장",
+        "stderr": "",
+        "modified_files": ["Items.json"],
+        "timestamp": ts,
+    }
+
+
+_ENEMY_CREATE_SKIP_KEYS = frozenset(
+    {
+        "enemy_id",
+        "enemyId",
+        "updates",
+        "query",
+        "searchTerm",
+        "search_term",
+        "enemy_name",
+    }
+)
+
+
+def _default_enemy_template_dict() -> dict[str, Any]:
+    return {
+        "battlerHue": 0,
+        "battlerName": "",
+        "params": [100, 0, 10, 10, 10, 10, 10, 10],
+        "dropItems": [
+            {"kind": 0, "dataId": 1, "denominator": 1},
+            {"kind": 0, "dataId": 1, "denominator": 1},
+            {"kind": 0, "dataId": 1, "denominator": 1},
+        ],
+        "actions": [
+            {
+                "skillId": 1,
+                "rating": 5,
+                "conditionType": 0,
+                "conditionParam1": 0,
+                "conditionParam2": 0,
+            }
+        ],
+        "traits": [],
+        "exp": 10,
+        "gold": 5,
+        "note": "",
+        "name": "",
+    }
+
+
+def _structured_create_enemy_sync(data_path: Path, target_info: dict[str, Any]) -> dict[str, Any]:
+    """구조화 플랜으로 Enemies.json 슬롯에 적을 기록한다."""
+    from agent.schemas.enemies import Enemy
+
+    ts = datetime.now().isoformat()
+    raw_id = target_info.get("enemy_id") or target_info.get("enemyId")
+    if raw_id is None:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Enemies create: enemy_id가 필요합니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+    try:
+        enemy_id = int(raw_id)
+    except (TypeError, ValueError):
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"Enemies create: 잘못된 enemy_id: {raw_id!r}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    fp = data_path / "Enemies.json"
+    if not fp.is_file():
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Enemies.json 파일이 없습니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    try:
+        arr = json.loads(fp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"Enemies.json 읽기 실패: {e}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    if not isinstance(arr, list) or not arr:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "Enemies.json 루트는 비어 있지 않은 배열이어야 합니다.",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    while len(arr) <= enemy_id:
+        arr.append(None)
+
+    existing = arr[enemy_id]
+    new_name = str(target_info.get("name") or "").strip()
+    if existing is not None and isinstance(existing, dict):
+        ex_name = str(existing.get("name") or "").strip()
+        if ex_name and new_name and ex_name != new_name:
+            return {
+                "success": False,
+                "exit_code": 2,
+                "stdout": "",
+                "stderr": (f"enemy_id={enemy_id} 슬롯에 이미 다른 적이 있습니다 ({ex_name!r})."),
+                "modified_files": [],
+                "timestamp": ts,
+            }
+
+    base = _default_enemy_template_dict()
+    for k, v in target_info.items():
+        if k in _ENEMY_CREATE_SKIP_KEYS:
+            continue
+        if k in base or k in ("name", "note", "battlerName", "battlerHue", "params", "traits"):
+            base[k] = v
+        elif k == "actions" and isinstance(v, list):
+            base["actions"] = v
+        elif k == "dropItems" and isinstance(v, list):
+            base["dropItems"] = v
+
+    base["id"] = enemy_id
+    if not str(base.get("name") or "").strip():
+        base["name"] = new_name or f"Enemy {enemy_id}"
+
+    try:
+        model = Enemy.model_validate(base)
+        final_obj = model.model_dump(mode="json")
+    except ValidationError as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": f"적 스키마 검증 실패: {e}",
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    arr[enemy_id] = final_obj
+    try:
+        fp.write_text(json.dumps(arr, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except OSError as e:
+        return {
+            "success": False,
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": str(e),
+            "modified_files": [],
+            "timestamp": ts,
+        }
+
+    return {
+        "success": True,
+        "exit_code": 0,
+        "stdout": f"Enemies.json에 적 id={enemy_id} ({final_obj.get('name')}) 저장",
+        "stderr": "",
+        "modified_files": ["Enemies.json"],
+        "timestamp": ts,
+    }
+
+
+_ITEM_UPDATE_ID_KEYS = frozenset({"item_id", "itemId", "id"})
+
+
+def _enrich_execution_plan_items_from_modifications(
+    execution_plan: list[dict],
+    modifications: list[dict] | None,
+) -> list[dict]:
+    """Items.json update 스텝에 플래너가 빼먹은 필드를 Definition modifications.params에서 보강한다.
+
+    damage·effects뿐 아니라 price, description 등 Definition이 넣은 키를 동일 item_id 기준으로
+    target_info.updates에 오버레이한다(Definition 값이 우선).
+    """
+    if not modifications:
+        return execution_plan
+
+    mod_params_by_item_id: dict[int, dict[str, Any]] = {}
+    for m in modifications:
+        if not isinstance(m, dict):
+            continue
+        if m.get("type") != "update" or m.get("target") != "item":
+            continue
+        p = m.get("params")
+        if not isinstance(p, dict):
+            continue
+        raw_id = p.get("item_id") or p.get("itemId")
+        if raw_id in (None, "NEW"):
+            continue
+        try:
+            iid = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        mod_params_by_item_id[iid] = p
+
+    if not mod_params_by_item_id:
+        return execution_plan
+
+    enriched: list[dict] = []
+    for step in execution_plan:
+        if not isinstance(step, dict):
+            enriched.append(step)
+            continue
+        s = dict(step)
+        if s.get("target_file") != "Items.json":
+            enriched.append(s)
+            continue
+        if str(s.get("action_type") or "").lower() != "update":
+            enriched.append(s)
+            continue
+        ti = s.get("target_info")
+        if not isinstance(ti, dict):
+            enriched.append(s)
+            continue
+        ti = dict(ti)
+        raw_iid = ti.get("item_id") or ti.get("itemId")
+        try:
+            iid = int(raw_iid) if raw_iid is not None else None
+        except (TypeError, ValueError):
+            iid = None
+        if iid is None or iid not in mod_params_by_item_id:
+            enriched.append(s)
+            continue
+        src = mod_params_by_item_id[iid]
+
+        overlay_keys = [
+            k
+            for k in src
+            if k not in _ITEM_UPDATE_ID_KEYS and str(k).lower() not in ("item_id", "itemid")
+        ]
+        if not overlay_keys:
+            enriched.append(s)
+            continue
+
+        updates: dict[str, Any] = dict(ti["updates"]) if isinstance(ti.get("updates"), dict) else {}
+        merged = 0
+        for k in overlay_keys:
+            v = src[k]
+            if v is None:
+                continue
+            if isinstance(v, dict):
+                updates[k] = dict(v)
+            elif isinstance(v, list):
+                updates[k] = list(v)
+            else:
+                updates[k] = v
+            merged += 1
+
+        if merged == 0:
+            enriched.append(s)
+            continue
+
+        ti["updates"] = updates
+        s["target_info"] = ti
+        logger.info(
+            "[Executor] Items update에 Definition params 오버레이 | item_id=%s keys=%s",
+            iid,
+            sorted(updates.keys()),
+        )
+        enriched.append(s)
+    return enriched
+
+
 async def _executor_structured(
     data_path: Path,
     execution_plan: list[dict],
@@ -1326,7 +2587,12 @@ async def _executor_structured(
     logger.info("[Executor structured] 스냅샷 준비: run_id=%s, snap_dir=%s", run_id, snap_dir)
 
     current_game_state = _copy_snapshot_files_to_disk(data_path, target_files, snap_dir, "before")
-    backup_paths = _create_backup(data_path, target_files)
+    backup_targets = _collect_structured_backup_files(execution_plan)
+    if retry_count == 0:
+        backup_paths = _create_backup(data_path, backup_targets)
+    else:
+        backup_paths = {}
+        logger.info("[Executor structured] retry=%d → 백업 생성 skip (중복 방지)", retry_count)
     logger.info(
         "[Executor structured] before 스냅샷: %d개 파일, 백업: %d개 파일",
         len(current_game_state),
@@ -1371,6 +2637,13 @@ async def _executor_structured(
                     "timestamp": datetime.now().isoformat(),
                 }
             )
+            changes_log[-1] = _enrich_changes_log_entry(
+                step,
+                changes_log[-1],
+                step_results.get(sid),
+                step_results,
+            )
+            step_results[sid] = {**step_results.get(sid, {}), **changes_log[-1]}
             continue
 
         # 스텝 실행 시작
@@ -1379,6 +2652,8 @@ async def _executor_structured(
         logger.info("[Executor structured] step %d 실행 시작: %s.%s", sid, target_file, action_type)
 
         entry = await _execute_one_structured_step(step, data_path, step_results, game_id)
+        entry = _enrich_changes_log_entry(step, entry, step_results.get(sid), step_results)
+        step_results[sid] = {**step_results.get(sid, {}), **entry}
         logger.info(
             "[Executor structured] step %d 완료: success=%s, tool=%s",
             sid,
@@ -1405,6 +2680,7 @@ async def _executor_structured(
         "changes_log": changes_log,
         "tool_results": changes_log,  # progress.md 호환성을 위해 changes_log와 동일하게 설정
         "modified_file_paths": modified_file_paths,
+        "backup_paths": backup_paths,
     }
     return result
 
@@ -1451,6 +2727,10 @@ async def executor(state: AgentState) -> dict:
         if not isinstance(modified_file_paths, list):
             modified_file_paths = []
 
+        backup_paths = result.get("backup_paths", {})
+        if not isinstance(backup_paths, dict):
+            backup_paths = {}
+
         failed = sum(1 for entry in changes_log if not entry.get("success"))
         ok = sum(1 for entry in changes_log if entry.get("success"))
         logger.info(
@@ -1463,7 +2743,12 @@ async def executor(state: AgentState) -> dict:
             failed,
             len(modified_file_paths),
         )
-        return result
+        return {
+            **result,
+            "changes_log": changes_log,
+            "modified_file_paths": modified_file_paths,
+            "backup_paths": backup_paths,
+        }
 
     logger.info("[Executor MVP] 시작: game_id=%s, retry=%d", game_id, retry_count)
 
@@ -1540,7 +2825,12 @@ async def executor(state: AgentState) -> dict:
     # 이 포맷이면 LLM 번역 단계(레거시) 없이 곧바로 4단계 구조화 엔진으로 분기한다.
     if _is_structured_execution_plan(execution_plan):
         logger.info("[Executor] 구조화 플랜 분기: %d개 step", len(execution_plan))
-        result = await _executor_structured(data_path, execution_plan, game_id, retry_count)
+        mods = state.get("modifications")
+        plan_for_run = _enrich_execution_plan_items_from_modifications(
+            execution_plan,
+            mods if isinstance(mods, list) else None,
+        )
+        result = await _executor_structured(data_path, plan_for_run, game_id, retry_count)
 
         # 액터 관련 요청에서 실패가 있었는지 확인
         changes_log = result.get("changes_log", [])
@@ -1701,6 +2991,7 @@ async def executor(state: AgentState) -> dict:
         "changes_log": changes_log,
         "tool_results": changes_log,  # progress.md 호환성을 위해 changes_log와 동일하게 설정
         "modified_file_paths": modified_file_paths,
+        "backup_paths": backup_paths,
     }
     return _finish(result, mode="legacy")
 
