@@ -197,6 +197,13 @@ export default function Dashboard() {
                 </div>
                 <div className="flex gap-2 ml-4">
                   <button
+                    onClick={() => navigate(`/generate/${project.id}`)}
+                    className="px-3 py-1.5 text-xs rounded-lg font-medium"
+                    style={{ background: '#5e5ce6', color: '#fff' }}
+                  >
+                    AI 생성
+                  </button>
+                  <button
                     onClick={() => handleEdit(project)}
                     className="re-btn-primary px-3 py-1.5 text-xs rounded-lg font-medium"
                     style={{ background: 'var(--accent)', color: '#fff' }}

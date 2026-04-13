@@ -8,12 +8,12 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def _actors_path() -> Path:
-    return _project_root() / "storage" / "games" / "game_001" / "data" / "Actors.json"
+def _actors_path(game_id: str = "game_001") -> Path:
+    return _project_root() / "storage" / "games" / game_id / "data" / "Actors.json"
 
 
-def _system_path() -> Path:
-    return _project_root() / "storage" / "games" / "game_001" / "data" / "System.json"
+def _system_path(game_id: str = "game_001") -> Path:
+    return _project_root() / "storage" / "games" / game_id / "data" / "System.json"
 
 
 def _detect_newline(text: str) -> str:
@@ -44,7 +44,7 @@ def _load_object_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str], game_id: str = "game_001") -> int:
     """
     파티 멤버들의 초기 레벨을 설정
 
@@ -70,20 +70,20 @@ def main(argv: list[str]) -> int:
         print("Example: python edit_levels.py 25", file=sys.stderr)
         return 2
 
-    if not _actors_path().exists():
-        print(f"Missing file: {_actors_path()}", file=sys.stderr)
+    if not _actors_path(game_id).exists():
+        print(f"Missing file: {_actors_path(game_id)}", file=sys.stderr)
         return 2
-    if not _system_path().exists():
-        print(f"Missing file: {_system_path()}", file=sys.stderr)
+    if not _system_path(game_id).exists():
+        print(f"Missing file: {_system_path(game_id)}", file=sys.stderr)
         return 2
 
-    system = _load_object_json(_system_path())
+    system = _load_object_json(_system_path(game_id))
     party_members = system.get("partyMembers")
     if not isinstance(party_members, list) or not all(isinstance(x, int) for x in party_members):
         print("System.partyMembers is missing or invalid.", file=sys.stderr)
         return 2
 
-    actors, actors_nl = _load_array_json(_actors_path())
+    actors, actors_nl = _load_array_json(_actors_path(game_id))
 
     updated: list[int] = []
     for actor_id in party_members:
@@ -94,7 +94,7 @@ def main(argv: list[str]) -> int:
         actor["initialLevel"] = target_level
         updated.append(actor_id)
 
-    _dump_rmmz_array_json(_actors_path(), actors, actors_nl)
+    _dump_rmmz_array_json(_actors_path(game_id), actors, actors_nl)
     print(f"OK: Set initialLevel={target_level} for party members: {updated}")
     return 0
 

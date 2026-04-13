@@ -11,8 +11,8 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def _items_path() -> Path:
-    return _project_root() / "storage" / "games" / "game_001" / "data" / "Items.json"
+def _items_path(game_id: str = "game_001") -> Path:
+    return _project_root() / "storage" / "games" / game_id / "data" / "Items.json"
 
 
 def _detect_newline(text: str) -> str:
@@ -172,7 +172,7 @@ def _upsert_item(items: list[Any], name: str, maker_fn) -> int:
     return new_id
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str], game_id: str = "game_001") -> int:
     if len(argv) != 1:
         print("Usage: python edit_items.py (독약|회복물약|마나물약)", file=sys.stderr)
         return 2
@@ -182,7 +182,7 @@ def main(argv: list[str]) -> int:
         print(f"Unknown item: {cmd} (expected 독약, 회복물약, or 마나물약)", file=sys.stderr)
         return 2
 
-    path = _items_path()
+    path = _items_path(game_id)
     if not path.exists():
         print(f"Missing file: {path}", file=sys.stderr)
         return 2
