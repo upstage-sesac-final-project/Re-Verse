@@ -259,12 +259,17 @@ def _check_ending_reachable(
     id_table: IdTable,
     switch_table: SwitchTable,
 ) -> list[str]:
-    """보스 맵에 도달 가능한 엔딩 이벤트(code 353/354) 존재 여부 검증 (R23)."""
+    """마지막 맵(보스 구역)에 도달 가능한 엔딩 이벤트(code 353/354) 존재 여부 검증 (R23).
+
+    map_type은 town/dungeon만 사용하므로, map_id가 가장 큰 맵을 보스 구역으로 간주한다.
+    """
     errors = []
-    boss_maps = [m for m in map_specs if m.map_type == "boss"]
-    if not boss_maps:
-        errors.append("[R23] 보스 맵 없음 — 게임 엔딩 불가")
+    if not map_specs:
+        errors.append("[R23] 맵이 없음 — 게임 엔딩 불가")
         return errors
+
+    # map_id 최대값 = 마지막 맵 = 보스 구역
+    boss_maps = [max(map_specs, key=lambda m: m.map_id)]
 
     for boss_map in boss_maps:
         mid = id_table.get_id("maps", boss_map.name)
