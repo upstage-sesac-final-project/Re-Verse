@@ -301,6 +301,13 @@ async def call_mcp_tool(
         }
 
     safe_args = dict(arguments)
+    # 통합 MCP(integration_MCP 등)는 툴마다 `projectPath`(게임 루트) 필수.
+    # 기존 k4zuki 계열은 `targetDir`(data/) 등 다른 키를 쓰기도 해 둘 다 채운다.
+    if "projectPath" not in safe_args:
+        safe_args["projectPath"] = str(game_root)
+    pk = (path_arg_name or os.environ.get("MCP_PATH_ARG_NAME", "targetDir")).strip()
+    if pk and pk not in safe_args:
+        safe_args[pk] = str(game_data_path.resolve())
 
     # per-call 타임아웃: 응답 지연 시 전체 워크플로우가 장시간 블로킹되는 것을 방지한다.
     timeout = float(os.environ.get("MCP_TIMEOUT", "30"))
