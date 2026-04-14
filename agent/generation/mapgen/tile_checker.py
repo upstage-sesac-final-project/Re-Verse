@@ -182,6 +182,56 @@ def get_all_safe_coords(
     return safe_coords
 
 
+def filter_non_corridor_coords(
+    coords: list[tuple[int, int]],
+    data: list[int],
+    width: int,
+    height: int,
+    tileset_id: int,
+    tilesets: list | None = None,
+) -> list[tuple[int, int]]:
+    """좌표 목록에서 좁은 통로(corridor) 타일을 제거하여 반환합니다.
+
+    좁은 통로 판별 기준:
+    - 4방향 보행 가능한 이웃 타일이 정확히 2개이고
+    - 그 2개가 서로 인접하지 않은 경우 (예: 북+남, 동+서, 북+동 등 직접 연결 불가)
+
+    이러한 타일에 이벤트를 배치하면 플레이어의 이동 경로가 차단될 수 있습니다.
+
+    비-통로 좌표가 전체의 20% 미만이면 원본 목록을 반환합니다 (던전 등 통로가 많은 맵 고려).
+    """
+    coords_set = set(coords)
+
+    def walkable_neighbors(x: int, y: int) -> list[tuple[int, int]]:
+        return [
+            (x + dx, y + dy)
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]
+            if (x + dx, y + dy) in coords_set
+            or (
+                0 <= x + dx < width
+                and 0 <= y + dy < height
+                and is_walkable(data, x + dx, y + dy, width, height, tileset_id, tilesets)
+            )
+        ]
+
+    non_corridor = []
+    for x, y in coords:
+        nbrs = walkable_neighbors(x, y)
+        if len(nbrs) == 2:
+            (x1, y1), (x2, y2) = nbrs
+            # 두 이웃 사이의 거리가 1이면 서로 인접(코너) → 통로 아님
+            # 거리가 2 이상이면 반대편 또는 대각방향 → 좁은 통로
+            if abs(x1 - x2) + abs(y1 - y2) > 1:
+                continue  # 통로 타일 → 제외
+        non_corridor.append((x, y))
+
+    # 비-통로 좌표가 너무 적으면 필터링 효과가 없음 → 원본 복사본 반환
+    if len(non_corridor) < max(len(coords) // 5, 5):
+        return list(coords)
+
+    return non_corridor
+
+
 def get_reachable_coords(
     data: list[int],
     start_x: int,
@@ -220,3 +270,44 @@ def get_reachable_coords(
         reachable = [c for c in reachable if c not in used_coords]
 
     return reachable
+
+
+def are_exits_reachable(
+    data: list[int],
+    spawn_x: int,
+    spawn_y: int,
+    width: int,
+    height: int,
+    tileset_id: int,
+    tilesets: list | None,
+    exit_coords: set[tuple[int, int]],
+    event_positions: set[tuple[int, int]],
+) -> bool:
+    """이벤트 배치 후에도 스폰 → 모든 출구 타일이 도달 가능한지 BFS로 검증합니다.
+
+    event_positions에 있는 타일은 이벤트가 점유해 통행 불가로 간주합니다.
+    출구 타일이 없으면 항상 True를 반환합니다.
+    """
+    if not exit_coords:
+        return True
+
+    # 스폰 자체가 막혀 있으면 체크 불가 → True(낙관적)
+    if (spawn_x, spawn_y) in event_positions:
+        return True
+
+    visited: set[tuple[int, int]] = {(spawn_x, spawn_y)}
+    queue: deque[tuple[int, int]] = deque([(spawn_x, spawn_y)])
+
+    while queue:
+        x, y = queue.popleft()
+        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+            nx, ny = x + dx, y + dy
+            nb = (nx, ny)
+            if nb in visited or nb in event_positions:
+                continue
+            if 0 <= nx < width and 0 <= ny < height:
+                if is_walkable(data, nx, ny, width, height, tileset_id, tilesets):
+                    visited.add(nb)
+                    queue.append(nb)
+
+    return all(ec in visited for ec in exit_coords)
