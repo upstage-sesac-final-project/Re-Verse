@@ -106,7 +106,7 @@ export default function Dashboard() {
 
   // Dashboard 마운트 시: Redux에 생성 상태가 있으면 WS 재연결, 없으면 프로젝트별 활성 generation 조회
   useEffect(() => {
-    if (['starting', 'in_progress'].includes(gen.status) && gen.generationId) {
+    if (['starting', 'queued', 'in_progress'].includes(gen.status) && gen.generationId) {
       // Redux에 상태 남아있음 (같은 세션, 페이지 이동 후 복귀)
       if (gen.wsUrl) connectWs(gen.generationId, gen.wsUrl)
       else startPolling(gen.generationId)
@@ -123,7 +123,11 @@ export default function Dashboard() {
     if (['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(gen.status)) {
       setGenModal('result')
     }
-  }, [gen.status, genProjectId])
+    // queued → in_progress 전환 시 모달이 열려있으면 progress로 변경
+    if (gen.status === 'in_progress' && genModal === 'progress') {
+      // 이미 progress 모달이므로 자동으로 진행률 바로 전환됨 (GenerationProgress가 status 읽음)
+    }
+  }, [gen.status, genProjectId, genModal])
 
   async function handleCreate(e) {
     e.preventDefault()
