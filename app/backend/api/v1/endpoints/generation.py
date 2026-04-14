@@ -55,20 +55,22 @@ _project_generations: dict[int, str] = {}
 # 완료 시각 기록: {generation_id: timestamp}
 _completion_times: dict[str, float] = {}
 
+# 상태 dict 동시 접근 보호
+_state_lock = asyncio.Lock()
+
 # 완료 후 10분 뒤 자동 정리
 _CLEANUP_TTL = 600
 
 
 def _cleanup_stale_states() -> None:
-    """완료된 generation 상태를 TTL 후 정리."""
+    """완료된 generation 상태를 TTL 후 정리. dict 스냅샷으로 순회."""
     now = time.time()
-    stale = [gid for gid, t in _completion_times.items() if now - t > _CLEANUP_TTL]
+    stale = [gid for gid, t in list(_completion_times.items()) if now - t > _CLEANUP_TTL]
     for gid in stale:
         _generation_states.pop(gid, None)
         _generation_owners.pop(gid, None)
         _completion_times.pop(gid, None)
-        # _project_generations에서도 제거
-        to_remove = [pid for pid, g in _project_generations.items() if g == gid]
+        to_remove = [pid for pid, g in list(_project_generations.items()) if g == gid]
         for pid in to_remove:
             _project_generations.pop(pid, None)
 
@@ -129,7 +131,7 @@ async def _run_generation_in_background(
             if settings.STORAGE_BACKEND == "s3":
                 from app.backend.services.s3_game_storage import sync_game_to_s3
 
-                sync_game_to_s3(game_id)
+                await asyncio.to_thread(sync_game_to_s3, game_id)
 
         _generation_states[generation_id] = GenerationStatusResponse(
             generation_id=generation_id,
