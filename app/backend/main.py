@@ -74,6 +74,16 @@ async def lifespan(app: FastAPI):
             "`.env`에 `#`로 주석 처리돼 있으면 로드되지 않습니다(주석 제거). "
             "배포 시에는 GitHub Actions 시크릿 ENV_FILE(또는 EC2 `.env.production`)에 URL을 넣으세요."
         )
+    if (settings.DISCORD_TOKEN_WEBHOOK_URL or "").strip():
+        logger.info(
+            "Discord token/cost alerts: ON (DISCORD_TOKEN_WEBHOOK_URL 길이=%s자)",
+            len(settings.DISCORD_TOKEN_WEBHOOK_URL.strip()),
+        )
+    else:
+        logger.info(
+            "Discord token/cost alerts: OFF — DISCORD_TOKEN_WEBHOOK_URL 비어 있음 "
+            "(채팅 에이전트·맵 생성 워크플로 한 실행당 토큰 요약)."
+        )
     logger.info(f"Storage: backend={settings.STORAGE_BACKEND}, path={settings.STORAGE_PATH}")
 
     # 게임 정적 서빙/에이전트가 쓸 디렉터리 보장

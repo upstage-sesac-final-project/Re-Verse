@@ -137,3 +137,84 @@ async def send_discord_error_alert(ctx: dict[str, str]) -> None:
             )
     except Exception:
         logger.error("Discord webhook 전송 실패 (네트워크/SSL 등)", exc_info=True)
+
+
+async def send_discord_token_alert(
+    session_id: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    total_cost: float,
+    *,
+    agent_node: str = "Re:Verse Main Graph",
+) -> None:
+    """LangGraph 한 번 실행에 대한 토큰·비용 요약을 별도 Discord 채널로 전송.
+
+    DISCORD_TOKEN_WEBHOOK_URL 이 비어 있으면 아무 것도 하지 않는다.
+    Solar 등 가격표에 없는 모델은 OpenAICallbackHandler 기준 total_cost 가 0일 수 있다.
+    노이즈가 크면 아래 주석처럼 임계값을 두거나(total_cost 대신 prompt+completion 토큰 합 기준 권장),
+    send_discord_token_alert 내부에 조건을 추가하면 된다.
+
+    # 예: 비용이 0.01 USD 미만이면 생략 (OpenAI 계열 가격이 잡힐 때만 유효)
+    # if total_cost < 0.01:
+    #     return
+    """
+    url = (settings.DISCORD_TOKEN_WEBHOOK_URL or "").strip()
+    if not url:
+        return
+
+    if prompt_tokens == 0 and completion_tokens == 0:
+        return
+
+    ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    payload: dict[str, Any] = {
+        "embeds": [
+            {
+                "title": "💸 Re:Verse Token & Cost Usage",
+                "color": 3066993,
+                "fields": [
+                    {
+                        "name": "Session / game_id",
+                        "value": _truncate(f"`{session_id}`", 200),
+                        "inline": True,
+                    },
+                    {
+                        "name": "Agent / Node",
+                        "value": _truncate(f"`{agent_node}`", 200),
+                        "inline": True,
+                    },
+                    {"name": "Time", "value": ts, "inline": False},
+                    {
+                        "name": "Prompt Tokens (Input)",
+                        "value": f"{prompt_tokens:,}",
+                        "inline": True,
+                    },
+                    {
+                        "name": "Completion Tokens (Output)",
+                        "value": f"{completion_tokens:,}",
+                        "inline": True,
+                    },
+                    {
+                        "name": "Total Cost (USD, OpenAI 가격표 기준)",
+                        "value": f"**${total_cost:.5f}**",
+                        "inline": False,
+                    },
+                ],
+                "footer": {"text": "Re:Verse Cost Monitoring"},
+            }
+        ]
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:
+            r = await client.post(url, json=payload)
+            if 200 <= r.status_code < 300:
+                logger.info("Discord token webhook 전송 성공 (HTTP %s)", r.status_code)
+                return
+            logger.warning(
+                "Discord token webhook 비정상 응답 HTTP %s: %s",
+                r.status_code,
+                (r.text or "")[:500],
+            )
+    except Exception:
+        logger.warning("Discord token webhook 전송 실패", exc_info=True)

@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     # ── 알림 (선택) ─────────────────────────────────────────
     # 비어 있으면 전역 예외 시 Discord 로 전송하지 않음
     DISCORD_WEBHOOK_URL: str = ""
+    # 비어 있으면 LLM 토큰/비용 요약을 Discord 로 보내지 않음 (에러 알림과 채널 분리 권장)
+    DISCORD_TOKEN_WEBHOOK_URL: str = ""
 
     @model_validator(mode="after")
     def _fill_discord_webhook_from_environ(self):
@@ -94,6 +96,17 @@ class Settings(BaseSettings):
         v = (os.getenv("DISCORD_WEBHOOK_URL") or os.getenv("discord_webhook_url") or "").strip()
         if v:
             self.DISCORD_WEBHOOK_URL = v
+        return self
+
+    @model_validator(mode="after")
+    def _fill_discord_token_webhook_from_environ(self):
+        if (self.DISCORD_TOKEN_WEBHOOK_URL or "").strip():
+            return self
+        v = (
+            os.getenv("DISCORD_TOKEN_WEBHOOK_URL") or os.getenv("discord_token_webhook_url") or ""
+        ).strip()
+        if v:
+            self.DISCORD_TOKEN_WEBHOOK_URL = v
         return self
 
     @field_validator("JWT_SECRET_KEY", mode="after")
@@ -151,3 +164,9 @@ if not (settings.DISCORD_WEBHOOK_URL or "").strip() and _root_env.is_file():
     if _dv:
         settings.DISCORD_WEBHOOK_URL = _dv
         os.environ["DISCORD_WEBHOOK_URL"] = _dv
+
+if not (settings.DISCORD_TOKEN_WEBHOOK_URL or "").strip() and _root_env.is_file():
+    _dv_t = (dotenv_values(_root_env).get("DISCORD_TOKEN_WEBHOOK_URL") or "").strip()
+    if _dv_t:
+        settings.DISCORD_TOKEN_WEBHOOK_URL = _dv_t
+        os.environ["DISCORD_TOKEN_WEBHOOK_URL"] = _dv_t
