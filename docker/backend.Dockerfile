@@ -6,21 +6,22 @@
 # ------------------------------------------------------------
 # Stage 1: 통합 RPG Maker MZ MCP 서버 빌드 (Node)
 # - stdio MCP는 백엔드 컨테이너 내부에 실행파일이 있어야 함
-# - 단일 리포를 clone + build 후 /mcp/default 로 복사한다.
+# - 레포 내부 mcp/integration_MCP 소스를 COPY해 build 후 /mcp/default 로 복사한다.
+# - --ignore-scripts: robotjs gyp 컴파일, puppeteer Chromium 다운로드 등 postinstall 훅 차단
+#   (alpine에 build-base/X11 헤더 없어 robotjs 실패 + puppeteer는 런타임 playtest 미사용 전제)
 # ------------------------------------------------------------
 FROM node:20-alpine AS mcp-builder
-WORKDIR /mcp
-RUN apk add --no-cache git bash
+WORKDIR /src
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
-ARG MCP_REPO=https://github.com/rein1225/RPGMakerMZ_MCP.git
+COPY mcp/integration_MCP/ /src/
 
 RUN --mount=type=cache,target=/root/.npm \
     set -eux; \
-    git clone --depth 1 "$MCP_REPO" /tmp/src-mcp; \
-    cd /tmp/src-mcp; \
-    if [ -f package-lock.json ]; then npm ci; else npm install; fi; \
+    if [ -f package-lock.json ]; then npm ci --ignore-scripts; else npm install --ignore-scripts; fi; \
     npm run build; \
-    cp -R /tmp/src-mcp/. /mcp/default/
+    mkdir -p /mcp/default; \
+    cp -R /src/. /mcp/default/
 
 FROM python:3.12-slim
 
@@ -55,12 +56,16 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # 의존성 파일 복사 (캐시 활용)
 COPY pyproject.toml uv.lock ./
 
+# 의존성만 먼저 설치 (코드 변경에 영향받지 않는 레이어)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
+
 # 패키지 및 앱 코드 복사
 COPY app/backend ./app/backend
 COPY agent ./agent
 COPY shared ./shared
 
-# 의존성 설치 (프로덕션 환경)
+# 프로젝트 자체 설치 (코드 변경 시 이 레이어만 재실행)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
