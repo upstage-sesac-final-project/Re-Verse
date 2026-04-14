@@ -1,94 +1,71 @@
 import { useSelector } from 'react-redux'
 import { useNavigate, Link } from 'react-router-dom'
 
-const FEATURES = [
-  {
-    icon: '✦',
-    title: '자연어 명령',
-    desc: '복잡한 편집기 없이 말하듯 설명하면 AI가 게임 요소를 만들어줍니다.',
-  },
-  {
-    icon: '⟳',
-    title: '즉시 미리보기',
-    desc: 'AI가 생성한 캐릭터, 아이템, 맵을 바로 게임에서 확인할 수 있습니다.',
-  },
-  {
-    icon: '◈',
-    title: '다양한 요소 지원',
-    desc: '캐릭터, 적, 스킬, 아이템, 맵, 이벤트 등 RPG Maker MZ 전 요소를 지원합니다.',
-  },
-]
-
 export default function Home() {
   const navigate = useNavigate()
   const { isAuthenticated } = useSelector((s) => s.user)
 
-  function handleStart() {
-    navigate(isAuthenticated ? '/dashboard' : '/login')
-  }
-
   return (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center px-6"
-      style={{ background: 'var(--bg-primary)' }}
-    >
-      <div className="text-center max-w-xl w-full">
-        {/* 로고 뱃지 */}
-        <div className="flex justify-center mb-6">
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-2xl"
-            style={{ background: 'var(--accent)' }}
-          >
-            R
-          </div>
-        </div>
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+      {/* 배경 */}
+      {/* 헤더 */}
+      <header className="relative flex items-center justify-between px-6 py-5 max-w-4xl mx-auto w-full">
+        <Link to="/" className="flex items-center gap-2 group">
+          <div className="w-6 h-6 rounded-md flex items-center justify-center text-white font-bold text-xs" style={{ background: 'var(--accent)' }}>R</div>
+          <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>Re:Verse</span>
+        </Link>
+        <nav className="flex items-center gap-4">
+          <Link to="/docs" className="text-xs transition-colors hover:text-white" style={{ color: 'var(--text-secondary)' }}>문서</Link>
+          {isAuthenticated
+            ? <Link to="/dashboard" className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>대시보드</Link>
+            : <Link to="/login" className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>로그인</Link>
+          }
+        </nav>
+      </header>
 
-        <h1 className="text-5xl font-bold mb-3 tracking-tight" style={{ color: 'var(--text-primary)' }}>
-          Re:Verse
+      {/* 히어로 */}
+      <main className="flex-1 flex flex-col items-center justify-center px-6 pb-24">
+        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-center mb-4" style={{ color: 'var(--text-primary)' }}>
+          채팅으로 RPG를 만드세요
         </h1>
-        <p className="text-base mb-10" style={{ color: 'var(--text-secondary)' }}>
-          자연어로 RPG 게임을 만들어보세요
+        <p className="text-sm text-center max-w-sm mb-10 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          Re:Verse는 자연어로 RPG Maker MZ 게임을 제작하는 도구입니다.
+          캐릭터, 맵, 이벤트를 대화로 만들고 바로 플레이할 수 있습니다.
         </p>
 
-        <div className="grid grid-cols-1 gap-3 mb-10 text-left sm:grid-cols-3">
-          {FEATURES.map((f) => (
-            <div
-              key={f.title}
-              className="re-card rounded-xl p-4"
-              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}
-            >
-              <span className="text-xl mb-2 block" style={{ color: 'var(--accent)' }}>{f.icon}</span>
-              <p className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
-                {f.title}
-              </p>
-              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                {f.desc}
-              </p>
+        <div className="flex items-center gap-3 mb-16">
+          <button onClick={() => navigate(isAuthenticated ? '/dashboard' : '/register')}
+            className="re-btn-primary px-6 py-2.5 text-sm rounded-lg font-medium"
+            style={{ background: 'var(--accent)', color: '#fff' }}>
+            {isAuthenticated ? '대시보드' : '시작하기'}
+          </button>
+          <Link to="/docs" className="px-5 py-2.5 text-sm rounded-lg font-medium transition-colors hover:bg-white/5"
+            style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+            가이드
+          </Link>
+        </div>
+
+        {/* 기능 */}
+        <div className="grid grid-cols-3 gap-px max-w-lg w-full rounded-lg overflow-hidden "
+          style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
+          {[
+            { icon: '~', label: '자연어 생성', sub: '대화로 게임 요소 생성' },
+            { icon: '>', label: '즉시 플레이', sub: '생성 즉시 실행 확인' },
+            { icon: '#', label: 'MZ 전 요소', sub: '캐릭터부터 이벤트까지' },
+          ].map((f) => (
+            <div key={f.label} className="px-4 py-5 text-center" style={{ background: 'var(--bg-secondary)' }}>
+              <span className="text-lg block mb-1" style={{ color: 'var(--accent)' }}>{f.icon}</span>
+              <p className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-primary)' }}>{f.label}</p>
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{f.sub}</p>
             </div>
           ))}
         </div>
+      </main>
 
-        <button
-          onClick={handleStart}
-          className="re-btn-primary px-8 py-3 text-white text-sm rounded-lg font-semibold"
-          style={{ background: 'var(--accent)' }}
-        >
-          시작하기
-        </button>
-
-        {!isAuthenticated && (
-          <p className="mt-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            계정이 없으신가요?{' '}
-            <Link to="/register" className="underline" style={{ color: 'var(--accent)' }}>
-              회원가입
-            </Link>
-            {' '}·{' '}
-            <Link to="/docs" className="underline" style={{ color: 'var(--accent)' }}>
-              사용자 가이드
-            </Link>
-          </p>
-        )}
-      </div>
+      {/* 풋터 */}
+      <footer className="relative px-6 py-5 text-center">
+        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Re:Verse — AI RPG 제작 도구</p>
+      </footer>
     </div>
   )
 }

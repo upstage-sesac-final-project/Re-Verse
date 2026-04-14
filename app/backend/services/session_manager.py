@@ -26,19 +26,21 @@ class SessionInfo:
 
 # ── 세션 레지스트리 ──────────────────────────────────────
 _active_sessions: dict[str, SessionInfo] = {}  # key: game_id
+_session_lock = asyncio.Lock()
 
 
-def register_session(game_id: str, user_id: int, project_id: int) -> SessionInfo:
-    """세션 등록. 이미 활성이면 409."""
-    if game_id in _active_sessions:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="이미 다른 세션에서 편집 중입니다.",
-        )
-    info = SessionInfo(user_id=user_id, project_id=project_id, game_id=game_id)
-    _active_sessions[game_id] = info
-    logger.info("[Session] 등록 | game_id=%s, user_id=%d", game_id, user_id)
-    return info
+async def register_session(game_id: str, user_id: int, project_id: int) -> SessionInfo:
+    """세션 등록. 이미 활성이면 409. Lock으로 동시 등록 방지."""
+    async with _session_lock:
+        if game_id in _active_sessions:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="이미 다른 세션에서 편집 중입니다.",
+            )
+        info = SessionInfo(user_id=user_id, project_id=project_id, game_id=game_id)
+        _active_sessions[game_id] = info
+        logger.info("[Session] 등록 | game_id=%s, user_id=%d", game_id, user_id)
+        return info
 
 
 def unregister_session(game_id: str) -> SessionInfo | None:
@@ -65,12 +67,15 @@ def touch_session(game_id: str) -> None:
 
 # ── Game-Level Lock ──────────────────────────────────────
 _game_locks: dict[str, asyncio.Lock] = {}
+_game_locks_guard = asyncio.Lock()
 
 
 async def get_game_lock(game_id: str) -> asyncio.Lock:
-    if game_id not in _game_locks:
-        _game_locks[game_id] = asyncio.Lock()
-    return _game_locks[game_id]
+    """game_id별 Lock 반환. Lock 생성 자체도 직렬화."""
+    async with _game_locks_guard:
+        if game_id not in _game_locks:
+            _game_locks[game_id] = asyncio.Lock()
+        return _game_locks[game_id]
 
 
 def remove_game_lock(game_id: str) -> None:

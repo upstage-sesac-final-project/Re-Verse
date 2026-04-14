@@ -30,11 +30,13 @@ class GenerationStartResponse(BaseModel):
     status: str = "started"
     estimated_seconds: int = 60
     ws_url: str
+    queue_position: int = 0  # 0이면 즉시 시작, 1이상이면 대기열
+    queue_wait_seconds: int = 0  # 예상 대기 시간
 
 
 class GenerationStatusResponse(BaseModel):
     generation_id: str
-    status: str
+    status: str  # idle | queued | in_progress | completed | completed_with_warnings | failed | cancelled
     progress: int = 0
     phase: str | None = None
     message: str | None = None
@@ -44,3 +46,5 @@ class GenerationStatusResponse(BaseModel):
     validation_errors: list[str] = []
     error_phase: str | None = None
     error_message: str | None = None
+    queue_position: int = 0
+    queue_wait_seconds: int = 0

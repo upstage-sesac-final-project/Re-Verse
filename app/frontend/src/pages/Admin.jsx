@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import Header from '../components/layout/Header'
 import {
   BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
@@ -125,51 +126,20 @@ export default function Admin() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
-      {/* Header */}
-      <header
-        className="h-14 flex items-center justify-between px-6"
-        style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}
-      >
-        <div className="flex items-center gap-3">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
-            style={{ background: 'var(--accent)' }}
-          >
-            R
-          </div>
-          <span className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>
-            Re:Verse
-          </span>
-          <span
-            className="text-xs px-2 py-0.5 rounded-md font-medium ml-1"
-            style={{ background: 'var(--accent)', color: '#fff' }}
-          >
-            Admin
-          </span>
-        </div>
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="re-btn-secondary text-xs px-3 py-1.5 rounded-lg"
-          style={{ background: 'var(--border)', color: 'var(--text-secondary)' }}
-        >
-          대시보드로
-        </button>
-      </header>
+      <Header />
 
       <main className="max-w-5xl mx-auto px-6 py-8">
         {/* Tabs */}
-        <div className="flex gap-1 mb-8">
+        <div className="flex gap-0 mb-8" style={{ borderBottom: '1px solid var(--border)' }}>
           {TABS.map((t, i) => (
             <button
               key={t}
               onClick={() => setTab(i)}
-              className="px-4 py-2 text-sm rounded-lg font-medium"
-              style={{
-                background: tab === i ? 'var(--accent)' : 'transparent',
-                color: tab === i ? '#fff' : 'var(--text-secondary)',
-              }}
+              className="px-4 py-2.5 text-xs font-medium relative"
+              style={{ color: tab === i ? 'var(--text-primary)' : 'var(--text-secondary)' }}
             >
               {t}
+              {tab === i && <span className="absolute bottom-0 left-0 right-0 h-0.5" style={{ background: 'var(--accent)' }} />}
             </button>
           ))}
         </div>

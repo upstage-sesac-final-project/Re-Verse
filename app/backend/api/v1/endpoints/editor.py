@@ -51,14 +51,14 @@ async def enter_editor(
                 )
                 return {"status": "ok", "game_id": game_id}
             # 다른 사용자 → 409
-            register_session(game_id, current_user.id, project_id)  # raises 409
+            await register_session(game_id, current_user.id, project_id)  # raises 409
 
         if settings.STORAGE_BACKEND == "s3":
             logger.info("[Editor] S3 → 로컬 다운로드 시작 | game_id=%s", game_id)
             await asyncio.to_thread(sync_game_from_s3, game_id)
             logger.info("[Editor] S3 → 로컬 다운로드 완료 | game_id=%s", game_id)
 
-        register_session(game_id, current_user.id, project_id)
+        await register_session(game_id, current_user.id, project_id)
 
     return {"status": "ok", "game_id": game_id}
 
