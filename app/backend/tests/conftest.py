@@ -1,4 +1,4 @@
-"""테스트 공통 fixtures — in-memory SQLite + TestClient + 인증 헬퍼."""
+"""테스트 공통 fixtures — file-based SQLite + TestClient + 인증 헬퍼."""
 
 import os
 
@@ -14,15 +14,21 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 _test_storage = tempfile.mkdtemp(prefix="reverse_test_games_")
 _test_base = tempfile.mkdtemp(prefix="reverse_test_base_")
+
+# 파일 기반 임시 SQLite: event loop 간 커넥션 공유 문제를 방지한다.
+# (sync TestClient 내부에서 별도 event loop가 생성되어도 동일 DB 파일에 접근 가능)
+_TEST_DB_FD, _TEST_DB_PATH = tempfile.mkstemp(suffix=".db", prefix="reverse_test_")
+os.close(_TEST_DB_FD)
 
 with patch.dict(
     os.environ,
     {
         "JWT_SECRET_KEY": "test-secret-key-for-testing",
-        "DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "DATABASE_URL": f"sqlite+aiosqlite:///{_TEST_DB_PATH}",
         "STORAGE_PATH": _test_storage,
         "BASE_GAME_PATH": _test_base,
     },
@@ -35,10 +41,13 @@ with patch.dict(
         from app.backend.models.game import Project
         from app.backend.models.user import User
 
-# 테스트용 in-memory DB
+# NullPool: 커넥션을 pool에 보관하지 않고 매번 새로 열고 닫는다.
+# sync TestClient(별도 event loop)에서 pytest event loop의 커넥션을 재사용하다
+# 발생하는 "no active connection" 오류를 방지한다.
 TEST_ENGINE = create_async_engine(
-    "sqlite+aiosqlite:///:memory:",
+    f"sqlite+aiosqlite:///{_TEST_DB_PATH}",
     connect_args={"check_same_thread": False},
+    poolclass=NullPool,
 )
 TestSessionLocal = async_sessionmaker(TEST_ENGINE, class_=AsyncSession, expire_on_commit=False)
 

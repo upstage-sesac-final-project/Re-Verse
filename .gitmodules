@@ -1,9 +1,0 @@
-[submodule "mcp/-rpgmaker-mz-mcp"]
-	path = mcp/-rpgmaker-mz-mcp
-	url = https://github.com/k4zuki0539/-rpgmaker-mz-mcp.git
-[submodule "mcp/MCP-Maker"]
-	path = mcp/MCP-Maker
-	url = https://github.com/devmagary/MCP-Maker.git
-[submodule "mcp/RPGMakerMZ_MCP"]
-	path = mcp/RPGMakerMZ_MCP
-	url = https://github.com/rein1225/RPGMakerMZ_MCP.git
