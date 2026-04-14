@@ -29,18 +29,8 @@
 # 로컬 분석 산출물
 build-analysis
 
-# MCP 컨텍스트: mcp-builder가 로컬 integration_MCP를 COPY해서 빌드하므로 소스는 실어야 함.
-# 단 로컬 산출물/테스트/자동화 등 런타임에 불필요한 것은 제외해 컨텍스트를 경량화한다.
-mcp/rpgmaker-mz-mcp/
-mcp/integration_MCP/node_modules
-mcp/integration_MCP/dist
-mcp/integration_MCP/generated
-mcp/integration_MCP/test_project
-mcp/integration_MCP/automation
-mcp/integration_MCP/vendor
-mcp/integration_MCP/docs
-mcp/integration_MCP/merger
-mcp/integration_MCP/**/*.test.*
+# MCP 로컬 작업 디렉토리 (현재 배포에서 MCP 비활성 — 빌드 컨텍스트에 불필요)
+mcp/
 
 # 로그·임시
 **/*.log
