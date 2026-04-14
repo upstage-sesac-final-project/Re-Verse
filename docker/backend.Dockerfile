@@ -24,17 +24,21 @@ RUN --mount=type=cache,target=/root/.npm \
 
 FROM python:3.12-slim
 
+# debconf가 대화형 입력을 기다리지 않도록 설정
+# nodesource 설치 스크립트(setup_20.x)가 내부적으로 apt-get을 실행할 때도 적용됨
+ENV DEBIAN_FRONTEND=noninteractive
+
 WORKDIR /app
 
 # 시스템 의존성 설치 (DB 빌드 도구 및 MCP용 Node.js 포함)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y \
+    apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gcc \
     libpq-dev \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # MCP 빌드 산출물을 런타임 이미지에 포함 (컨테이너 내부 경로 기준)
