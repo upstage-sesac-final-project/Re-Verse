@@ -28,13 +28,14 @@ export default function MessageList({ messages, onRetry }) {
           className={`flex items-end gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
         >
           <div
-            className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+            className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
             style={{
               background: msg.role === 'user' ? 'var(--accent)' : 'var(--border)',
-              color: 'var(--text-primary)',
+              color: '#fff',
+              fontSize: '9px',
             }}
           >
-            {msg.role === 'user' ? 'U' : 'AI'}
+            {msg.role === 'user' ? '' : 'R'}
           </div>
           <div
             className="max-w-[80%] px-3 py-2 rounded-lg text-sm"

@@ -1,6 +1,4 @@
-import { useEffect, useRef } from 'react'
-import { useDispatch, useSelector } from 'react-redux'
-import { wsEventReceived, fetchGenerationStatus } from '../../store/generationSlice'
+import { useSelector } from 'react-redux'
 
 const PHASE_ORDER = [
   { key: 'spec', label: 'A. 게임 기획' },
@@ -13,9 +11,6 @@ const PHASE_ORDER = [
   { key: 'integration', label: 'H. 프로젝트 조립' },
   { key: 'validation', label: 'I. 검증' },
 ]
-
-const WS_BASE =
-  (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host
 
 function PhaseList({ completedPhases, currentPhase }) {
   return (
@@ -47,62 +42,37 @@ function PhaseList({ completedPhases, currentPhase }) {
   )
 }
 
-export default function GenerationProgress({ onDone }) {
-  const dispatch = useDispatch()
-  const { generationId, wsUrl, status, progress, message, completedPhases, currentPhase } =
+export default function GenerationProgress() {
+  const { status, progress, message, completedPhases, currentPhase, queuePosition, queueWaitSeconds } =
     useSelector((s) => s.generation)
 
-  const wsRef = useRef(null)
-  const pollingRef = useRef(null)
-
-  useEffect(() => {
-    if (!generationId || !wsUrl) return
-
-    // WebSocket 연결 (브라우저 WS API는 Authorization 헤더 미지원 → 쿼리 파라미터로 토큰 전달)
-    const token = sessionStorage.getItem('access_token') ?? ''
-    const ws = new WebSocket(`${WS_BASE}${wsUrl}?token=${encodeURIComponent(token)}`)
-    wsRef.current = ws
-
-    ws.onmessage = (e) => {
-      try {
-        const evt = JSON.parse(e.data)
-        dispatch(wsEventReceived(evt))
-        if (['completed', 'completed_with_warnings', 'error'].includes(evt.type)) {
-          onDone?.()
-        }
-      } catch {
-        // JSON 파싱 오류 무시
-      }
-    }
-
-    ws.onerror = () => {
-      // WS 실패 시 폴링 fallback
-      ws.close()
-      startPolling()
-    }
-
-    ws.onclose = () => {
-      wsRef.current = null
-    }
-
-    return () => {
-      ws.close()
-      clearInterval(pollingRef.current)
-    }
-  }, [generationId, wsUrl]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  function startPolling() {
-    pollingRef.current = setInterval(async () => {
-      const result = await dispatch(fetchGenerationStatus(generationId))
-      const s = result.payload?.status
-      if (['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(s)) {
-        clearInterval(pollingRef.current)
-        onDone?.()
-      }
-    }, 3000)
-  }
-
   const isDone = ['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(status)
+  const isQueued = status === 'queued'
+
+  if (isQueued) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-6">
+          <p className="text-lg font-bold mb-2" style={{ color: '#eab308' }}>대기열 {queuePosition}번째</p>
+          <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+            현재 다른 게임이 생성 중입니다
+          </p>
+          <p className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+            약 {Math.ceil((queueWaitSeconds || 300) / 60)}분 대기
+          </p>
+          <p className="text-xs mt-2" style={{ color: 'var(--text-secondary)' }}>
+            순서가 오면 자동으로 생성이 시작됩니다
+          </p>
+        </div>
+
+        {/* 노드 현황 (아직 시작 전이라 전부 빈 상태) */}
+        <div className="rounded-lg p-4" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+          <p className="text-xs font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>노드 실행 현황</p>
+          <PhaseList completedPhases={[]} currentPhase="" />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

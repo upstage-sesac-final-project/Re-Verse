@@ -7,6 +7,7 @@ Docker(EC2)에서 `uvicorn app.backend.main:app` 으로 실행됩니다.
 """
 
 # ruff: noqa: E402
+import asyncio
 import logging
 import shutil
 from contextlib import asynccontextmanager
@@ -65,7 +66,22 @@ async def lifespan(app: FastAPI):
 
     setup_langsmith()
 
+    # 주기적 인메모리 상태 정리 (60초마다)
+    async def _periodic_cleanup():
+        from app.backend.api.v1.endpoints.generation import _cleanup_stale_states
+
+        while True:
+            await asyncio.sleep(60)
+            try:
+                _cleanup_stale_states()
+            except Exception:
+                pass
+
+    cleanup_task = asyncio.create_task(_periodic_cleanup())
+
     yield
+
+    cleanup_task.cancel()
 
     # Shutdown — 활성 세션 일괄 S3 업로드
     logger.info("Re:Verse Backend Shutting down...")
