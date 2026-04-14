@@ -89,6 +89,11 @@ const generationSlice = createSlice({
         state.queuePosition = evt.queue_position || 0
         state.queueWaitSeconds = (evt.queue_position || 0) * 300
       }
+      if (type === 'progress' && state.status === 'queued') {
+        state.status = 'in_progress'
+        state.queuePosition = 0
+        state.queueWaitSeconds = 0
+      }
       if (type === 'phase_complete' && phase) {
         if (!state.completedPhases.includes(phase)) {
           state.completedPhases.push(phase)

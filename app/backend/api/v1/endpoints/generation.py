@@ -146,12 +146,21 @@ async def _run_generation_in_background(
         # 대기열에서 제거
         if generation_id in _generation_queue:
             _generation_queue.remove(generation_id)
-        # 대기열 순서 업데이트
+        # 대기열 순서 업데이트 + WS로 알림
         for i, gid in enumerate(_generation_queue):
             state = _generation_states.get(gid)
             if state and state.status == "queued":
-                state.queue_position = i + 1
-                state.queue_wait_seconds = (i + 1) * _WAIT_PER_GENERATION
+                new_pos = i + 1
+                state.queue_position = new_pos
+                state.queue_wait_seconds = new_pos * _WAIT_PER_GENERATION
+                await publish_progress(
+                    gid,
+                    {
+                        "type": "queued",
+                        "queue_position": new_pos,
+                        "message": f"대기열 {new_pos}번째 — 약 {new_pos * 5}분 후 시작",
+                    },
+                )
 
         _generation_states[generation_id] = GenerationStatusResponse(
             generation_id=generation_id,
