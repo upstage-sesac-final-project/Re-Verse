@@ -45,7 +45,7 @@ export default function Dashboard() {
   const wsRef = useRef(null)
   const pollingRef = useRef(null)
   const WS_BASE = useRef(
-    (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host
+    import.meta.env.VITE_WS_URL || ((window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host)
   ).current
 
   useEffect(() => {
@@ -60,7 +60,7 @@ export default function Dashboard() {
     if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null }
   }
 
-  // polling: 완료 감지 전용 (progress는 WS로만 받음, 15초 간격)
+  // polling: 진행률 + 대기열 + 완료 감지 (WS 불가 시 fallback, 5초 간격)
   function startPolling(genId) {
     if (pollingRef.current) return
     pollingRef.current = setInterval(async () => {
@@ -69,7 +69,7 @@ export default function Dashboard() {
       if (['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(s)) {
         cleanupPolling()
       }
-    }, 15000)
+    }, 5000)
   }
 
   // WS 연결 (JWT 토큰 포함)
