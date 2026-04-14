@@ -60,6 +60,9 @@ class AgentState(TypedDict, total=False):
     # ── 6단계 Synthesizer ───────────────────────────────────
     final_response: str  # 사용자에게 전달할 최종 응답
 
+    # ── 맵 후보군 (Generation에서 이월) ──────────────────────
+    ranked_map_candidates: list[dict]  # 추가: 검색된 맵 후보군 (점수 포함)
+
     # ── 대화 이력 ────────────────────────────────────────────
     conversation_history: list[dict]  # [{"role": "user"|"assistant", "content": str}]
 

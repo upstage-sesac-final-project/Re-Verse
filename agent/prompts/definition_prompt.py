@@ -39,7 +39,7 @@ def build_step1_prompt(state: AgentState) -> list[BaseMessage]:
 STEP2_SYSTEM_PROMPT = """당신은 사용자의 요청에서 대상(Subject)이 RPG Maker MZ의 어떤 데이터 카테고리에 속하는지 판별하는 전문가입니다.
 
 ### [허용 카테고리 목록]
-- **Actor, Enemy, Item, Skill, Weapon, Armor, Class, State, Element, System, None**
+- **Actor, Enemy, Item, Skill, Weapon, Armor, Class, State, Element, Map, System, None**
 
 ### [분류 가이드라인]
 1. **정확한 분류**: "총", "검"은 Weapon입니다. "얼음", "불"은 Element입니다.
@@ -158,6 +158,7 @@ def build_step5_prompt(
         "classifications": classifications,
         "system_info": sys_info,  # 실제 속성 리스트 등 시스템 데이터 주입
         "bulk_context": bulk_context or {},
+        "ranked_map_candidates": state.get("ranked_map_candidates", []),  # 맵 후보군 주입
         "previous_response": previous_response or {},
     }
 
@@ -169,6 +170,10 @@ def build_step5_prompt(
 ### [특별 지시]
 - 속성(Element) ID가 필요한 경우, `system_info['elements']` 배열에서 해당 단어와 가장 유사한 항목의 **인덱스 번호**를 `dataId`로 사용하십시오. (예: 4번째에 있다면 4)
 - `bulk_context`가 비어 있지 않다면, 그것은 category 전체 수정 후보에 대한 조회 결과 요약입니다. bulk 수정이 필요할 때 이 컨텍스트를 우선 참고하십시오.
+- **맵(Map) 추가/삭제 관련**:
+  - 사용자가 맵 추가를 요청하면, `ranked_map_candidates` 리스트에서 현재 게임에 없는 가장 적합한(점수 높은) 맵을 선택하십시오.
+  - 맵 추가 시 `type: "create"`, `target: "map"`, `params`에는 `name`, `original_file_name`(후보군에서 가져옴)을 포함하십시오.
+  - 맵 삭제 시 `type: "delete"`, `target: "map"`, `params`에는 `map_id`를 포함하십시오.
 {extra_instructions}
 """
 

@@ -14,10 +14,15 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
+from app.backend.core.config import settings
+
 logger = logging.getLogger(__name__)
+
+_SAMPLEMAPS_DIR = Path(settings.BASE_GAME_PATH) / "samplemaps"
 
 
 def execute_map_step(
@@ -69,7 +74,7 @@ def _save_map_infos(data_path: Path, data: list) -> None:
 
 
 def _create_map(data_path: Path, info: dict) -> dict[str, Any]:
-    """빈 맵 생성. MapInfos + Map00x.json 빈 파일."""
+    """빈 맵 생성 또는 샘플맵 복제. MapInfos + Map00x.json 파일 생성."""
     infos = _load_map_infos(data_path)
     max_id = max(
         (e.get("id", 0) for e in infos if isinstance(e, dict)),
@@ -78,6 +83,7 @@ def _create_map(data_path: Path, info: dict) -> dict[str, Any]:
     new_id = max_id + 1
     name = info.get("name", f"Map{new_id:03d}")
     parent_id = info.get("parentId", 0)
+    original_file_name = info.get("original_file_name")
 
     new_entry = {
         "id": new_id,
@@ -96,40 +102,65 @@ def _create_map(data_path: Path, info: dict) -> dict[str, Any]:
     infos[new_id] = new_entry
     _save_map_infos(data_path, infos)
 
-    # 빈 Map 파일 생성
+    # Map 파일 생성
     map_file = f"Map{new_id:03d}.json"
-    empty_map = {
-        "autoplayBgm": False,
-        "autoplayBgs": False,
-        "battleback1Name": "",
-        "battleback2Name": "",
-        "bgm": {"name": "", "pan": 0, "pitch": 100, "volume": 90},
-        "bgs": {"name": "", "pan": 0, "pitch": 100, "volume": 90},
-        "disableDashing": False,
-        "displayName": name,
-        "encounterList": [],
-        "encounterStep": 30,
-        "height": 13,
-        "note": "",
-        "parallaxLoopX": False,
-        "parallaxLoopY": False,
-        "parallaxName": "",
-        "parallaxShow": True,
-        "parallaxSx": 0,
-        "parallaxSy": 0,
-        "scrollType": 0,
-        "specifyBattleback": False,
-        "tilesetId": 1,
-        "width": 17,
-        "data": [0] * (17 * 13 * 6),  # 6 layers
-        "events": [None],
-    }
     map_fp = data_path / map_file
-    map_fp.write_text(
-        json.dumps(empty_map, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
-    )
 
-    logger.info("[map] create map id=%d name='%s'", new_id, name)
+    if original_file_name:
+        # 샘플맵 복제
+        src_path = _SAMPLEMAPS_DIR / original_file_name
+        if src_path.exists():
+            try:
+                # 파일 복사
+                shutil.copy2(src_path, map_fp)
+                # 복사된 파일의 displayName 수정 (선택 사항)
+                map_data = json.loads(map_fp.read_text(encoding="utf-8"))
+                map_data["displayName"] = name
+                map_fp.write_text(
+                    json.dumps(map_data, ensure_ascii=False, separators=(",", ":")),
+                    encoding="utf-8",
+                )
+                logger.info("[map] cloned sample map '%s' to id=%d", original_file_name, new_id)
+            except Exception as e:
+                logger.error("[map] sample map clone failed: %s", e)
+                return _fail(f"샘플맵 복제 실패: {e}")
+        else:
+            logger.warning("[map] sample map not found: %s", src_path)
+            # 폴백: 빈 맵 생성 (또는 에러 반환)
+            return _fail(f"샘플맵 파일을 찾을 수 없습니다: {original_file_name}")
+    else:
+        # 빈 Map 파일 생성 (기존 로직)
+        empty_map = {
+            "autoplayBgm": False,
+            "autoplayBgs": False,
+            "battleback1Name": "",
+            "battleback2Name": "",
+            "bgm": {"name": "", "pan": 0, "pitch": 100, "volume": 90},
+            "bgs": {"name": "", "pan": 0, "pitch": 100, "volume": 90},
+            "disableDashing": False,
+            "displayName": name,
+            "encounterList": [],
+            "encounterStep": 30,
+            "height": 13,
+            "note": "",
+            "parallaxLoopX": False,
+            "parallaxLoopY": False,
+            "parallaxName": "",
+            "parallaxShow": True,
+            "parallaxSx": 0,
+            "parallaxSy": 0,
+            "scrollType": 0,
+            "specifyBattleback": False,
+            "tilesetId": 1,
+            "width": 17,
+            "data": [0] * (17 * 13 * 6),  # 6 layers
+            "events": [None],
+        }
+        map_fp.write_text(
+            json.dumps(empty_map, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
+        )
+        logger.info("[map] create empty map id=%d name='%s'", new_id, name)
+
     return _ok(new_entry, ["MapInfos.json", map_file], entity_id=new_id)
 
 

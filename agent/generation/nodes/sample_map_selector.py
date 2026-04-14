@@ -18,15 +18,13 @@ from agent.generation.mapgen.tile_checker import find_nearest_safe_coord
 from agent.generation.models import MapConnectionInfo, MapSpec
 from agent.generation.progress import publish_progress
 from agent.generation.state import GenerationState
+from app.backend.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# 경로 설정 (기존 storage/games/base_game 구조 유지)
-_SAMPLEMAPS_DIR = Path(__file__).parents[3] / "storage" / "games" / "base_game" / "samplemaps"
+_SAMPLEMAPS_DIR = Path(settings.BASE_GAME_PATH) / "samplemaps"
 _METADATA_PATH = Path(__file__).parents[2] / "generation" / "mapgen" / "data" / "map_metadata.json"
-_BASE_TILESETS_PATH = (
-    Path(__file__).parents[3] / "storage" / "games" / "base_game" / "data" / "Tilesets.json"
-)
+_BASE_TILESETS_PATH = Path(settings.BASE_GAME_PATH) / "data" / "Tilesets.json"
 
 
 def _load_metadata_index() -> dict[str, dict[str, Any]]:
@@ -84,8 +82,12 @@ async def sample_map_selector(state: GenerationState) -> dict:
         logger.info("기본 맵 개수 설정: n_maps=3")
 
     # 2. 벡터 DB 검색
-    file_names = await select_maps(user_input, n_maps=n_maps)
-    logger.info("sample_map_selector: 선택된 맵 %s", file_names)
+    result = await select_maps(user_input, n_maps=n_maps)
+    file_names = result["chosen"]
+    ranked_candidates = result["candidates"]
+    logger.info(
+        "sample_map_selector: 선택된 맵 %s, 후보군 %d개", file_names, len(ranked_candidates)
+    )
 
     metadata_index = _load_metadata_index()
     tileset_flags_map = _load_tileset_flags()
@@ -186,5 +188,6 @@ async def sample_map_selector(state: GenerationState) -> dict:
         "map_tiles": map_tiles,
         "compiled_events": compiled_events,
         "connection_info": connection_info,
+        "ranked_map_candidates": ranked_candidates,
         "completed_phases": completed,
     }

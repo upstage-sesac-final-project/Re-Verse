@@ -755,6 +755,12 @@ def _normalize_structured_action(target_file: str, action: str, target_info: dic
     """3단계 플래너 action_type 편차를 4단계(MCP/레거시) 기준으로 정규화한다."""
     a = (action or "").strip().lower()
 
+    if target_file == "MapInfos.json":
+        if a == "create":
+            return "create_map"
+        if a == "delete":
+            return "delete_map"
+
     if target_file == "Actors.json":
         # 레거시 query는 이름 기반 존재 확인, MCP get_actor는 ID 기반.
         if a == "query" and ("actor_id" in target_info or "actorId" in target_info):
@@ -1784,6 +1790,7 @@ async def _execute_one_structured_step(
                 "_remove_learning",
                 "_remove_action",
                 "_remove_equip",
+                "original_file_name",  # 추가: 맵 복제용 원본 파일명
             }
         )
         _updates = target_info.get("updates")

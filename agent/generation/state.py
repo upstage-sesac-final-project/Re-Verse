@@ -32,6 +32,7 @@ class GenerationState(TypedDict, total=False):
     map_specs: list[MapSpec]
     map_tiles: dict[int, list[int]]  # map_id → flat 1D (width×height×6)
     connection_info: dict[int, MapConnectionInfo]
+    ranked_map_candidates: list[dict] | None  # 추가: 검색된 맵 후보군 (점수 포함)
 
     # ── F 노드 (story_planner) 출력 ───────────────────────
     story_script: dict[int, MapScreenplay] | None  # map_id → MapScreenplay
