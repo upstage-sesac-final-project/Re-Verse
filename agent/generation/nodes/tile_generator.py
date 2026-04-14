@@ -81,6 +81,7 @@ async def tile_generator(state: GenerationState) -> dict:
 
     map_tiles: dict[int, list[int]] = {}
     connection_info: dict[int, MapConnectionInfo] = {}
+    updated_map_specs: list[MapSpec] = []
 
     for spec, result in zip(map_specs, results):
         if isinstance(result, Exception):
@@ -89,12 +90,29 @@ async def tile_generator(state: GenerationState) -> dict:
             connection_info[spec.map_id] = MapConnectionInfo(
                 map_id=spec.map_id, exit_tiles=[], entry_tiles=[]
             )
+            updated_map_specs.append(spec)
         else:
             map_id, data, conn = result
             map_tiles[map_id] = data
             connection_info[map_id] = conn
+            # connection_info에서 계산된 실제 spawn_point를 spec에 반영
+            # (map_designer는 중앙 좌표로 초기화하므로, 최대 연결 구역 기준으로 교정)
+            if conn.entry_tiles:
+                actual_spawn = (conn.entry_tiles[0]["x"], conn.entry_tiles[0]["y"])
+                if actual_spawn != spec.spawn_point:
+                    logger.info(
+                        "tile_generator: Map '%s' spawn_point 교정 (%d,%d) → (%d,%d)",
+                        spec.name,
+                        spec.spawn_point[0],
+                        spec.spawn_point[1],
+                        actual_spawn[0],
+                        actual_spawn[1],
+                    )
+                    spec = spec.model_copy(update={"spawn_point": actual_spawn})
+            updated_map_specs.append(spec)
 
     logger.info("tile_generator 완료: %d개 맵 데이터 준비", len(map_tiles))
+    map_specs = updated_map_specs
 
     await publish_progress(
         gen_id,
@@ -110,5 +128,6 @@ async def tile_generator(state: GenerationState) -> dict:
     return {
         "map_tiles": map_tiles,
         "connection_info": connection_info,
+        "map_specs": map_specs,  # spawn_point 교정된 버전 전파
         "completed_phases": completed,
     }

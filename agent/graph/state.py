@@ -34,6 +34,10 @@ class AgentState(TypedDict, total=False):
     extracted_ids: dict  # 이름→ID 매핑 (예: {"enemy_id": 1})
     params_sufficient: bool  # 파라미터 충분 여부
 
+    # ── 2.5단계 Operation IR (definition_v2 → game_index_resolve → planner_v2) ──
+    operation_tuples: list[dict]  # 정규화된 operation IR
+    plan_meta: dict  # planner_v2 → validator (op_idx → step_ids 역매핑)
+
     # ── 3단계 Planner ───────────────────────────────────────
     game_context: dict  # 플래너 프롬프트에 주입할 현재 게임 데이터
     # 단계별 실행 명령. 레거시: [{"task": "..."}]. 구조화(3단계): step_id, action_type,
@@ -48,6 +52,8 @@ class AgentState(TypedDict, total=False):
     # ── 5단계 Validator ─────────────────────────────────────
     validation_results: list  # 파일별 검증 결과 리스트
     validation_summary: str  # 검증 결과 요약 문자열
+    validation_details: list[str]  # schema/judge 실패 상세 (synthesizer 가 사용)
+    judge_feedback: str  # judge 실패 피드백 텍스트 (synthesizer 가 응답에 첨부)
     success: bool  # 전체 검증 통과 여부
     retry_count: int  # 검증 실패 후 재시도 횟수
 

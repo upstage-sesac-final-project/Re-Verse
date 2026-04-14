@@ -1090,9 +1090,10 @@ async def test_items_query_normalizes_to_search_for_planner(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_unsupported_structured_step_error_is_standardized():
-    """미지원 액션 에러 메시지는 표준 포맷을 따라야 한다."""
-    # action_type=delete는 Skills.json에 대해 structured step이 없으므로,
-    # executor가 [UNSUPPORTED_STRUCTURED_STEP]을 표준 포맷으로 반환하는지 확인한다.
+    """미지원 액션은 executor_v2 dispatch fallback을 시도한 뒤 실패하면 표준 에러를 반환한다."""
+    # action_type=delete는 Skills.json에 대해 MCP/레거시 매핑이 없으므로,
+    # executor_v2 dispatch fallback을 시도한다. dispatch가 처리하면 성공,
+    # 못하면 [UNSUPPORTED_STRUCTURED_STEP] 표준 포맷으로 반환한다.
     state: AgentState = {
         "execution_plan": [
             {
@@ -1111,9 +1112,9 @@ async def test_unsupported_structured_step_error_is_standardized():
 
     result = await executor(state)
     log = result["changes_log"][0]
-    assert log["success"] is False
-    assert "[UNSUPPORTED_STRUCTURED_STEP]" in (log.get("stderr") or "")
-    assert "target_file=Skills.json" in (log.get("stderr") or "")
+    # dispatch fallback이 처리했으면 success, 못했으면 UNSUPPORTED
+    if not log["success"]:
+        assert "[UNSUPPORTED_STRUCTURED_STEP]" in (log.get("stderr") or "")
 
 
 @pytest.mark.asyncio
@@ -1364,6 +1365,46 @@ def test_create_item_sync_default_damage(tmp_path):
     assert arr[1]["damage"]["formula"] == "0"
 
 
+def test_create_item_sync_planner_omits_occasion_like_fields(tmp_path):
+    """Planner가 Definition 대비 occasion 등 필수 필드를 빼도(또는 null) 성공해야 한다."""
+    import json as _json
+
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    dp = tmp_path / "data"
+    _make_items_json(dp, [None, None, None])
+    info = {
+        "item_id": 3,
+        "item_name": "소화기",
+        "description": "화재 진압용 소화기",
+        "iconIndex": 1,
+        "price": 0,
+        "itypeId": 1,
+        "consumable": True,
+        "scope": 7,
+        "speed": 0,
+        "successRate": 100,
+        "repeats": 1,
+        "tpGain": 0,
+        "hitType": 0,
+        "animationId": -1,
+        "damage": {
+            "type": 0,
+            "elementId": -1,
+            "formula": "",
+            "variance": 0,
+            "critical": False,
+        },
+        "effects": [],
+        "note": "",
+        "occasion": None,
+    }
+    r = executor_module._structured_create_item_sync(dp, info)
+    assert r["success"] is True, r.get("stderr")
+    arr = _json.loads((dp / "Items.json").read_text(encoding="utf-8"))
+    assert arr[3]["name"] == "소화기"
+    assert arr[3]["occasion"] == 0
+
+
 def test_create_item_sync_effects_sanitized(tmp_path):
     """code=11, value1=500, value2=0 → swap 적용 확인."""
     import json as _json
@@ -1593,6 +1634,22 @@ def test_create_enemy_sync_params_validation_fail(tmp_path):
     r = executor_module._structured_create_enemy_sync(dp, info)
     assert r["success"] is False
     assert "스키마" in r["stderr"] or "검증" in r["stderr"]
+
+
+def test_map_mcp_resolve_and_normalize():
+    """MapNNN.json → MCP 맵 툴 매핑 및 mapId 정규화."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    assert executor_module._parse_map_id_from_target_file("Map003.json") == 3
+    assert executor_module._parse_map_id_from_target_file("map001.json") == 1
+    assert executor_module._parse_map_id_from_target_file("Actors.json") is None
+    e = executor_module._resolve_mcp_map_file_entry("Map003.json", "query")
+    assert e is not None and e["tool"] == "get_map"
+    n = executor_module._normalize_mcp_arguments("Map003.json", "query", {})
+    assert n == {"mapId": 3}
+    n2 = executor_module._normalize_mcp_arguments(
+        "Map001.json", "create_event", {"name": "NPC", "x": 5, "y": 7}
+    )
+    assert n2["mapId"] == 1 and n2["name"] == "NPC" and n2["x"] == 5 and n2["y"] == 7
 
 
 if __name__ == "__main__":

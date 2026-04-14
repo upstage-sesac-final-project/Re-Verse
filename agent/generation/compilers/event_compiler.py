@@ -405,7 +405,7 @@ class EventCompiler:
             # on_win에서 이미 ON한 스위치와 중복이면 생략
             on_win_switches = {a.set_switch for a in event.on_win if a.set_switch}
             if event.battle_switch not in on_win_switches:
-                sw_id = self.switch_table.switches[event.battle_switch]
+                sw_id = self.resolve_switch_id(event.battle_switch)
                 cmds.append(
                     {"code": 121, "indent": base_indent + 1, "parameters": [sw_id, sw_id, 0]}
                 )

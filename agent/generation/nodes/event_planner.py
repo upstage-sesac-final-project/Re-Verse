@@ -6,7 +6,6 @@ canonical: docs/The_world/prompt_engineering.md §F. 이벤트 기획자
 
 import asyncio
 import logging
-import random
 import re
 from typing import cast
 
@@ -101,13 +100,29 @@ async def event_planner(state: GenerationState) -> dict:
         # 이 맵 screenplay에 없는 quest_chest 제거 (LLM이 다른 맵 아이템 생성하는 것 방지)
         result = _filter_extra_quest_chests(result, screenplay, spec.map_id)
         # acquisition 누락 보완 (quest_chest 미생성 시 자동 삽입)
-        result = _ensure_acquisition_events(result, screenplay, spec, switch_table)
+        tile_data = map_tiles.get(spec.map_id)
+        result = _ensure_acquisition_events(
+            result, screenplay, spec, switch_table, tile_data=tile_data, tilesets=tilesets
+        )
         # battle quest_chest quest_switch ↔ NPC set_switch 충돌 수정 (NPC 대화로 배틀 우회 방지)
         result = _fix_battle_quest_switch_collision(result, spec.map_id, switch_table)
+        # battle 이벤트 battle_switch ↔ NPC set_switch 충돌 수정 (보스 전투 우회 방지)
+        result = _fix_npc_battle_switch_collision(result, spec.map_id)
         # NpcEvent condition_switch 검증: 존재하지 않는 _defeated 스위치 자동 교체
         result = _fix_npc_defeated_conditions(result, switch_table, spec.map_id)
         # 이동 이벤트 코드 생성 (condition = acquisitions.chest_switch)
-        result = result + _build_move_events(screenplay, conn, id_table, spec, map_specs)
+        new_moves = _build_move_events(screenplay, conn, id_table, spec, map_specs)
+        # 이동 이벤트 좌표도 통행 가능 여부 검증 (exit_tile이 벽/물 위인 경우 보정)
+        if new_moves and tile_data and tilesets:
+            new_moves = _validate_move_event_coords(new_moves, spec, tile_data, tilesets)
+        result = result + new_moves
+
+        # ── 최종 고립 제거 패스 ──────────────────────────────────────────────
+        # _ensure_acquisition_events / _build_move_events 등 _validate_coords를
+        # 우회하여 추가된 이벤트가 통행 가능하지만 스폰에서 도달 불가한 고립 타일에
+        # 배치되는 경우를 여기서 일괄 제거·재배치한다.
+        if tile_data and tilesets:
+            result = _remove_isolated_events(result, spec, tile_data, tilesets)
 
         event_dsl[spec.map_id] = result
 
@@ -260,6 +275,27 @@ def _validate_coords(
                 used_coords=used_coords,
             )
 
+        # 3. 좁은 통로(corridor) 타일을 제외한 선호 좌표 목록 미리 계산
+        if tile_data and tilesets:
+            from agent.generation.mapgen.tile_checker import filter_non_corridor_coords
+
+            preferred_coords = filter_non_corridor_coords(
+                all_safe_coords, tile_data, spec.width, spec.height, spec.tileset_id, tilesets
+            )
+        else:
+            preferred_coords = list(all_safe_coords)
+    else:
+        preferred_coords = []
+
+    # 연결성 체크에 필요한 출구 좌표 (gate/transfer 이벤트가 여기에 배치됨)
+    exit_coords: set[tuple[int, int]] = set()
+    if connection_info and tile_data and tilesets:
+        for xt in connection_info.exit_tiles:
+            exit_coords.add((xt["x"], xt["y"]))
+
+    # 이미 배치된 이벤트 좌표 집합 (연결성·인접 체크용)
+    placed_event_positions: set[tuple[int, int]] = set()
+
     for e in events:
         # 1. 맵 범위 체크 및 통행 가능 여부 체크
         is_in_bounds = 0 <= e.x < spec.width and 0 <= e.y < spec.height
@@ -292,57 +328,95 @@ def _validate_coords(
                 )
                 is_safe = False
 
-        # 2. 안전하지 않다면 보정 시도
+        # 2. 위치 결정: 안전하지 않으면 보정, 안전하면 원래 좌표 사용
+        def _pick_best_coord(ox: int, oy: int, candidate_list: list) -> tuple[int, int] | None:
+            """candidate_list에서 배치 우선순위에 따라 최적 좌표를 선택한다.
+
+            우선순위 (tier):
+              0 = 비-통로 + 기배치 이벤트 비-인접 (이상적)
+              1 = 비-통로
+              2 = 전체 후보 (폴백)
+
+            각 tier 내에서 맨해튼 거리 오름차순으로 정렬.
+            상위 MAX_CHECK개 후보에 대해 연결성 체크를 수행하고,
+            스폰 → 출구 도달 가능성을 유지하는 첫 번째 좌표를 반환한다.
+            모든 후보가 실패하면 연결성 무시하고 tier/거리 최우선 좌표를 반환한다.
+            """
+            if not candidate_list:
+                return None
+
+            MAX_CHECK = 30  # 성능 상한: 최대 30개 후보까지만 연결성 체크
+
+            adj_nbrs = {
+                (px + dx, py + dy)
+                for px, py in placed_event_positions
+                for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]
+            }
+            preferred_set = set(preferred_coords)
+
+            def _tier(c: tuple[int, int]) -> int:
+                in_pref = c in preferred_set
+                not_adj = c not in adj_nbrs
+                if in_pref and not_adj:
+                    return 0
+                if in_pref:
+                    return 1
+                return 2
+
+            sorted_candidates = sorted(
+                candidate_list,
+                key=lambda c: (_tier(c), abs(c[0] - ox) + abs(c[1] - oy)),
+            )
+
+            fallback = sorted_candidates[0]  # 연결성 체크 실패 시 사용
+
+            if not (tile_data and tilesets and exit_coords):
+                # 연결성 체크 정보 없음 → tier/거리 기준만 사용
+                return fallback
+
+            from agent.generation.mapgen.tile_checker import are_exits_reachable
+
+            spawn = (spec.spawn_point[0], spec.spawn_point[1])
+            for candidate in sorted_candidates[:MAX_CHECK]:
+                test_blocked = placed_event_positions | {candidate}
+                if are_exits_reachable(
+                    tile_data,
+                    spawn[0],
+                    spawn[1],
+                    spec.width,
+                    spec.height,
+                    spec.tileset_id,
+                    tilesets,
+                    exit_coords,
+                    test_blocked,
+                ):
+                    return candidate
+
+            # 모든 후보가 연결성 체크 실패 → tier/거리 최우선 좌표로 폴백
+            logger.warning(
+                "Map%d 이벤트 '%s': 연결성 유지 후보 없음 → 거리 기준 폴백 (%d,%d)",
+                spec.map_id,
+                e.name,
+                fallback[0],
+                fallback[1],
+            )
+            return fallback
+
         if not is_in_bounds or not is_safe:
-            from agent.generation.mapgen.tile_checker import find_nearest_safe_coord
-
-            # 1순위: 원래 좌표 근처에서 가장 가까운 안전한 좌표 찾기 (BFS)
-            nx, ny = find_nearest_safe_coord(
-                tile_data,
-                e.x if is_in_bounds else spec.width // 2,
-                e.y if is_in_bounds else spec.height // 2,
-                spec.width,
-                spec.height,
-                spec.tileset_id,
-                tilesets,
-                max_radius=15,
-                used_coords=used_coords,
-            )
-
-            # BFS로 찾은 좌표가 안전하고 '도달 가능'한지 최종 확인
-            is_valid_new = is_walkable(
-                tile_data, nx, ny, spec.width, spec.height, spec.tileset_id, tilesets
-            )
-            if is_valid_new and all_safe_coords and (nx, ny) not in all_safe_coords:
-                # BFS로 찾은 곳조차 도달 불가능하다면, 도달 가능 리스트에서 랜덤하게 하나 뽑기
-                if all_safe_coords:
-                    nx, ny = random.choice(all_safe_coords)
-                else:
-                    is_valid_new = False
-
-            if is_valid_new and (nx, ny) != (e.x, e.y):
-                logger.info(
-                    "Map%d 이벤트 '%s' 좌표 근처/도달 보정: (%d, %d) -> (%d, %d)",
-                    spec.map_id,
-                    e.name,
-                    e.x,
-                    e.y,
-                    nx,
-                    ny,
-                )
-                e.x, e.y = nx, ny
-                used_coords.add((nx, ny))
-                valid.append(e)
-                if (nx, ny) in all_safe_coords:
-                    all_safe_coords.remove((nx, ny))
-                continue
-
-            # 2순위: 근처에도 없다면 랜덤 배정
             if all_safe_coords:
-                nx, ny = random.choice(all_safe_coords)
-                all_safe_coords.remove((nx, ny))
+                ox = e.x if is_in_bounds else spec.width // 2
+                oy = e.y if is_in_bounds else spec.height // 2
+                chosen = _pick_best_coord(ox, oy, all_safe_coords)
+                if chosen is None:
+                    logger.warning(
+                        "Map%d 이벤트 '%s': 도달 가능한 안전 좌표가 없음 → 제거",
+                        spec.map_id,
+                        e.name,
+                    )
+                    continue
+                nx, ny = chosen
                 logger.info(
-                    "Map%d 이벤트 '%s' 좌표 랜덤 재배정 (도달 가능 지역): (%d, %d) -> (%d, %d)",
+                    "Map%d 이벤트 '%s' 좌표 보정 (도달 가능 최근접): (%d, %d) -> (%d, %d)",
                     spec.map_id,
                     e.name,
                     e.x,
@@ -352,19 +426,116 @@ def _validate_coords(
                 )
                 e.x, e.y = nx, ny
                 used_coords.add((nx, ny))
+                all_safe_coords.remove((nx, ny))
+                try:
+                    preferred_coords.remove((nx, ny))
+                except ValueError:
+                    pass
+                placed_event_positions.add((nx, ny))
                 valid.append(e)
             else:
                 logger.warning(
                     "Map%d 이벤트 '%s': 도달 가능한 안전 좌표가 없음 → 제거", spec.map_id, e.name
                 )
         else:
-            # 원래 좌표가 안전하면 그대로 사용
+            # 원래 좌표가 안전. 단, 통로 타일이거나 다른 이벤트에 인접하면 더 나은 위치로 이동
+            preferred_set = set(preferred_coords)
+            adj_nbrs = {
+                (px + dx, py + dy)
+                for px, py in placed_event_positions
+                for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]
+            }
+            needs_relocation = (e.x, e.y) not in preferred_set or (e.x, e.y) in adj_nbrs
+            if needs_relocation and all_safe_coords:
+                chosen = _pick_best_coord(e.x, e.y, all_safe_coords)
+                if chosen and chosen != (e.x, e.y):
+                    nx, ny = chosen
+                    logger.info(
+                        "Map%d 이벤트 '%s' 통로/인접 회피 재배치: (%d, %d) -> (%d, %d)",
+                        spec.map_id,
+                        e.name,
+                        e.x,
+                        e.y,
+                        nx,
+                        ny,
+                    )
+                    e.x, e.y = nx, ny
+                    used_coords.add((nx, ny))
+                    all_safe_coords.remove((nx, ny))
+                    try:
+                        preferred_coords.remove((nx, ny))
+                    except ValueError:
+                        pass
+                    placed_event_positions.add((nx, ny))
+                    valid.append(e)
+                    continue
+            # 재배치 불필요하거나 더 나은 위치가 없음 → 원래 좌표 그대로 사용
             used_coords.add((e.x, e.y))
             if (e.x, e.y) in all_safe_coords:
                 all_safe_coords.remove((e.x, e.y))
+            try:
+                preferred_coords.remove((e.x, e.y))
+            except ValueError:
+                pass
+            placed_event_positions.add((e.x, e.y))
             valid.append(e)
 
     return valid
+
+
+def _validate_move_event_coords(
+    move_events: list,
+    spec: "MapSpec",
+    tile_data: list[int],
+    tilesets: list,
+) -> list:
+    """_build_move_events가 반환한 게이트/귀환/워프 이벤트의 좌표를 검증한다.
+
+    exit_tile 좌표가 벽이나 물 위인 경우 근처 통행 가능 타일로 보정한다.
+    이 이벤트들은 _validate_coords를 거치지 않아 별도 검증이 필요하다.
+    """
+    from agent.generation.mapgen.tile_checker import find_nearest_safe_coord, is_walkable
+
+    corrected = []
+    used: set[tuple[int, int]] = set()
+    for ev in move_events:
+        x, y = ev.x, ev.y
+        if not is_walkable(tile_data, x, y, spec.width, spec.height, spec.tileset_id, tilesets):
+            nx, ny = find_nearest_safe_coord(
+                tile_data,
+                x,
+                y,
+                spec.width,
+                spec.height,
+                spec.tileset_id,
+                tilesets,
+                max_radius=8,
+                used_coords=used,
+            )
+            if is_walkable(
+                tile_data, nx, ny, spec.width, spec.height, spec.tileset_id, tilesets
+            ) and (nx, ny) != (x, y):
+                logger.info(
+                    "Map%d 이동이벤트 '%s' 좌표 보정 (통행 불가): (%d, %d) -> (%d, %d)",
+                    spec.map_id,
+                    ev.name,
+                    x,
+                    y,
+                    nx,
+                    ny,
+                )
+                ev.x, ev.y = nx, ny
+            else:
+                logger.warning(
+                    "Map%d 이동이벤트 '%s': 근처 통행 가능 좌표 없음, 원래 위치 유지 (%d, %d)",
+                    spec.map_id,
+                    ev.name,
+                    x,
+                    y,
+                )
+        used.add((ev.x, ev.y))
+        corrected.append(ev)
+    return corrected
 
 
 def _validate_duplicate_names(events: list, map_id: int) -> list:
@@ -744,6 +915,73 @@ def _fallback_events(spec: MapSpec, id_table: IdTable) -> list:
     return events
 
 
+def _remove_isolated_events(
+    events: list,
+    spec: "MapSpec",
+    tile_data: list[int],
+    tilesets: list,
+) -> list:
+    """스폰에서 도달 불가한 고립 타일에 배치된 이벤트를 재배치하거나 제거한다.
+
+    _validate_coords 이후에 추가된 이벤트(게이트, quest_chest 등)가
+    통행 가능하지만 고립된 타일에 배치되는 경우를 최종 패스에서 잡아낸다.
+
+    처리 순서:
+      1. 스폰 기준 flood-fill로 도달 가능 집합 계산
+      2. 이미 배치된 이벤트 좌표는 장애물로 간주하지 않음 (정적 고립만 처리)
+      3. 고립된 이벤트 → 도달 가능 집합에서 가장 가까운 미사용 좌표로 재배치
+      4. 도달 가능 집합이 비어 있으면 아무것도 하지 않음 (폴백)
+    """
+    reachable = get_reachable_coords(
+        tile_data,
+        spec.spawn_point[0],
+        spec.spawn_point[1],
+        spec.width,
+        spec.height,
+        spec.tileset_id,
+        tilesets,
+        avoid_damage=True,
+    )
+    if not reachable:
+        return events  # 도달 가능 좌표 계산 실패 → 건드리지 않음
+
+    reachable_set = set(reachable)
+    used: set[tuple[int, int]] = {(e.x, e.y) for e in events if (e.x, e.y) in reachable_set}
+    result = []
+
+    for e in events:
+        if (e.x, e.y) in reachable_set:
+            result.append(e)
+            continue
+
+        # 이벤트가 고립 지역에 있음 → 가장 가까운 도달 가능·미사용 좌표로 이동
+        candidates = reachable_set - used
+        if candidates:
+            nx, ny = min(candidates, key=lambda c: abs(c[0] - e.x) + abs(c[1] - e.y))
+            logger.warning(
+                "Map%d 이벤트 '%s' 고립 지역 (%d,%d) → 도달 가능 좌표 (%d,%d) 재배치",
+                spec.map_id,
+                e.name,
+                e.x,
+                e.y,
+                nx,
+                ny,
+            )
+            e.x, e.y = nx, ny
+            used.add((nx, ny))
+            result.append(e)
+        else:
+            logger.warning(
+                "Map%d 이벤트 '%s' 고립 지역 (%d,%d) → 도달 가능 좌표 없음, 제거",
+                spec.map_id,
+                e.name,
+                e.x,
+                e.y,
+            )
+
+    return result
+
+
 def _empty_connection(map_id: int) -> MapConnectionInfo:
     return MapConnectionInfo(map_id=map_id, exit_tiles=[], entry_tiles=[])
 
@@ -805,6 +1043,8 @@ def _ensure_acquisition_events(
     screenplay: MapScreenplay | None,
     spec: MapSpec,
     switch_table: SwitchTable | None = None,
+    tile_data: list[int] | None = None,
+    tilesets: list | None = None,
 ) -> list:
     """screenplay.acquisitions 중 quest_chest가 누락된 항목을 자동으로 보완한다.
 
@@ -849,6 +1089,42 @@ def _ensure_acquisition_events(
     ]
 
     cx, cy = spec.spawn_point
+
+    # tile_data가 있으면 도달 가능 좌표 풀을 미리 구성 (통행 불가 타일 배치 방지)
+    _reachable_pool: list[tuple[int, int]] | None = None
+    if tile_data and tilesets:
+        from agent.generation.mapgen.tile_checker import get_all_safe_coords, get_reachable_coords
+
+        _reachable_pool = get_reachable_coords(
+            tile_data,
+            cx,
+            cy,
+            spec.width,
+            spec.height,
+            spec.tileset_id,
+            tilesets,
+            avoid_damage=True,
+        )
+        # spawn_point가 고립된 소영역에 있으면 맵 중심에서 재탐색 후 폴백
+        if len(_reachable_pool) < 5:
+            center_x, center_y = spec.width // 2, spec.height // 2
+            center_pool = get_reachable_coords(
+                tile_data, center_x, center_y, spec.width, spec.height, spec.tileset_id, tilesets
+            )
+            if len(center_pool) > len(_reachable_pool):
+                _reachable_pool = center_pool
+                cx, cy = center_x, center_y  # 선택 기준도 중심으로 변경
+        if len(_reachable_pool) < 5:
+            logger.warning(
+                "Map%d _ensure_acquisition: spawn 도달 가능 좌표 부족(%d) → 전체 walkable 사용",
+                spec.map_id,
+                len(_reachable_pool),
+            )
+            _reachable_pool = get_all_safe_coords(
+                tile_data, spec.width, spec.height, spec.tileset_id, tilesets, avoid_damage=True
+            )
+            cx, cy = spec.width // 2, spec.height // 2  # 선택 기준도 맵 중심으로
+
     added: list = []
     offset = 2
 
@@ -897,12 +1173,27 @@ def _ensure_acquisition_events(
             quest_type = "npc"
             q_dialogue = ["이 보물은 내가 지키고 있어.", "도움을 주면 열어줄게."]
 
-        # 좌표 충돌 방지: 기존 이벤트 좌표 집합에서 비어있는 곳 탐색
+        # 좌표 결정: tile_data가 있으면 도달 가능 풀에서 선택, 없으면 spawn 기반 offset
         used_coords = {(getattr(e, "x", -1), getattr(e, "y", -1)) for e in events + added}
-        px, py = cx + offset, cy
-        while (px, py) in used_coords:
-            offset += 1
-            px = cx + offset
+        if _reachable_pool:
+            # 도달 가능하고 미사용인 좌표 중 spawn에서 가장 가까운 것 선택
+            candidates = [c for c in _reachable_pool if c not in used_coords]
+            if candidates:
+                px, py = min(candidates, key=lambda c: abs(c[0] - cx) + abs(c[1] - cy))
+                # 다음 번 호출 시 중복 방지를 위해 사용한 좌표 제거
+                _reachable_pool = [c for c in _reachable_pool if c != (px, py)]
+            else:
+                # 도달 가능 풀 소진 → spawn offset 폴백
+                px, py = cx + offset, cy
+                while (px, py) in used_coords:
+                    offset += 1
+                    px = cx + offset
+        else:
+            # tile_data 없음 → 기존 방식
+            px, py = cx + offset, cy
+            while (px, py) in used_coords:
+                offset += 1
+                px = cx + offset
 
         added.append(
             QuestChestEvent(
@@ -1022,6 +1313,36 @@ def _fix_battle_quest_switch_collision(
     return result
 
 
+def _fix_npc_battle_switch_collision(events: list, map_id: int) -> list:
+    """NpcEvent의 set_switch가 battle 이벤트의 battle_switch와 충돌하면 제거.
+
+    LLM이 보스 NPC에게 _defeated 스위치를 set_switch로 배정하면,
+    NPC 대화만으로 battle_switch가 ON되어 보스 전투 조건(sw=OFF)이 영구 실패한다.
+    """
+    battle_switches: set[str] = {
+        getattr(e, "battle_switch", None)
+        for e in events
+        if e.type == "battle" and getattr(e, "battle_switch", None)
+    } - {None}
+
+    if not battle_switches:
+        return events
+
+    result = []
+    for e in events:
+        if e.type == "npc" and getattr(e, "set_switch", None) in battle_switches:
+            logger.warning(
+                "Map%d NpcEvent '%s': set_switch '%s'가 battle 이벤트의 battle_switch와 충돌 "
+                "→ NPC set_switch 제거 (전투 없이 보스 격파 방지)",
+                map_id,
+                e.name,
+                e.set_switch,
+            )
+            e = e.model_copy(update={"set_switch": None})
+        result.append(e)
+    return result
+
+
 def _fix_npc_defeated_conditions(
     events: list,
     switch_table: SwitchTable,
@@ -1101,6 +1422,8 @@ def _build_move_events(
             tile_by_dest[dest_id] = (tile.get("x", 1), tile.get("y", 1))
 
     _fallback_hint = "아직 조건이 충족되지 않았습니다."
+    # map_id → MapSpec 빠른 조회 (목적지 spawn_point 계산용)
+    map_spec_by_id: dict[int, MapSpec] = {s.map_id: s for s in map_specs} if map_specs else {}
     events: list = []
 
     for move in screenplay.moves:
@@ -1135,6 +1458,14 @@ def _build_move_events(
 
         ex, ey = tile_xy
 
+        # 목적지 맵 spawn_point: 최대 연결 구역 기준으로 tile_generator가 교정한 값
+        # to_y=1 하드코딩 대신 사용하여 이동 불가 타일 도착 문제 방지
+        dest_spec = map_spec_by_id.get(dest_id)
+        if dest_spec:
+            dest_spawn_x, dest_spawn_y = dest_spec.spawn_point
+        else:
+            dest_spawn_x, dest_spawn_y = ex, 1
+
         if move.direction == "forward":
             if not chest_switches:
                 # acquisitions가 없을 때: NPC talked_switches를 게이트 조건으로 대체
@@ -1167,8 +1498,8 @@ def _build_move_events(
                             x=ex,
                             y=ey,
                             to_map=move.to_map_name,
-                            to_x=ex,
-                            to_y=1,
+                            to_x=dest_spawn_x,
+                            to_y=dest_spawn_y,
                             direction="retain",
                             keeper_character_name="People1",
                             keeper_character_index=6,
@@ -1191,8 +1522,8 @@ def _build_move_events(
                             x=ex,
                             y=ey,
                             to_map=move.to_map_name,
-                            to_x=ex,
-                            to_y=1,
+                            to_x=dest_spawn_x,
+                            to_y=dest_spawn_y,
                             character_name="!Crystal",
                             character_index=2,
                         )
@@ -1213,8 +1544,8 @@ def _build_move_events(
                     x=ex,
                     y=ey,
                     to_map=move.to_map_name,
-                    to_x=ex,
-                    to_y=1,
+                    to_x=dest_spawn_x,
+                    to_y=dest_spawn_y,
                     direction="retain",
                     keeper_character_name="People1",
                     keeper_character_index=6,
@@ -1226,12 +1557,7 @@ def _build_move_events(
             )
 
         elif move.direction == "backward":
-            # backward 목적지: 이전 맵의 하단(플레이어가 forward로 나간 위치 근처)
-            target_spec = None
-            if map_specs:
-                target_spec = next((s for s in map_specs if s.map_id == dest_id), None)
-            to_y_back = (target_spec.height - 2) if target_spec else max(ey, 2)
-            to_x_back = (target_spec.width // 2) if target_spec else ex
+            to_x_back, to_y_back = dest_spawn_x, dest_spawn_y
             events.append(
                 TransferEvent(
                     type="transfer",

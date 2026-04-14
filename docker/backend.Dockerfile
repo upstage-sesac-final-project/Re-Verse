@@ -4,57 +4,41 @@
 # 빌드 컨텍스트: 프로젝트 루트 (Re-Verse/)
 
 # ------------------------------------------------------------
-# Stage 1: RPG Maker MZ MCP 서버 빌드 (Node)
+# Stage 1: 통합 RPG Maker MZ MCP 서버 빌드 (Node)
 # - stdio MCP는 백엔드 컨테이너 내부에 실행파일이 있어야 함
-# - 4개 MCP를 각각 clone + build 후 /mcp/<key> 로 모은다.
+# - 단일 리포를 clone + build 후 /mcp/default 로 복사한다.
 # ------------------------------------------------------------
 FROM node:20-alpine AS mcp-builder
 WORKDIR /mcp
 RUN apk add --no-cache git bash
 
-# 기본값은 현재 운영 중인 리포 1개만 지정.
-# 나머지 3개는 docker-compose.prod.yml 또는 CI ENV_FILE에서 URL을 주입.
-ARG MCP_REPO_DEFAULT=https://github.com/k4zuki0539/-rpgmaker-mz-mcp.git
-ARG MCP_REPO_MAKER=
-ARG MCP_REPO_LOWER=
-ARG MCP_REPO_UNDERSCORE=
+ARG MCP_REPO=https://github.com/rein1225/RPGMakerMZ_MCP.git
 
 RUN --mount=type=cache,target=/root/.npm \
     set -eux; \
-    mkdir -p /mcp/default /mcp/mcp_maker /mcp/rpgmaker_lower /mcp/rpgmaker_underscore; \
-    build_one() { \
-      key="$1"; \
-      url="$2"; \
-      if [ -z "$url" ]; then \
-        echo "skip $key (repo url empty)"; \
-        return 0; \
-      fi; \
-      work="/tmp/src-$key"; \
-      rm -rf "$work"; \
-      git clone --depth 1 "$url" "$work"; \
-      cd "$work"; \
-      if [ -f package-lock.json ]; then npm ci; else npm install; fi; \
-      npm run build; \
-      cp -R "$work"/. "/mcp/$key/"; \
-    }; \
-    build_one default "$MCP_REPO_DEFAULT"; \
-    build_one mcp_maker "$MCP_REPO_MAKER"; \
-    build_one rpgmaker_lower "$MCP_REPO_LOWER"; \
-    build_one rpgmaker_underscore "$MCP_REPO_UNDERSCORE"
+    git clone --depth 1 "$MCP_REPO" /tmp/src-mcp; \
+    cd /tmp/src-mcp; \
+    if [ -f package-lock.json ]; then npm ci; else npm install; fi; \
+    npm run build; \
+    cp -R /tmp/src-mcp/. /mcp/default/
 
 FROM python:3.12-slim
+
+# debconf가 대화형 입력을 기다리지 않도록 설정
+# nodesource 설치 스크립트(setup_20.x)가 내부적으로 apt-get을 실행할 때도 적용됨
+ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
 # 시스템 의존성 설치 (DB 빌드 도구 및 MCP용 Node.js 포함)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y \
+    apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gcc \
     libpq-dev \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # MCP 빌드 산출물을 런타임 이미지에 포함 (컨테이너 내부 경로 기준)
