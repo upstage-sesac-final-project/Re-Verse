@@ -7,6 +7,7 @@ canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §8
 import asyncio
 import gc
 import logging
+import shutil
 import time
 from collections import deque
 from uuid import uuid4
@@ -92,10 +93,13 @@ def _on_progress(generation_id: str, event: dict) -> None:
         return
     progress = event.get("progress")
     phase = event.get("phase")
+    message = event.get("message") or event.get("summary")
     if progress is not None and progress > (state.progress or 0):
         state.progress = progress
     if phase:
         state.phase = phase
+    if message:
+        state.message = message
     completed = event.get("type") == "phase_complete"
     if completed and phase and phase not in (state.completed_phases or []):
         if state.completed_phases is None:
@@ -208,11 +212,15 @@ async def _run_generation_core(
         if final_state.get("final_project"):
             from agent.generation.writer import write_project_to_disk
 
-            await write_project_to_disk(game_id, final_state["final_project"])
+            await asyncio.to_thread(write_project_to_disk, game_id, final_state["final_project"])
             if settings.STORAGE_BACKEND == "s3":
+                from app.backend.core.game_paths import get_game_root
                 from app.backend.services.s3_game_storage import sync_game_to_s3
 
                 await asyncio.to_thread(sync_game_to_s3, game_id)
+                local_dir = get_game_root(game_id)
+                if local_dir.is_dir():
+                    await asyncio.to_thread(shutil.rmtree, local_dir)
 
         _generation_states[generation_id] = GenerationStatusResponse(
             generation_id=generation_id,
@@ -298,6 +306,14 @@ async def get_generation_status(
     state = _generation_states.get(generation_id)
     if state is None or _generation_owners.get(generation_id) != current_user.id:
         raise HTTPException(status_code=404, detail="생성 작업을 찾을 수 없습니다.")
+    # 대기열 위치 실시간 재계산
+    if state.status == "queued":
+        try:
+            pos = list(_generation_queue).index(generation_id) + 1
+            state.queue_position = pos
+            state.queue_wait_seconds = pos * _WAIT_PER_GENERATION
+        except ValueError:
+            pass
     return state
 
 
@@ -313,6 +329,14 @@ async def get_generation_status_by_project(
     state = _generation_states.get(generation_id)
     if state is None or _generation_owners.get(generation_id) != current_user.id:
         raise HTTPException(status_code=404, detail="활성 생성 작업이 없습니다.")
+    # 대기열 위치 실시간 재계산
+    if state.status == "queued":
+        try:
+            pos = list(_generation_queue).index(generation_id) + 1
+            state.queue_position = pos
+            state.queue_wait_seconds = pos * _WAIT_PER_GENERATION
+        except ValueError:
+            pass
     return state
 
 
@@ -376,7 +400,7 @@ async def generation_websocket(
         return
 
     await websocket.accept()
-    logger.info("WebSocket 연결: gen_id=%s user_id=%d", generation_id, user.id)
+    logger.info("WebSocket 연결: gen_id=%s user_id=%d", generation_id, verified_user_id)
 
     try:
         async for event in subscribe_generation_events(generation_id):
