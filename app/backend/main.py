@@ -16,17 +16,43 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 # Agent config를 먼저 로드하여 load_dotenv() 실행
 from agent.core.config import agent_config  # noqa: F401
 from agent.monitoring.langsmith_setup import setup_langsmith
 from app.backend.api.v1 import api_router
-from app.backend.core.config import settings
+from app.backend.core.config import loaded_env_file_path, settings
 from app.backend.db.session import check_database_connection, init_db
 from app.backend.services.s3_game_storage import check_s3_bucket_access
+from app.backend.utils.discord_alerts import extract_request_context, send_discord_error_alert
 from shared.logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
+
+
+class RequestIdASGIMiddleware:
+    """BaseHTTPMiddleware 대신 순수 ASGI — 예외 시 uvicorn 이중 트레이스백 로그 완화."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        request_id = str(uuid4())
+        scope.setdefault("state", {})
+        scope["state"]["request_id"] = request_id
+
+        async def send_wrapper(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers.append("x-request-id", request_id)
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
 
 @asynccontextmanager
@@ -36,6 +62,18 @@ async def lifespan(app: FastAPI):
     logger.info("Re:Verse Backend Starting...")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"Debug Mode: {settings.DEBUG}")
+    logger.info("Env file (DISCORD 등은 이 파일·쉘 환경변수에서 로드): %s", loaded_env_file_path())
+    if (settings.DISCORD_WEBHOOK_URL or "").strip():
+        logger.info(
+            "Discord error alerts: ON (DISCORD_WEBHOOK_URL 길이=%s자)",
+            len(settings.DISCORD_WEBHOOK_URL.strip()),
+        )
+    else:
+        logger.info(
+            "Discord error alerts: OFF — DISCORD_WEBHOOK_URL 비어 있음. "
+            "`.env`에 `#`로 주석 처리돼 있으면 로드되지 않습니다(주석 제거). "
+            "배포 시에는 GitHub Actions 시크릿 ENV_FILE(또는 EC2 `.env.production`)에 URL을 넣으세요."
+        )
     logger.info(f"Storage: backend={settings.STORAGE_BACKEND}, path={settings.STORAGE_PATH}")
 
     # 게임 정적 서빙/에이전트가 쓸 디렉터리 보장
@@ -101,23 +139,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# ── 미들웨어 ──────────────────────────────────────────
-@app.middleware("http")
-async def add_request_id(request: Request, call_next):
-    """Request ID 추적 (프로덕션 디버깅용)."""
-    request_id = str(uuid4())
-    request.state.request_id = request_id
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-    return response
+app.add_middleware(RequestIdASGIMiddleware)
 
 
 # ── 글로벌 예외 핸들러 ────────────────────────────────
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled error: {exc}", exc_info=True)
+    # 트레이스백은 여기 한 곳만: shared.logging_config에서 uvicorn.error의
+    # "Exception in ASGI application" 중복 로그를 필터링한다.
+    logger.error("Unhandled error: %s", exc, exc_info=True)
+
+    # Discord 웹훅 (DISCORD_WEBHOOK_URL 설정 시만). 헬스체크 노이즈 제외.
+    if settings.DISCORD_WEBHOOK_URL and not request.url.path.startswith("/health"):
+        try:
+            ctx = await extract_request_context(request, exc)
+            await send_discord_error_alert(ctx)
+        except Exception:
+            logger.warning("Discord error alert 실패 (무시)", exc_info=True)
+
     return JSONResponse(
         status_code=500,
         content={

@@ -81,6 +81,22 @@ class UserLabelFilter(logging.Filter):
         return True
 
 
+class SuppressUvicornDuplicateAsgiExcFilter(logging.Filter):
+    """Starlette ServerErrorMiddleware가 500 응답 후에도 예외를 다시 올리면, uvicorn
+    httptools 쪽에서 `uvicorn.error`로 'Exception in ASGI application'을 한 번 더 찍는다.
+    (프로토콜: `uvicorn/protocols/http/httptools_impl.py` 의 run_asgi)
+
+    공유 StreamHandler에만 필터를 붙이면 dictConfig·핸들러 공유 방식에 따라 빠질 수 있어,
+    ``logging.getLogger("uvicorn.error").addFilter(...)`` 로 Logger.handle 단계에서 막는다.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name != "uvicorn.error":
+            return True
+        # 메시지 끝에 \\n 이 붙는 경우가 있음 (uvicorn 소스 그대로)
+        return "Exception in ASGI application" not in record.getMessage()
+
+
 # ---------------------------------------------------------------------------
 # Custom Handlers
 # ---------------------------------------------------------------------------
@@ -385,6 +401,13 @@ def setup_logging() -> None:
 
     logging.config.dictConfig(config)
 
+    # uvicorn.error 에 직접 찍히는 중복 한 줄(+트레이스백) 제거 — 핸들러 필터만으로는
+    # 공유 핸들러/적용 순서 때문에 누락될 수 있어 Logger 단계에서 차단한다.
+    _suppress_uvicorn_dup = SuppressUvicornDuplicateAsgiExcFilter()
+    logging.getLogger("uvicorn.error").addFilter(_suppress_uvicorn_dup)
+    for _h in logging.getLogger("uvicorn").handlers:
+        _h.addFilter(_suppress_uvicorn_dup)
+
     # ------------------------------------------------------------------
     # 2) 커스텀 파일 핸들러를 프로그래밍 방식으로 등록
     # ------------------------------------------------------------------
@@ -397,11 +420,13 @@ def setup_logging() -> None:
         )
 
     user_label_filter = UserLabelFilter()
+    suppress_uvicorn_dup = SuppressUvicornDuplicateAsgiExcFilter()
 
     # 일반 로그 핸들러 (날짜/유저별 폴더, 72시간 보존)
     general_handler = DailyUserFileHandler(base_dir=log_dir, retention_hours=72)
     general_handler.setFormatter(file_formatter)
     general_handler.addFilter(user_label_filter)
+    general_handler.addFilter(suppress_uvicorn_dup)
 
     # 에러/워닝 컨텍스트 핸들러 (±3분 컨텍스트, 30초마다 백그라운드 플러시)
     error_handler = ErrorContextHandler(
@@ -409,6 +434,7 @@ def setup_logging() -> None:
     )
     error_handler.setFormatter(file_formatter)
     error_handler.addFilter(user_label_filter)
+    error_handler.addFilter(suppress_uvicorn_dup)
 
     # 프로젝트 로거에 파일 핸들러 추가
     for logger_name in (

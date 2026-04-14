@@ -12,7 +12,8 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator
+from dotenv import dotenv_values, load_dotenv
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -81,6 +82,20 @@ class Settings(BaseSettings):
     # ── 관리자 ──────────────────────────────────────────────
     ADMIN_EMAIL: str = ""  # 해당 이메일로 가입하면 자동 관리자
 
+    # ── 알림 (선택) ─────────────────────────────────────────
+    # 비어 있으면 전역 예외 시 Discord 로 전송하지 않음
+    DISCORD_WEBHOOK_URL: str = ""
+
+    @model_validator(mode="after")
+    def _fill_discord_webhook_from_environ(self):
+        """import 순서·파서 차이로 비는 경우를 위해 os.environ에서 한 번 더 보강."""
+        if (self.DISCORD_WEBHOOK_URL or "").strip():
+            return self
+        v = (os.getenv("DISCORD_WEBHOOK_URL") or os.getenv("discord_webhook_url") or "").strip()
+        if v:
+            self.DISCORD_WEBHOOK_URL = v
+        return self
+
     @field_validator("JWT_SECRET_KEY", mode="after")
     @classmethod
     def validate_jwt_secret(cls, v: str, info) -> str:
@@ -113,5 +128,26 @@ class Settings(BaseSettings):
         return [x.strip() for x in raw.split(",") if x.strip()]
 
 
+def loaded_env_file_path() -> str:
+    """`Settings`가 `env_file`로 읽는 경로(로그·디버깅용). APP_ENV와 파일 존재 여부에 따라 달라짐."""
+    return _resolve_env_file()
+
+
+# agent.core.config는 `.env.{환경}`(또는 `.env`)만 로드한다.
+# DISCORD 등 공통 비밀을 루트 `.env`에만 두는 경우가 많으므로, 먼저 루트를 넣고
+# 환경별 파일로 덮어쓴다(환경 파일에 없는 키는 루트에서 온 값이 유지됨).
+_root_env = _PROJECT_ROOT / ".env"
+if _root_env.exists():
+    load_dotenv(_root_env, override=False)
+load_dotenv(_resolve_env_file(), override=True)
+
 # 전역 설정 인스턴스
 settings = Settings()
+
+# `.env.development` 등에 `DISCORD_WEBHOOK_URL=` 빈 줄만 있으면 load_dotenv가 루트 `.env` 값을 지워
+# 버릴 수 있음. Settings 직후에도 비면 루트 파일을 직접 파싱해 한 번 더 복구한다.
+if not (settings.DISCORD_WEBHOOK_URL or "").strip() and _root_env.is_file():
+    _dv = (dotenv_values(_root_env).get("DISCORD_WEBHOOK_URL") or "").strip()
+    if _dv:
+        settings.DISCORD_WEBHOOK_URL = _dv
+        os.environ["DISCORD_WEBHOOK_URL"] = _dv
