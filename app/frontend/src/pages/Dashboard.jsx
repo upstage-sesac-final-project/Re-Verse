@@ -182,7 +182,7 @@ export default function Dashboard() {
   }
 
   function closeGenModal() {
-    const isRunning = ['starting', 'in_progress'].includes(gen.status) && gen.projectId === genProjectId
+    const isRunning = ['starting', 'queued', 'in_progress'].includes(gen.status) && gen.projectId === genProjectId
     if (isRunning) {
       // 진행 중이면 모달만 닫고 상태 유지
       setGenModal(null)
@@ -204,12 +204,16 @@ export default function Dashboard() {
     closeGenModal()
   }
 
-  const isGenerating = ['starting', 'in_progress'].includes(gen.status)
+  const isGenerating = ['starting', 'queued', 'in_progress'].includes(gen.status)
   const canCreate = projects.length < 3
   const genProject = genProjectId ? projects.find((p) => p.id === genProjectId) : null
 
   function isProjectGenerating(projectId) {
     return isGenerating && gen.projectId === projectId
+  }
+
+  function isProjectQueued(projectId) {
+    return gen.status === 'queued' && gen.projectId === projectId
   }
 
   function isProjectDone(projectId) {
@@ -270,6 +274,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {projects.map((project) => {
               const generating = isProjectGenerating(project.id)
+              const queued = isProjectQueued(project.id)
               const done = isProjectDone(project.id)
               return (
                 <div key={project.id}
@@ -284,8 +289,20 @@ export default function Dashboard() {
                     <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{relativeTime(project.updated_at)}</p>
                   </div>
 
+                  {/* 대기열 상태 */}
+                  {queued && (
+                    <div className="mb-3 text-xs px-2 py-2 rounded-md" style={{ background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.2)' }}>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span style={{ color: '#eab308' }}>대기열 {gen.queuePosition}번째</span>
+                      </div>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        예상 대기 약 {Math.ceil(gen.queueWaitSeconds / 60)}분
+                      </span>
+                    </div>
+                  )}
+
                   {/* 생성 중 진행률 바 */}
-                  {generating && (
+                  {generating && !queued && (
                     <div className="mb-3">
                       <div className="flex justify-between text-xs mb-1">
                         <span style={{ color: 'var(--accent)' }}>{gen.message || '생성 중...'}</span>

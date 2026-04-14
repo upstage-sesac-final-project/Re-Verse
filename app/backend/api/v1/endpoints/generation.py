@@ -5,8 +5,10 @@ canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §8
 """
 
 import asyncio
+import gc
 import logging
 import time
+from collections import deque
 from uuid import uuid4
 
 from fastapi import (
@@ -58,6 +60,14 @@ _completion_times: dict[str, float] = {}
 # 상태 dict 동시 접근 보호
 _state_lock = asyncio.Lock()
 
+# 동시 생성 제한 (t3.micro: 1개만 동시 실행)
+_MAX_CONCURRENT_GENERATIONS = 1
+_generation_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_GENERATIONS)
+_WAIT_PER_GENERATION = 300  # 1개당 예상 대기 5분
+
+# 대기열: [(generation_id, event)] — event.set() 호출 시 실행 시작
+_generation_queue: deque[str] = deque()
+
 # 완료 후 10분 뒤 자동 정리
 _CLEANUP_TTL = 600
 
@@ -102,13 +112,67 @@ async def _run_generation_in_background(
     prompt: str,
     options: dict,
 ) -> None:
-    """백그라운드 생성 태스크."""
-    _generation_states[generation_id] = GenerationStatusResponse(
-        generation_id=generation_id,
-        status="in_progress",
-        phase="spec",
-        progress=0,
-    )
+    """백그라운드 생성 태스크. 세마포어로 동시 1개만 실행."""
+    # 대기열에 추가
+    _generation_queue.append(generation_id)
+    queue_pos = len(_generation_queue) - 1
+
+    if queue_pos > 0:
+        _generation_states[generation_id] = GenerationStatusResponse(
+            generation_id=generation_id,
+            status="queued",
+            queue_position=queue_pos,
+            queue_wait_seconds=queue_pos * _WAIT_PER_GENERATION,
+        )
+        await publish_progress(
+            generation_id,
+            {
+                "type": "queued",
+                "queue_position": queue_pos,
+                "message": f"대기열 {queue_pos}번째 — 약 {queue_pos * 5}분 후 시작",
+            },
+        )
+
+    # 세마포어 획득 대기 (앞 생성이 끝날 때까지)
+    async with _generation_semaphore:
+        # 대기열에서 제거
+        if generation_id in _generation_queue:
+            _generation_queue.remove(generation_id)
+        # 대기열 순서 업데이트
+        for i, gid in enumerate(_generation_queue):
+            state = _generation_states.get(gid)
+            if state and state.status == "queued":
+                state.queue_position = i + 1
+                state.queue_wait_seconds = (i + 1) * _WAIT_PER_GENERATION
+
+        _generation_states[generation_id] = GenerationStatusResponse(
+            generation_id=generation_id,
+            status="in_progress",
+            phase="spec",
+            progress=0,
+        )
+        await publish_progress(
+            generation_id,
+            {
+                "type": "progress",
+                "message": "생성을 시작합니다...",
+                "progress": 0,
+            },
+        )
+
+        await _run_generation_core(generation_id, game_id, prompt, options)
+
+    # 생성 완료 후 메모리 해제
+    gc.collect()
+
+
+async def _run_generation_core(
+    generation_id: str,
+    game_id: str,
+    prompt: str,
+    options: dict,
+) -> None:
+    """실제 생성 로직."""
 
     try:
         phase_limit = options.get("phase_limit")  # None → 전체 생성
@@ -192,11 +256,18 @@ async def start_generation(
         options=req.options.model_dump(),
     )
 
+    # 현재 대기열 길이 (이 요청 포함)
+    active_count = _MAX_CONCURRENT_GENERATIONS - _generation_semaphore._value
+    queue_len = len(_generation_queue) + active_count
+    queue_pos = max(0, queue_len - 1)
+
     return GenerationStartResponse(
         generation_id=generation_id,
         status="started",
-        estimated_seconds=60,
+        estimated_seconds=_WAIT_PER_GENERATION,
         ws_url=f"/api/v1/generate/ws/{generation_id}",
+        queue_position=queue_pos,
+        queue_wait_seconds=queue_pos * _WAIT_PER_GENERATION,
     )
 
 

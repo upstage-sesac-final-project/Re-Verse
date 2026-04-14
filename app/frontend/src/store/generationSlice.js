@@ -54,10 +54,12 @@ const initialState = {
   projectId: null,
   generationId: null,
   wsUrl: null,
-  status: 'idle', // idle | starting | in_progress | completed | completed_with_warnings | failed | cancelled
+  status: 'idle', // idle | starting | queued | in_progress | completed | completed_with_warnings | failed | cancelled
   progress: 0,
   currentPhase: '',
   message: '',
+  queuePosition: 0,
+  queueWaitSeconds: 0,
   completedPhases: [],
   events: [],
   finalMessage: null,
@@ -82,6 +84,11 @@ const generationSlice = createSlice({
       if (phase) state.currentPhase = phase
       if (message || summary) state.message = message || summary
 
+      if (type === 'queued') {
+        state.status = 'queued'
+        state.queuePosition = evt.queue_position || 0
+        state.queueWaitSeconds = (evt.queue_position || 0) * 300
+      }
       if (type === 'phase_complete' && phase) {
         if (!state.completedPhases.includes(phase)) {
           state.completedPhases.push(phase)
@@ -123,7 +130,9 @@ const generationSlice = createSlice({
       .addCase(startGeneration.fulfilled, (state, action) => {
         state.generationId = action.payload.generation_id
         state.wsUrl = action.payload.ws_url
-        state.status = 'in_progress'
+        state.queuePosition = action.payload.queue_position || 0
+        state.queueWaitSeconds = action.payload.queue_wait_seconds || 0
+        state.status = action.payload.queue_position > 0 ? 'queued' : 'in_progress'
       })
       .addCase(startGeneration.rejected, (state, action) => {
         state.status = 'failed'
@@ -153,6 +162,8 @@ const generationSlice = createSlice({
         if (s.is_success != null) state.isSuccess = s.is_success
         if (s.final_message) state.finalMessage = s.final_message
         if (s.error_message) state.error = s.error_message
+        if (s.queue_position != null) state.queuePosition = s.queue_position
+        if (s.queue_wait_seconds != null) state.queueWaitSeconds = s.queue_wait_seconds
       })
       .addCase(cancelGeneration.fulfilled, (state) => {
         state.status = 'cancelled'
