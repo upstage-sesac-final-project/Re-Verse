@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useSelector } from 'react-redux'
 import { fetchDocs, saveDocs } from '../services/docsApi'
+import Header from '../components/layout/Header'
 
 function renderContent(text) {
   // 간단한 마크다운 → HTML 렌더링
@@ -160,33 +161,7 @@ export default function Docs() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
-      {/* 헤더 */}
-      <header
-        className="h-14 flex items-center justify-between px-6 flex-shrink-0"
-        style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}
-      >
-        <Link to="/" className="flex items-center gap-3">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
-            style={{ background: 'var(--accent)' }}
-          >
-            R
-          </div>
-          <span className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>
-            Re:Verse
-          </span>
-          <span className="text-sm ml-1" style={{ color: 'var(--text-secondary)' }}>/ 사용자 가이드</span>
-        </Link>
-        <div className="flex gap-2">
-          <Link
-            to="/dashboard"
-            className="text-xs px-3 py-1.5 rounded-lg"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            대시보드
-          </Link>
-        </div>
-      </header>
+      <Header />
 
       <div className="max-w-5xl mx-auto flex gap-0 px-4 py-8">
         {/* 사이드바 */}

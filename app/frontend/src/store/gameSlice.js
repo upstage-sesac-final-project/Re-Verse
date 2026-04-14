@@ -71,7 +71,7 @@ const gameSlice = createSlice({
         state.isLoading = false
       })
       .addCase(createProject.fulfilled, (state, { payload }) => {
-        state.projects.push(payload)
+        state.projects.unshift(payload)
       })
       .addCase(updateProject.fulfilled, (state, { payload }) => {
         const idx = state.projects.findIndex((p) => p.id === payload.id)
@@ -81,6 +81,7 @@ const gameSlice = createSlice({
       .addCase(deleteProject.fulfilled, (state, { payload }) => {
         state.projects = state.projects.filter((p) => String(p.id) !== String(payload))
         if (String(state.currentProject?.id) === String(payload)) state.currentProject = null
+        try { localStorage.removeItem(`chat_${payload}`) } catch { /* ignore */ }
       })
   },
 })
