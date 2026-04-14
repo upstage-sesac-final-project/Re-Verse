@@ -25,7 +25,7 @@ def _atomic_write_json(dest: Path, content: dict) -> None:
         raise
 
 
-async def write_project_to_disk(game_id: str, final_project: dict) -> None:
+def write_project_to_disk(game_id: str, final_project: dict) -> None:
     """final_project dict → storage/games/{game_id}/data/ JSON 파일 저장."""
     data_path: Path = get_game_data_path(game_id)
     data_path.mkdir(parents=True, exist_ok=True)
