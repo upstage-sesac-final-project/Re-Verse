@@ -16,29 +16,48 @@
    - dependency `puppeteer` — postinstall이 Chromium ~170MB 다운로드 → CI 네트워크/용량 이슈로 실패 가능
    - `set -eux`라 둘 중 하나만 삐끗해도 exit 1
 
-### 선택한 해결 방식 (Option 2 - 로컬 COPY + ignore-scripts)
-- `git clone` 제거 → `COPY mcp/integration_MCP` 로 전환
-- `npm ci --ignore-scripts` + `PUPPETEER_SKIP_DOWNLOAD=true` 로 postinstall 훅 차단 (robotjs gyp 컴파일, puppeteer Chromium 다운로드 둘 다 스킵)
-- `.dockerignore`에서 `mcp/` 전체 제외 라인 조정 (기존엔 `mcp/` 전체 차단 → COPY가 빈 폴더 될 상태였음)
-- `DEBIAN_FRONTEND=noninteractive` 보존 (main의 2da02b7 커밋 내용 — develop에는 없어서 머지 시 유실 위험)
-- `uv sync` 2단계 분리(의존성/프로젝트) 포함 — 캐시 효율 ↑
+### 초기 선택(Option 2) → 실패 → 최종 선택(Path E)
+
+#### Option 2 (로컬 COPY + ignore-scripts) — ❌ CD 실행에서 실패
+- `git clone` 제거 → `COPY mcp/integration_MCP` 로 전환 시도
+- **실패 원인**: `mcp/integration_MCP/`가 Re-Verse 레포에 커밋되어 있지 않음 (nested git repo 상태, 사용자 로컬 파일시스템에만 존재). CD 러너는 체크아웃한 Re-Verse 레포만 가지고 빌드하므로 `COPY` 대상이 없어 `"/mcp/integration_MCP": not found` 에러 발생.
+- 추가 발견: `mcp/integration_MCP`의 `origin`이 Dockerfile이 clone하던 `rein1225/RPGMakerMZ_MCP`와 동일. 즉 "통합본"은 upstream의 포크 + 로컬 미커밋 수정본. 양쪽 원격 어디에도 push 안 된 상태였음.
+
+#### Path E (최종 채택) — MCP 스테이지 통째 제거 + executor_v2 경로로 운영
+- Dockerfile에서 `mcp-builder` 스테이지 전체 삭제
+- `COPY --from=mcp-builder`, `ln -s /app/mcp/default`, `ENV MCP_NODE_SERVER_PATH`, nodejs 설치 블록 모두 제거
+- Dockerfile에 `ENV MCP_ENABLED=false` 베이스라인 추가
+- `docker-compose.prod.yml`의 `environment:`에도 `MCP_ENABLED=false` 명시해 env_file 값을 override
+- `.dockerignore`의 `mcp/` 전체 차단 라인 복원 (빌드 컨텍스트에 불필요)
+- `DEBIAN_FRONTEND=noninteractive`, `uv sync` 2단계 분리 유지
+
+**작동 근거**:
+- `agent/graph/nodes/executor.py`는 `MCP_ENABLED=false`이면 자동으로 `executor_v2.dispatch`로 fallback
+- `agent/graph/nodes/executor_v2/`에 MCP 의존성 0건 (grep 확인)
+- 지원 파일: Actors, Classes, Skills, Items, Weapons, Armors, Enemies, States, System, Map### — RPG Maker 핵심 편집 범위 커버
+- pytest `test_mcp_toolbox.py`, `test_mcp_server_resolve.py`는 monkeypatch 기반 순수 단위 테스트 → MCP 바이너리 미호출로 CI 영향 없음
 
 ### 대안 검토와 기각 사유
-- **Option 1 (`--ignore-scripts`만 추가, git clone 유지)**: CI는 살지만 로컬 통합본 변경이 배포에 반영 안 됨. upstream 의존 계속 유지되는 문제.
-- **Option 3 (`dist/` 를 레포에 커밋)**: 런타임에 `node_modules` 필요해서 반쪽짜리. PR diff 노이즈 폭증.
-- **Option 4 (alpine에 빌드툴 설치, ignore-scripts 없이 풀 설치)**: robotjs alpine 빌드가 historically 불안정. CI 안정성 오히려 ↓.
+- **Option 1 (`--ignore-scripts`만 추가, git clone 유지)**: CI는 살지만 upstream엔 통합본 수정이 push 안 됨 → 런타임에 MCP 기능 대거 불일치 예상.
+- **Option 3 (`dist/` 를 레포에 커밋)**: 런타임 `node_modules` 필요해서 반쪽짜리.
+- **Option 4 (alpine에 빌드툴 설치)**: robotjs alpine 빌드 historically 불안정.
+- **Path B (로컬 수정을 upstream에 push 후 clone)**: upstream 레포 권한 이슈 + 타 레포 관리 오버헤드 → 이번 배포엔 부적합.
+- **Path C (integration_MCP를 Re-Verse에 통째 commit)**: 수천 파일 diff 폭증, 배포 스코프 초과.
 
 ### 알려진 한계 (배포 후 후속 조치 필요 시)
-- `--ignore-scripts`로 Chromium 미설치. MCP `playtest` 계열 tool (handlers/playtest.ts, utils/playtestHelpers.ts)은 런타임 호출 시 실패함. 현재는 prod에서 호출 안 되는 전제로 통과.
-- 이미지에 devDeps(typescript, tsx, vitest 등)도 같이 포함됨. 크기 최적화는 별도 PR로.
-- EC2 루트 디스크 압박(overlay2 2.4GB)은 이번 PR 범위 밖 — 아래 "빌드 캐시 자동 정리" 항목에서 별도 처리.
+- **MCP 전용 고급 기능**: Troops.json, CommonEvents.json, Animations.json, Tilesets.json 등 executor_v2 미지원 파일 호출 시 "지원하지 않는 target_file" 에러. 핵심 편집 플로우 아니면 영향 제한적.
+- MCP 기능 복귀하려면 (1) integration_MCP 소스를 레포에 committable 형태로 정리 → (2) Dockerfile mcp-builder 복원 → (3) `MCP_ENABLED=true`. 별도 PR로.
+- EC2 루트 디스크 압박(overlay2 2.4GB)은 이번 PR 범위 밖 — 아래 "빌드 캐시 자동 정리" 항목에서 별도 처리. **부수 효과: Path E로 이미지 크기 크게 감소(Node.js + MCP 산출물 제거)** — 디스크 압박 일부 자동 완화.
 
 ### 검증 체크리스트
-- [x] `mcp/integration_MCP/package-lock.json` 존재 확인
-- [x] `.dockerignore`의 `mcp/` 차단 라인 조정 필요 확인
-- [x] 빌드 필수 파일(`tsconfig.build.json`, `scripts/build-tool-registry.mjs`) 존재 확인
-- [x] puppeteer/screenshot-desktop 런타임 사용처 파악 (playtest 계열)
+- [x] executor_v2의 MCP 의존성 부재 확인 (`agent/graph/nodes/executor_v2/` grep)
+- [x] executor가 `MCP_ENABLED=false`에서 v2로 fallback함 확인 (`agent/mcp_toolbox.py:49`, `executor.py:1719`)
+- [x] executor_v2 지원 파일 범위 확인 (`handlers/entity.py:20` ALL_SUPPORTED)
+- [x] pytest MCP 관련 테스트가 바이너리 미호출 확인 (monkeypatch only)
+- [x] `.github/workflows/deploy.yml`이 단순 SSH + `docker compose up --build` 구조 확인 → 추가 수정 불필요
+- [x] `.github/workflows/ci.yml` pytest가 MCP 호출 안 함 확인
 - [ ] 로컬 `docker build -f docker/backend.Dockerfile .` 성공 (사용자 환경에서 확인)
+- [ ] EC2 `.env.production`에 `MCP_ENABLED=true`가 있는지 확인 후 필요 시 제거/false로 변경 (compose env로 override되지만 명시적 정리 권장)
 
 ---
 
