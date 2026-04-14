@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
 import { fetchProjects, createProject, deleteProject, setCurrentProject } from '../store/gameSlice'
-import { startGeneration, reset, wsEventReceived, fetchGenerationStatus } from '../store/generationSlice'
+import { startGeneration, reset, wsEventReceived, fetchGenerationStatus, fetchActiveGeneration } from '../store/generationSlice'
 import Header from '../components/layout/Header'
 import Modal from '../components/common/Modal'
 import GenerationForm from '../components/generation/GenerationForm'
@@ -60,7 +60,7 @@ export default function Dashboard() {
     if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null }
   }
 
-  // polling: 3초마다 서버 상태 조회
+  // polling: 완료 감지 전용 (progress는 WS로만 받음, 5초 간격)
   function startPolling(genId) {
     if (pollingRef.current) return
     pollingRef.current = setInterval(async () => {
@@ -69,22 +69,29 @@ export default function Dashboard() {
       if (['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(s)) {
         cleanupPolling()
       }
-    }, 3000)
+    }, 5000)
   }
 
-  // WS 연결: 실패 시 polling fallback
+  // WS 연결 (JWT 토큰 포함)
   function connectWs(genId, wsUrl) {
     cleanupWs()
-    const ws = new WebSocket(`${WS_BASE}${wsUrl}`)
+    const token = sessionStorage.getItem('access_token')
+    if (!token) { startPolling(genId); return }
+    const sep = wsUrl.includes('?') ? '&' : '?'
+    const ws = new WebSocket(`${WS_BASE}${wsUrl}${sep}token=${token}`)
     wsRef.current = ws
 
+    ws.onopen = () => {
+      // WS 연결 성공하면 polling 중지 (WS가 실시간 업데이트 담당)
+      cleanupPolling()
+    }
     ws.onmessage = (e) => {
       try { dispatch(wsEventReceived(JSON.parse(e.data))) } catch {}
     }
     ws.onerror = () => { ws.close() }
     ws.onclose = () => {
       wsRef.current = null
-      // WS 끊기면 polling으로 전환 (아직 진행 중일 때)
+      // WS 끊기면 완료 감지용 polling만 시작
       startPolling(genId)
     }
   }
@@ -97,15 +104,18 @@ export default function Dashboard() {
     return () => { cleanupWs(); cleanupPolling() }
   }, [gen.generationId, gen.wsUrl]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Dashboard 재마운트 시: 생성 진행 중이면 서버에서 최신 상태 1회 조회 후 polling
+  // Dashboard 마운트 시: Redux에 생성 상태가 있으면 WS 재연결, 없으면 프로젝트별 활성 generation 조회
   useEffect(() => {
-    if (!['starting', 'in_progress'].includes(gen.status) || !gen.generationId) return
-    // 서버에서 현재 상태 즉시 복구
-    dispatch(fetchGenerationStatus(gen.generationId))
-    // polling으로 계속 추적 (WS는 재연결 안 될 수 있으므로)
-    startPolling(gen.generationId)
+    if (['starting', 'in_progress'].includes(gen.status) && gen.generationId) {
+      // Redux에 상태 남아있음 (같은 세션, 페이지 이동 후 복귀)
+      if (gen.wsUrl) connectWs(gen.generationId, gen.wsUrl)
+      else startPolling(gen.generationId)
+    } else if (gen.status === 'idle' && projects.length > 0) {
+      // 새로고침 후 — 각 프로젝트에 활성 generation이 있는지 서버에 확인
+      projects.forEach((p) => dispatch(fetchActiveGeneration(p.id)))
+    }
     return () => { cleanupPolling() }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projects.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // gen status 변경 시 모달 상태 동기화
   useEffect(() => {

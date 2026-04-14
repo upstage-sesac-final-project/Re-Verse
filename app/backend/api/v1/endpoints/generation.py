@@ -20,7 +20,11 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.generation.progress import publish_progress, subscribe_generation_events
+from agent.generation.progress import (
+    publish_progress,
+    set_progress_callback,
+    subscribe_generation_events,
+)
 from agent.generation.workflow import run_generation_workflow
 from app.backend.core.config import settings
 from app.backend.core.security import decode_access_token, get_current_user
@@ -43,6 +47,30 @@ _generation_states: dict[str, GenerationStatusResponse] = {}
 
 # 소유권 저장소: {generation_id: user_id}
 _generation_owners: dict[str, int] = {}
+
+# 프로젝트 매핑: {project_id: generation_id} (활성 생성만)
+_project_generations: dict[int, str] = {}
+
+
+def _on_progress(generation_id: str, event: dict) -> None:
+    """WS 이벤트 발행 시 _generation_states도 실시간 업데이트."""
+    state = _generation_states.get(generation_id)
+    if not state:
+        return
+    progress = event.get("progress")
+    phase = event.get("phase")
+    if progress is not None and progress > (state.progress or 0):
+        state.progress = progress
+    if phase:
+        state.phase = phase
+    completed = event.get("type") == "phase_complete"
+    if completed and phase and phase not in (state.completed_phases or []):
+        if state.completed_phases is None:
+            state.completed_phases = []
+        state.completed_phases.append(phase)
+
+
+set_progress_callback(_on_progress)
 
 
 async def _run_generation_in_background(
@@ -122,6 +150,7 @@ async def start_generation(
 
     generation_id = f"gen_{uuid4().hex[:8]}"
     _generation_owners[generation_id] = current_user.id
+    _project_generations[req.project_id] = generation_id
     logger.info(
         "start_generation: user_id=%d project_id=%d game_id=%s gen_id=%s",
         current_user.id,
@@ -155,6 +184,21 @@ async def get_generation_status(
     state = _generation_states.get(generation_id)
     if state is None or _generation_owners.get(generation_id) != current_user.id:
         raise HTTPException(status_code=404, detail="생성 작업을 찾을 수 없습니다.")
+    return state
+
+
+@router.get("/by-project/{project_id}/status", response_model=GenerationStatusResponse)
+async def get_generation_status_by_project(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+) -> GenerationStatusResponse:
+    """프로젝트 ID로 활성 생성 상태 조회."""
+    generation_id = _project_generations.get(project_id)
+    if not generation_id:
+        raise HTTPException(status_code=404, detail="활성 생성 작업이 없습니다.")
+    state = _generation_states.get(generation_id)
+    if state is None or _generation_owners.get(generation_id) != current_user.id:
+        raise HTTPException(status_code=404, detail="활성 생성 작업이 없습니다.")
     return state
 
 

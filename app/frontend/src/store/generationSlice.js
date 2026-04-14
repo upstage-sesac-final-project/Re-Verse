@@ -26,6 +26,18 @@ export const fetchGenerationStatus = createAsyncThunk(
   },
 )
 
+export const fetchActiveGeneration = createAsyncThunk(
+  'generation/fetchActive',
+  async (projectId, { rejectWithValue }) => {
+    try {
+      const data = await authFetch(`/v1/generate/by-project/${projectId}/status`)
+      return { ...data, projectId }
+    } catch {
+      return rejectWithValue(null)
+    }
+  },
+)
+
 export const cancelGeneration = createAsyncThunk(
   'generation/cancel',
   async (generationId, { rejectWithValue }) => {
@@ -128,6 +140,18 @@ const generationSlice = createSlice({
         if (s.is_success != null) state.isSuccess = s.is_success
         if (s.final_message) state.finalMessage = s.final_message
         if (s.validation_errors?.length) state.validationErrors = s.validation_errors
+        if (s.error_message) state.error = s.error_message
+      })
+      .addCase(fetchActiveGeneration.fulfilled, (state, action) => {
+        const s = action.payload
+        state.projectId = s.projectId
+        state.generationId = s.generation_id
+        state.status = s.status
+        state.wsUrl = `/api/v1/generate/ws/${s.generation_id}`
+        if (s.progress > state.progress) state.progress = s.progress
+        if (s.completed_phases?.length) state.completedPhases = s.completed_phases
+        if (s.is_success != null) state.isSuccess = s.is_success
+        if (s.final_message) state.finalMessage = s.final_message
         if (s.error_message) state.error = s.error_message
       })
       .addCase(cancelGeneration.fulfilled, (state) => {
