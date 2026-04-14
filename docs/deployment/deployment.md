@@ -64,6 +64,10 @@ Supabase/External APIs (데이터베이스 & AI 서비스)
 - SSH 사용자에게 `docker` 그룹 권한 부여 (`sudo usermod -a -G docker $USER`)
 - **Private 리포인 경우**: EC2에 Deploy Key 등록 후 `git clone` 가능한 경로에서 사용하거나, 스크립트 내 `git clone` URL을 토큰 포함 URL로 변경
 
+### EC2 호스트 디스크·부하 알림 (선택)
+
+Docker 빌드 캐시 등으로 **호스트 디스크**가 찰 수 있습니다. 백엔드 컨테이너와 별도로, EC2에서 `cron`으로 `scripts/ec2_host_monitor.sh`를 돌리는 방법은 [EC2 호스트 모니터링](./ec2-host-monitor.md)을 참고하세요.
+
 ---
 
 ## 🛠 1단계: EC2 백엔드 배포 (수동)

@@ -20,7 +20,11 @@ def _resolve_env_file() -> Path:
 _ROOT_ENV = _resolve_env_file()
 
 # 환경 변수를 os.environ에 로드 (MCP_ENABLED 등 직접 os.environ 접근용)
-load_dotenv(_ROOT_ENV)
+# 루트 `.env`에만 둔 공통 키가 `.env.development` 등에 없어도 유지되도록 먼저 로드한다.
+_root_dotenv = _PROJECT_ROOT / ".env"
+if _root_dotenv.exists():
+    load_dotenv(_root_dotenv, override=False)
+load_dotenv(_ROOT_ENV, override=True)
 
 
 class AgentConfig(BaseSettings):
