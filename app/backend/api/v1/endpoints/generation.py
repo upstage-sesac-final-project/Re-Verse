@@ -249,12 +249,12 @@ async def generation_websocket(
     websocket: WebSocket,
     generation_id: str,
     token: str = Query(..., description="JWT access token"),
-    db: AsyncSession = Depends(get_db),
 ) -> None:
     """생성 진행률 실시간 스트리밍 WebSocket.
 
     브라우저 WebSocket API는 Authorization 헤더를 지원하지 않으므로
     ?token=<access_token> 쿼리 파라미터로 인증합니다.
+    DB 세션은 인증 시에만 사용하고 즉시 반환하여 커넥션 풀 고갈을 방지한다.
     """
     # 토큰 검증
     payload = decode_access_token(token)
@@ -267,13 +267,21 @@ async def generation_websocket(
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    user = await user_repository.find_by_id(int(user_id), db)
-    if user is None:
+    # DB 세션을 짧게 열고 유저 조회 후 즉시 반환
+    from app.backend.db.session import get_db
+
+    verified_user_id = None
+    async for db in get_db():
+        user = await user_repository.find_by_id(int(user_id), db)
+        if user:
+            verified_user_id = user.id
+
+    if verified_user_id is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
     # 소유권 확인
-    if _generation_owners.get(generation_id) != user.id:
+    if _generation_owners.get(generation_id) != verified_user_id:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
