@@ -290,6 +290,11 @@ async def generation_websocket(
     except asyncio.CancelledError:
         pass
     finally:
+        # 큐 명시적 정리 (subscribe_generation_events의 finally와 이중 보장)
+        from agent.generation.progress import _generation_queues, _pending_events
+
+        _generation_queues.pop(generation_id, None)
+        _pending_events.pop(generation_id, None)
         try:
             await websocket.close()
         except Exception:
