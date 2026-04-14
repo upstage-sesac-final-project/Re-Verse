@@ -14,6 +14,8 @@ services:
       - APP_ENV=production
       - ENVIRONMENT=production
       - DEBUG=false
+      # MCP(Node stdio) 비활성 — executor_v2 dispatch로 처리. env_file을 덮어쓰기 위해 명시.
+      - MCP_ENABLED=false
       # STORAGE_BACKEND, DATABASE_URL, S3_* 는 EC2의 .env.production(또는 GitHub ENV_FILE)에서 주입 권장
     volumes: []  # 프로덕션에서는 볼륨 마운트 제거 (override)
     restart: unless-stopped
