@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -43,14 +43,25 @@ def get_engine() -> AsyncEngine | None:
         settings.DATABASE_URL,
         echo=False,
         connect_args=connect_args,
-        # 커넥션 풀 설정: 기본 10개, 최대 20개, 재활용 5분
-        pool_size=1 if is_sqlite else 10,
-        max_overflow=0 if is_sqlite else 20,
+        # SQLite: 동시 읽기 허용, 쓰기만 직렬화. PostgreSQL: 풀 확장.
+        pool_size=5 if is_sqlite else 10,
+        max_overflow=5 if is_sqlite else 20,
         pool_recycle=300,
         pool_pre_ping=True,
-        pool_timeout=10,
+        pool_timeout=30,
     )
     _async_session = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+
+    # SQLite WAL 모드: 읽기/쓰기 동시 접근 허용
+    if is_sqlite:
+
+        @event.listens_for(_engine.sync_engine, "connect")
+        def _set_sqlite_pragma(dbapi_conn, _):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.close()
+
     logger.info("AsyncSQLAlchemy engine 초기화 완료")
     return _engine
 
