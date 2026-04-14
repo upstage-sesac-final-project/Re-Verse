@@ -4,9 +4,10 @@ generate_map(spec) 호출 시 map_type에 맞는 생성기로 위임.
 """
 
 import logging
+from collections import deque
 
 from agent.generation.mapgen.dungeon_generator import generate_dungeon
-from agent.generation.mapgen.tile_checker import find_nearest_safe_coord, is_walkable
+from agent.generation.mapgen.tile_checker import is_walkable
 from agent.generation.mapgen.town_generator import generate_town
 from agent.generation.models import MapConnectionInfo, MapSpec
 
@@ -37,43 +38,87 @@ def generate_map(spec: MapSpec, seed: int = 0) -> list[int]:
 logger = logging.getLogger(__name__)
 
 
+def _find_largest_component(
+    data: list[int],
+    width: int,
+    height: int,
+    tileset_id: int,
+    tilesets: list | None = None,
+) -> list[tuple[int, int]]:
+    """맵 내 walkable 타일을 flood-fill로 연결 구역으로 분리하고 가장 큰 구역을 반환.
+
+    샘플 맵은 물/벽으로 분리된 복수의 독립 구역을 가질 수 있다.
+    가장 큰 연결 구역 = 플레이어가 실제로 이동하는 주요 구역.
+    """
+    all_walkable: set[tuple[int, int]] = set()
+    for y in range(height):
+        for x in range(width):
+            if is_walkable(data, x, y, width, height, tileset_id, tilesets):
+                all_walkable.add((x, y))
+
+    if not all_walkable:
+        return []
+
+    visited: set[tuple[int, int]] = set()
+    largest: list[tuple[int, int]] = []
+
+    for start in all_walkable:
+        if start in visited:
+            continue
+        component: list[tuple[int, int]] = []
+        queue: deque[tuple[int, int]] = deque([start])
+        visited.add(start)
+        while queue:
+            cx, cy = queue.popleft()
+            component.append((cx, cy))
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                nb = (cx + dx, cy + dy)
+                if nb not in visited and nb in all_walkable:
+                    visited.add(nb)
+                    queue.append(nb)
+        if len(component) > len(largest):
+            largest = component
+
+    return largest
+
+
 def calculate_spawn_point(
     spec: MapSpec,
     data: list[int],
     tilesets: list | None = None,
 ) -> tuple[int, int]:
-    """walkable 타일 탐색. tilesets가 주어지면 flags를, 아니면 레이어5를 기준."""
+    """맵에서 가장 큰 연결 통행 구역의 중심에 가장 가까운 타일을 스폰 포인트로 반환.
+
+    기존 방식(맵 중앙 고정)은 물/벽으로 분리된 샘플 맵에서 고립 구역을
+    스폰 포인트로 잘못 선택하는 문제가 있었다.
+    가장 큰 연결 구역을 선택함으로써 실제 플레이 가능 영역에 이벤트가 배치된다.
+    """
     w, h = spec.width, spec.height
-    sx, sy = spec.spawn_point
+    center_x, center_y = w // 2, h // 2
 
-    # 시작점이 이미 walkable이면 즉시 반환
-    if is_walkable(data, sx, sy, w, h, spec.tileset_id, tilesets):
-        logger.info("Map '%s': 기존 시작 좌표 (%d, %d)를 사용합니다.", spec.name, sx, sy)
-        return sx, sy
+    largest = _find_largest_component(data, w, h, spec.tileset_id, tilesets)
 
-    # 보정 시작 로그
-    logger.info(
-        "Map '%s': 초기 시작 좌표 (%d, %d) 통행 불가 -> 안전한 좌표 탐색 시작", spec.name, sx, sy
-    )
-
-    # 안전한 좌표 탐색 (BFS)
-    nx, ny = find_nearest_safe_coord(data, sx, sy, w, h, spec.tileset_id, tilesets)
-
-    if (nx, ny) != (sx, sy):
-        logger.info(
-            "Map '%s': 안전한 시작 좌표 발견 (%d, %d). 좌표를 수정했습니다.",
-            spec.name,
-            nx,
-            ny,
+    if not largest:
+        logger.warning(
+            "Map '%s': walkable 타일 없음 → 맵 중앙 폴백 (%d, %d)", spec.name, center_x, center_y
         )
-        return nx, ny
+        return center_x, center_y
 
-    logger.warning("Map '%s': 안전한 좌표를 찾지 못했습니다. 초기값 유지.", spec.name)
-    return sx, sy
+    # 가장 큰 구역에서 맵 중심에 가장 가까운 타일 선택
+    best = min(largest, key=lambda p: abs(p[0] - center_x) + abs(p[1] - center_y))
+
+    logger.info(
+        "Map '%s': 최대 연결 구역(%d타일) 스폰 포인트 → (%d, %d)",
+        spec.name,
+        len(largest),
+        best[0],
+        best[1],
+    )
+    return best
 
 
 def get_exit_coords(direction: str, width: int, height: int) -> tuple[int, int]:
-    """방향 → 맵 테두리 출구 좌표."""
+    """방향 → 맵 테두리 출구 좌표 (walkable 검증 없는 기본값, 하위 호환용)."""
     mid_x = width // 2
     mid_y = height // 2
     return {
@@ -84,13 +129,83 @@ def get_exit_coords(direction: str, width: int, height: int) -> tuple[int, int]:
     }.get(direction, (mid_x, height - 2))
 
 
+def _get_exit_coords_in_component(
+    direction: str,
+    width: int,
+    height: int,
+    component: set[tuple[int, int]],
+) -> tuple[int, int]:
+    """방향별 경계에서 main_component 안의 타일 중 경계에 가장 가까운 좌표 반환.
+
+    출구는 플레이어가 실제로 이동하는 주요 구역(component) 안에 있어야 한다.
+    component에 해당 경계 근처 타일이 없으면 기본 중앙 좌표로 폴백.
+    """
+    mid_x = width // 2
+    mid_y = height // 2
+
+    if direction == "south":
+        # y가 클수록 남쪽 경계에 가까움, x는 mid_x에 가까울수록 우선
+        candidates = sorted(component, key=lambda p: (-(p[1]), abs(p[0] - mid_x)))
+    elif direction == "north":
+        candidates = sorted(component, key=lambda p: (p[1], abs(p[0] - mid_x)))
+    elif direction == "east":
+        candidates = sorted(component, key=lambda p: (-(p[0]), abs(p[1] - mid_y)))
+    elif direction == "west":
+        candidates = sorted(component, key=lambda p: (p[0], abs(p[1] - mid_y)))
+    else:
+        candidates = sorted(component, key=lambda p: (-(p[1]), abs(p[0] - mid_x)))
+
+    if candidates:
+        return candidates[0]
+
+    # 폴백: 기본 중앙 좌표
+    return get_exit_coords(direction, width, height)
+
+
 def extract_connection_info(
     spec: MapSpec, data: list[int], tilesets: list | None = None
 ) -> MapConnectionInfo:
-    """타일 생성 후 맵 연결 좌표 추출."""
+    """타일 생성 후 맵 연결 좌표 추출.
+
+    스폰 포인트와 출구 좌표 모두 가장 큰 연결 통행 구역 안에서 선택한다.
+    이를 통해 이벤트가 플레이어가 실제로 이동 가능한 영역에 배치된다.
+    """
+    w, h = spec.width, spec.height
+
+    # 가장 큰 연결 구역 한 번만 계산 (spawn + exit 모두 재사용)
+    largest = _find_largest_component(data, w, h, spec.tileset_id, tilesets)
+    component_set: set[tuple[int, int]] = set(largest)
+
+    # 스폰 포인트: 최대 연결 구역 중심 근접 타일
+    if largest:
+        center_x, center_y = w // 2, h // 2
+        spawn = min(largest, key=lambda p: abs(p[0] - center_x) + abs(p[1] - center_y))
+        logger.info(
+            "Map '%s': 최대 연결 구역(%d타일) 스폰 포인트 → (%d, %d)",
+            spec.name,
+            len(largest),
+            spawn[0],
+            spawn[1],
+        )
+    else:
+        spawn = (w // 2, h // 2)
+        logger.warning("Map '%s': walkable 타일 없음 → 맵 중앙 스폰 폴백", spec.name)
+
+    # 출구 좌표: 최대 연결 구역 안에서 방향별 경계에 가장 가까운 타일
     exit_tiles = []
     for exit_spec in spec.exits:
-        ex, ey = get_exit_coords(exit_spec.direction, spec.width, spec.height)
+        if component_set:
+            ex, ey = _get_exit_coords_in_component(exit_spec.direction, w, h, component_set)
+        else:
+            ex, ey = get_exit_coords(exit_spec.direction, w, h)
+
+        logger.info(
+            "Map '%s': exit %s → (%d, %d)",
+            spec.name,
+            exit_spec.direction,
+            ex,
+            ey,
+        )
         exit_tiles.append(
             {
                 "direction": exit_spec.direction,
@@ -100,8 +215,6 @@ def extract_connection_info(
             }
         )
 
-    # 타일셋 정보와 함께 스폰 포인트 계산
-    spawn = calculate_spawn_point(spec, data, tilesets=tilesets)
     entry_tiles = [{"from_spawn": True, "x": spawn[0], "y": spawn[1]}]
 
     return MapConnectionInfo(
