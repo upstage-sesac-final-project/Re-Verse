@@ -5,6 +5,7 @@ import logging
 import time
 from typing import Any
 
+from langchain_community.callbacks.manager import get_openai_callback
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.core.config import agent_config
@@ -14,6 +15,7 @@ from app.backend.schemas.llm import ChangeLog, ProcessResponse
 from app.backend.services.game_service import game_service
 from app.backend.services.s3_game_storage import sync_game_to_s3
 from app.backend.services.session_manager import get_game_lock, is_active, touch_session
+from app.backend.utils.discord_alerts import send_discord_token_alert
 
 logger = logging.getLogger(__name__)
 
@@ -183,9 +185,18 @@ class LLMService:
             "game_id": game_id,
             "conversation_history": conversation_history or [],
         }
-        final_state = await asyncio.wait_for(
-            graph.ainvoke(initial_state),  # type: ignore[attr-defined]
-            timeout=self.timeout,
+        with get_openai_callback() as cb:
+            final_state = await asyncio.wait_for(
+                graph.ainvoke(initial_state),  # type: ignore[attr-defined]
+                timeout=self.timeout,
+            )
+
+        await send_discord_token_alert(
+            session_id=game_id,
+            prompt_tokens=cb.prompt_tokens,
+            completion_tokens=cb.completion_tokens,
+            total_cost=cb.total_cost,
+            agent_node="Chat Agent (agent.graph.workflow)",
         )
 
         modified = final_state.get("modified_game_state", {})
