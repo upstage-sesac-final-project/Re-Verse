@@ -7,6 +7,7 @@ canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §8
 import asyncio
 import gc
 import logging
+import shutil
 import time
 from collections import deque
 from uuid import uuid4
@@ -208,11 +209,15 @@ async def _run_generation_core(
         if final_state.get("final_project"):
             from agent.generation.writer import write_project_to_disk
 
-            await write_project_to_disk(game_id, final_state["final_project"])
+            await asyncio.to_thread(write_project_to_disk, game_id, final_state["final_project"])
             if settings.STORAGE_BACKEND == "s3":
+                from app.backend.core.game_paths import get_game_root
                 from app.backend.services.s3_game_storage import sync_game_to_s3
 
                 await asyncio.to_thread(sync_game_to_s3, game_id)
+                local_dir = get_game_root(game_id)
+                if local_dir.is_dir():
+                    await asyncio.to_thread(shutil.rmtree, local_dir)
 
         _generation_states[generation_id] = GenerationStatusResponse(
             generation_id=generation_id,
