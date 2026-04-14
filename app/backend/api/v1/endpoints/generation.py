@@ -93,10 +93,13 @@ def _on_progress(generation_id: str, event: dict) -> None:
         return
     progress = event.get("progress")
     phase = event.get("phase")
+    message = event.get("message") or event.get("summary")
     if progress is not None and progress > (state.progress or 0):
         state.progress = progress
     if phase:
         state.phase = phase
+    if message:
+        state.message = message
     completed = event.get("type") == "phase_complete"
     if completed and phase and phase not in (state.completed_phases or []):
         if state.completed_phases is None:
@@ -303,6 +306,14 @@ async def get_generation_status(
     state = _generation_states.get(generation_id)
     if state is None or _generation_owners.get(generation_id) != current_user.id:
         raise HTTPException(status_code=404, detail="생성 작업을 찾을 수 없습니다.")
+    # 대기열 위치 실시간 재계산
+    if state.status == "queued":
+        try:
+            pos = list(_generation_queue).index(generation_id) + 1
+            state.queue_position = pos
+            state.queue_wait_seconds = pos * _WAIT_PER_GENERATION
+        except ValueError:
+            pass
     return state
 
 
@@ -318,6 +329,14 @@ async def get_generation_status_by_project(
     state = _generation_states.get(generation_id)
     if state is None or _generation_owners.get(generation_id) != current_user.id:
         raise HTTPException(status_code=404, detail="활성 생성 작업이 없습니다.")
+    # 대기열 위치 실시간 재계산
+    if state.status == "queued":
+        try:
+            pos = list(_generation_queue).index(generation_id) + 1
+            state.queue_position = pos
+            state.queue_wait_seconds = pos * _WAIT_PER_GENERATION
+        except ValueError:
+            pass
     return state
 
 
@@ -381,7 +400,7 @@ async def generation_websocket(
         return
 
     await websocket.accept()
-    logger.info("WebSocket 연결: gen_id=%s user_id=%d", generation_id, user.id)
+    logger.info("WebSocket 연결: gen_id=%s user_id=%d", generation_id, verified_user_id)
 
     try:
         async for event in subscribe_generation_events(generation_id):

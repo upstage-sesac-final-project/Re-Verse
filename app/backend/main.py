@@ -230,17 +230,23 @@ async def serve_game_file(game_id: str, path: str):
     project_file = Path(settings.STORAGE_PATH).resolve() / game_id / path
     if project_file.is_file():
         return FileResponse(str(project_file))
-    # 2) base_game 공유 에셋 (img, js, css, audio 등)
+    # 2) data/ 요청이면 base_game fallback 건너뛰고 S3로 직행
+    #    (로컬 삭제 후 base_game 초기 데이터가 반환되는 문제 방지)
+    if settings.STORAGE_BACKEND == "s3" and path.startswith("data/"):
+        s3_prefix = settings.S3_PREFIX.strip("/")
+        s3_key = f"{s3_prefix}/{game_id}/{path}"
+        s3_url = (
+            f"https://{settings.S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{s3_key}"
+        )
+        return RedirectResponse(url=s3_url, status_code=302)
+    # 3) base_game 공유 에셋 (img, js, css, audio 등 — data/ 제외)
     base_file = Path(settings.BASE_GAME_PATH).resolve() / path
     if base_file.is_file():
         return FileResponse(str(base_file))
-    # 3) S3 redirect fallback (EC2에 base_game 없을 때)
+    # 4) S3 redirect fallback (EC2에 base_game 없을 때)
     if settings.STORAGE_BACKEND == "s3":
         s3_prefix = settings.S3_PREFIX.strip("/")
-        if path.startswith("data/"):
-            s3_key = f"{s3_prefix}/{game_id}/{path}"
-        else:
-            s3_key = f"{s3_prefix}/base_game/{path}"
+        s3_key = f"{s3_prefix}/base_game/{path}"
         s3_url = (
             f"https://{settings.S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{s3_key}"
         )
