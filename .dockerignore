@@ -29,6 +29,9 @@
 # 로컬 분석 산출물
 build-analysis
 
+# MCP 로컬 작업 디렉토리 (Dockerfile mcp-builder가 별도로 git clone하므로 컨텍스트 불필요)
+mcp/
+
 # 로그·임시
 **/*.log
 tmp

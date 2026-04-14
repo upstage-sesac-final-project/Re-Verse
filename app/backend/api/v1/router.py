@@ -2,7 +2,16 @@
 
 from fastapi import APIRouter
 
-from app.backend.api.v1.endpoints import admin, auth, docs, editor, games, generation, llm
+from app.backend.api.v1.endpoints import (
+    admin,
+    auth,
+    bug_report,
+    docs,
+    editor,
+    games,
+    generation,
+    llm,
+)
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["Auth"])
@@ -12,3 +21,4 @@ api_router.include_router(editor.router, prefix="/editor", tags=["Editor"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
 api_router.include_router(docs.router, prefix="/docs", tags=["Docs"])
 api_router.include_router(generation.router, prefix="/generate", tags=["Generation"])
+api_router.include_router(bug_report.router, prefix="/bug-report", tags=["BugReport"])
