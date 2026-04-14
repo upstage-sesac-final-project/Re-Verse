@@ -35,7 +35,9 @@ async def map_designer(state: GenerationState) -> dict:
 
     # 1. 샘플 맵 선택 (사용자 입력 쿼리 활용)
     n_maps = len(spec.maps) if spec.maps else 3
-    chosen_filenames = await select_maps(user_input, n_maps=n_maps)
+    result = await select_maps(user_input, n_maps=n_maps)
+    chosen_filenames = result["chosen"]
+    ranked_candidates = result["candidates"]
 
     # 2. 선택된 맵의 메타데이터 로드
     all_metadata = load_metadata()
@@ -92,4 +94,8 @@ async def map_designer(state: GenerationState) -> dict:
 
     completed = list(state.get("completed_phases", []))
     completed.append("map_design")
-    return {"map_specs": map_specs, "completed_phases": completed}
+    return {
+        "map_specs": map_specs,
+        "ranked_map_candidates": ranked_candidates,
+        "completed_phases": completed,
+    }

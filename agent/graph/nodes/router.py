@@ -3,6 +3,7 @@
 담당: 세종님
 """
 
+import json
 import logging
 import time
 from typing import Literal
@@ -12,6 +13,7 @@ from pydantic import BaseModel, Field
 from agent.core.llm_client import invoke_llm
 from agent.graph.state import AgentState
 from agent.prompts.router_prompt import build_prompt
+from app.backend.core.game_paths import get_game_data_path
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,18 @@ class _RouterOutput(BaseModel):
 
 async def router(state: AgentState) -> dict:
     user_input = state.get("user_input", "")
+    game_id = state.get("game_id", "")
+
+    # ── 맵 후보군 로드 (Generation에서 이월된 SampleMapCandidates.json) ──
+    ranked_candidates = state.get("ranked_map_candidates")
+    if not ranked_candidates and game_id:
+        try:
+            candidates_path = get_game_data_path(game_id) / "SampleMapCandidates.json"
+            if candidates_path.exists():
+                ranked_candidates = json.loads(candidates_path.read_text(encoding="utf-8"))
+                logger.info("🔀 Router: 맵 후보군 로드 완료 (%d개)", len(ranked_candidates))
+        except Exception as e:
+            logger.warning("🔀 Router: 맵 후보군 로드 실패: %s", e)
 
     # 빈 입력 사전 차단 — LLM 호출 없이 즉시 반환
     if not user_input.strip():
@@ -47,6 +61,7 @@ async def router(state: AgentState) -> dict:
         return {
             "intent": "추가_정보_필요",
             "confidence": 1.0,
+            "ranked_map_candidates": ranked_candidates,  # 전파
             "final_response": "무엇을 도와드릴까요? 만들거나 수정하고 싶은 게임 요소를 알려주세요.",
         }
 
@@ -87,6 +102,7 @@ async def router(state: AgentState) -> dict:
         "intent": intent,
         "confidence": output.confidence,
         "user_input": resolved or user_input,  # 해소된 입력으로 덮어씀
+        "ranked_map_candidates": ranked_candidates,  # 상태 전파
     }
 
     # 터미널 인텐트는 즉시 응답을 final_response 에 기록
