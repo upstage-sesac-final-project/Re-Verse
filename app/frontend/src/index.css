@@ -83,3 +83,28 @@ textarea:focus {
   background: var(--bg-tertiary) !important;
   color: var(--text-primary) !important;
 }
+
+/* ── 게임 분위기 ────────────────────────────────── */
+@keyframes re-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes re-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+@keyframes re-fadein {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.re-float { animation: re-float 3s ease-in-out infinite; }
+.re-pulse { animation: re-pulse 2.5s ease-in-out infinite; }
+.re-fadein { animation: re-fadein 0.5s ease-out both; }
+.re-fadein-d1 { animation-delay: 0.1s; }
+.re-fadein-d2 { animation-delay: 0.2s; }
+.re-fadein-d3 { animation-delay: 0.3s; }
+.re-fadein-d4 { animation-delay: 0.4s; }
+
+.re-vignette {
+  background: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.4) 100%);
+}

@@ -21,6 +21,15 @@ export default function ChatInterface({ projectId, onGameUpdate, isCollapsed, on
 
   useEffect(() => {
     try {
+      const stored = localStorage.getItem(`chat_${projectId}`)
+      setMessages(stored ? JSON.parse(stored) : [])
+    } catch {
+      setMessages([])
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    try {
       localStorage.setItem(`chat_${projectId}`, JSON.stringify(messages.slice(-MAX_STORED_MESSAGES)))
     } catch {
       // localStorage quota exceeded — ignore
@@ -68,31 +77,35 @@ export default function ChatInterface({ projectId, onGameUpdate, isCollapsed, on
         style={{ borderBottom: '1px solid var(--border)' }}
       >
         {!isCollapsed && (
-          <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-            AI 어시스턴트
-          </span>
+          <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>채팅</span>
         )}
-        {!isCollapsed && messages.length > 0 && (
+        <div className="flex items-center gap-1 ml-auto">
+          {!isCollapsed && messages.length > 0 && (
+            <button
+              onClick={() => {
+                setMessages([])
+                try { localStorage.removeItem(`chat_${projectId}`) } catch {}
+              }}
+              className="text-xs px-2 py-0.5 rounded transition-opacity hover:opacity-70"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              초기화
+            </button>
+          )}
           <button
-            onClick={() => {
-              setMessages([])
-              try { localStorage.removeItem(`chat_${projectId}`) } catch {}
-            }}
-            className="text-xs px-2 py-0.5 rounded hover:opacity-70 ml-auto mr-1"
+            onClick={onToggleCollapse}
+            aria-label={isCollapsed ? '패널 펼치기' : '패널 접기'}
+            className="w-7 h-7 flex items-center justify-center rounded transition-opacity hover:opacity-70"
             style={{ color: 'var(--text-secondary)' }}
-            title="대화 기록 지우기"
           >
-            지우기
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {isCollapsed
+                ? <polyline points="9 18 15 12 9 6" />
+                : <polyline points="15 18 9 12 15 6" />
+              }
+            </svg>
           </button>
-        )}
-        <button
-          onClick={onToggleCollapse}
-          aria-label={isCollapsed ? '패널 펼치기' : '패널 접기'}
-          className="w-7 h-7 flex items-center justify-center rounded text-sm hover:opacity-70"
-          style={{ color: 'var(--text-secondary)' }}
-        >
-          {isCollapsed ? '▶' : '◀'}
-        </button>
+        </div>
       </div>
 
       {!isCollapsed && (

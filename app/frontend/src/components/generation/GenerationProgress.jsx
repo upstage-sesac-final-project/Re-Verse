@@ -1,6 +1,4 @@
-import { useEffect, useRef } from 'react'
-import { useDispatch, useSelector } from 'react-redux'
-import { wsEventReceived, fetchGenerationStatus } from '../../store/generationSlice'
+import { useSelector } from 'react-redux'
 
 const PHASE_ORDER = [
   { key: 'spec', label: 'A. 게임 기획' },
@@ -13,9 +11,6 @@ const PHASE_ORDER = [
   { key: 'integration', label: 'H. 프로젝트 조립' },
   { key: 'validation', label: 'I. 검증' },
 ]
-
-const WS_BASE =
-  (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host
 
 function PhaseList({ completedPhases, currentPhase }) {
   return (
@@ -47,59 +42,9 @@ function PhaseList({ completedPhases, currentPhase }) {
   )
 }
 
-export default function GenerationProgress({ onDone }) {
-  const dispatch = useDispatch()
-  const { generationId, wsUrl, status, progress, message, completedPhases, currentPhase } =
+export default function GenerationProgress() {
+  const { status, progress, message, completedPhases, currentPhase } =
     useSelector((s) => s.generation)
-
-  const wsRef = useRef(null)
-  const pollingRef = useRef(null)
-
-  useEffect(() => {
-    if (!generationId || !wsUrl) return
-
-    // WebSocket 연결
-    const ws = new WebSocket(`${WS_BASE}${wsUrl}`)
-    wsRef.current = ws
-
-    ws.onmessage = (e) => {
-      try {
-        const evt = JSON.parse(e.data)
-        dispatch(wsEventReceived(evt))
-        if (['completed', 'completed_with_warnings', 'error'].includes(evt.type)) {
-          onDone?.()
-        }
-      } catch {
-        // JSON 파싱 오류 무시
-      }
-    }
-
-    ws.onerror = () => {
-      // WS 실패 시 폴링 fallback
-      ws.close()
-      startPolling()
-    }
-
-    ws.onclose = () => {
-      wsRef.current = null
-    }
-
-    return () => {
-      ws.close()
-      clearInterval(pollingRef.current)
-    }
-  }, [generationId, wsUrl]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  function startPolling() {
-    pollingRef.current = setInterval(async () => {
-      const result = await dispatch(fetchGenerationStatus(generationId))
-      const s = result.payload?.status
-      if (['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(s)) {
-        clearInterval(pollingRef.current)
-        onDone?.()
-      }
-    }, 3000)
-  }
 
   const isDone = ['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(status)
 

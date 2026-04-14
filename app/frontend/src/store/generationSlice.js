@@ -39,6 +39,7 @@ export const cancelGeneration = createAsyncThunk(
 )
 
 const initialState = {
+  projectId: null,
   generationId: null,
   wsUrl: null,
   status: 'idle', // idle | starting | in_progress | completed | completed_with_warnings | failed | cancelled
@@ -95,7 +96,8 @@ const generationSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(startGeneration.pending, (state) => {
+      .addCase(startGeneration.pending, (state, action) => {
+        state.projectId = action.meta.arg.projectId
         state.status = 'starting'
         state.error = null
         state.progress = 0
@@ -120,8 +122,9 @@ const generationSlice = createSlice({
         if (!['completed', 'completed_with_warnings', 'failed'].includes(state.status)) {
           state.status = s.status
         }
-        state.progress = s.progress
-        if (s.completed_phases?.length) state.completedPhases = s.completed_phases
+        // 서버 progress가 클라이언트보다 높을 때만 업데이트 (서버가 0을 반환해도 기존 값 유지)
+        if (s.progress > state.progress) state.progress = s.progress
+        if (s.completed_phases?.length && s.completed_phases.length >= state.completedPhases.length) state.completedPhases = s.completed_phases
         if (s.is_success != null) state.isSuccess = s.is_success
         if (s.final_message) state.finalMessage = s.final_message
         if (s.validation_errors?.length) state.validationErrors = s.validation_errors
