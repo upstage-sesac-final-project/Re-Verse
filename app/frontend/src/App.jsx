@@ -11,7 +11,7 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import GameEditor from './pages/GameEditor'
-import GeneratePage from './pages/GeneratePage'
+// GeneratePage removed — generation is now inline in Dashboard
 import Admin from './pages/Admin'
 import Docs from './pages/Docs'
 import NotFound from './pages/NotFound'
@@ -62,14 +62,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/generate/:projectId"
-        element={
-          <ProtectedRoute>
-            <GeneratePage />
-          </ProtectedRoute>
-        }
-      />
+      {/* generate route removed — handled in Dashboard */}
       <Route
         path="/admin"
         element={

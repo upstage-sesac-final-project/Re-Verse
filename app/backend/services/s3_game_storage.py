@@ -79,7 +79,7 @@ def sync_game_to_s3(game_id: str) -> None:
     client = _s3_client()
     bucket = settings.S3_BUCKET_NAME
     prefix = _game_s3_prefix(game_id) + "data/"
-    uploaded = 0
+    uploaded_keys: set[str] = set()
     try:
         for path in local_root.rglob("*"):
             if not path.is_file():
@@ -87,12 +87,21 @@ def sync_game_to_s3(game_id: str) -> None:
             rel = path.relative_to(local_root)
             key = f"{prefix}{rel.as_posix()}"
             client.upload_file(str(path), bucket, key)
-            uploaded += 1
+            uploaded_keys.add(key)
+
+        # S3에만 있고 로컬에 없는 파일 삭제 (삭제된 맵 등)
+        paginator = client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                if obj["Key"] not in uploaded_keys and not obj["Key"].endswith("/"):
+                    client.delete_object(Bucket=bucket, Key=obj["Key"])
+                    logger.info("S3 stale 삭제: %s", obj["Key"])
+
     except ClientError as e:
         logger.error("S3 upload 실패 game_id=%s: %s", game_id, e)
         raise
 
-    logger.info("로컬 → S3 업로드 완료 game_id=%s files=%d", game_id, uploaded)
+    logger.info("로컬 → S3 동기화 완료 game_id=%s files=%d", game_id, len(uploaded_keys))
 
 
 def check_s3_bucket_access() -> tuple[bool, str]:

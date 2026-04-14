@@ -1,10 +1,10 @@
 import { useState } from 'react'
 
 const SUGGESTED_PROMPTS = [
-  '중세 판타지 세계에서 용사가 마왕을 쓰러뜨리는 RPG',
-  '해적 왕국을 배경으로 한 모험 RPG. 주인공이 전설의 보물을 찾는 이야기',
-  '미래 도시의 사이버펑크 RPG. 해커 주인공이 거대 기업에 맞서 싸운다',
-  '마법사 왕국에서 어둠의 마왕을 물리치는 짧은 RPG',
+  { label: '중세 판타지', full: '중세 판타지 세계에서 용사가 마왕을 쓰러뜨리는 RPG' },
+  { label: '해적 모험', full: '해적 왕국을 배경으로 한 모험 RPG. 주인공이 전설의 보물을 찾는 이야기' },
+  { label: '사이버펑크', full: '미래 도시의 사이버펑크 RPG. 해커 주인공이 거대 기업에 맞서 싸운다' },
+  { label: '마법사 왕국', full: '마법사 왕국에서 어둠의 마왕을 물리치는 짧은 RPG' },
 ]
 
 export default function GenerationForm({ onSubmit, isLoading }) {
@@ -40,21 +40,22 @@ export default function GenerationForm({ onSubmit, isLoading }) {
           }}
         />
         <div className="flex justify-between mt-1">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {SUGGESTED_PROMPTS.map((p) => (
               <button
-                key={p}
+                key={p.label}
                 type="button"
-                onClick={() => setPrompt(p)}
+                onClick={() => setPrompt(p.full)}
                 disabled={isLoading}
-                className="text-xs px-2 py-1 rounded-full transition-colors"
+                title={p.full}
+                className="text-xs px-2.5 py-1 rounded-lg transition-colors hover:border-white/20"
                 style={{
                   background: 'var(--bg-tertiary)',
                   border: '1px solid var(--border)',
                   color: 'var(--text-secondary)',
                 }}
               >
-                {p.slice(0, 20)}…
+                {p.label}
               </button>
             ))}
           </div>

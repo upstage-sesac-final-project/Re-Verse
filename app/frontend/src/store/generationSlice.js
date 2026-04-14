@@ -26,6 +26,18 @@ export const fetchGenerationStatus = createAsyncThunk(
   },
 )
 
+export const fetchActiveGeneration = createAsyncThunk(
+  'generation/fetchActive',
+  async (projectId, { rejectWithValue }) => {
+    try {
+      const data = await authFetch(`/v1/generate/by-project/${projectId}/status`)
+      return { ...data, projectId }
+    } catch {
+      return rejectWithValue(null)
+    }
+  },
+)
+
 export const cancelGeneration = createAsyncThunk(
   'generation/cancel',
   async (generationId, { rejectWithValue }) => {
@@ -39,12 +51,15 @@ export const cancelGeneration = createAsyncThunk(
 )
 
 const initialState = {
+  projectId: null,
   generationId: null,
   wsUrl: null,
-  status: 'idle', // idle | starting | in_progress | completed | completed_with_warnings | failed | cancelled
+  status: 'idle', // idle | starting | queued | in_progress | completed | completed_with_warnings | failed | cancelled
   progress: 0,
   currentPhase: '',
   message: '',
+  queuePosition: 0,
+  queueWaitSeconds: 0,
   completedPhases: [],
   events: [],
   finalMessage: null,
@@ -69,6 +84,16 @@ const generationSlice = createSlice({
       if (phase) state.currentPhase = phase
       if (message || summary) state.message = message || summary
 
+      if (type === 'queued') {
+        state.status = 'queued'
+        state.queuePosition = evt.queue_position || 0
+        state.queueWaitSeconds = (evt.queue_position || 0) * 300
+      }
+      if (type === 'progress' && state.status === 'queued') {
+        state.status = 'in_progress'
+        state.queuePosition = 0
+        state.queueWaitSeconds = 0
+      }
       if (type === 'phase_complete' && phase) {
         if (!state.completedPhases.includes(phase)) {
           state.completedPhases.push(phase)
@@ -95,7 +120,8 @@ const generationSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(startGeneration.pending, (state) => {
+      .addCase(startGeneration.pending, (state, action) => {
+        state.projectId = action.meta.arg.projectId
         state.status = 'starting'
         state.error = null
         state.progress = 0
@@ -109,7 +135,9 @@ const generationSlice = createSlice({
       .addCase(startGeneration.fulfilled, (state, action) => {
         state.generationId = action.payload.generation_id
         state.wsUrl = action.payload.ws_url
-        state.status = 'in_progress'
+        state.queuePosition = action.payload.queue_position || 0
+        state.queueWaitSeconds = action.payload.queue_wait_seconds || 0
+        state.status = action.payload.queue_position > 0 ? 'queued' : 'in_progress'
       })
       .addCase(startGeneration.rejected, (state, action) => {
         state.status = 'failed'
@@ -120,12 +148,27 @@ const generationSlice = createSlice({
         if (!['completed', 'completed_with_warnings', 'failed'].includes(state.status)) {
           state.status = s.status
         }
-        state.progress = s.progress
-        if (s.completed_phases?.length) state.completedPhases = s.completed_phases
+        // 서버 progress가 클라이언트보다 높을 때만 업데이트 (서버가 0을 반환해도 기존 값 유지)
+        if (s.progress > state.progress) state.progress = s.progress
+        if (s.completed_phases?.length && s.completed_phases.length >= state.completedPhases.length) state.completedPhases = s.completed_phases
         if (s.is_success != null) state.isSuccess = s.is_success
         if (s.final_message) state.finalMessage = s.final_message
         if (s.validation_errors?.length) state.validationErrors = s.validation_errors
         if (s.error_message) state.error = s.error_message
+      })
+      .addCase(fetchActiveGeneration.fulfilled, (state, action) => {
+        const s = action.payload
+        state.projectId = s.projectId
+        state.generationId = s.generation_id
+        state.status = s.status
+        state.wsUrl = `/api/v1/generate/ws/${s.generation_id}`
+        if (s.progress > state.progress) state.progress = s.progress
+        if (s.completed_phases?.length) state.completedPhases = s.completed_phases
+        if (s.is_success != null) state.isSuccess = s.is_success
+        if (s.final_message) state.finalMessage = s.final_message
+        if (s.error_message) state.error = s.error_message
+        if (s.queue_position != null) state.queuePosition = s.queue_position
+        if (s.queue_wait_seconds != null) state.queueWaitSeconds = s.queue_wait_seconds
       })
       .addCase(cancelGeneration.fulfilled, (state) => {
         state.status = 'cancelled'

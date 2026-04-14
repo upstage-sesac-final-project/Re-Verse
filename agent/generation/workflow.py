@@ -12,6 +12,7 @@ import logging
 from typing import Any
 from uuid import uuid4
 
+from langchain_community.callbacks.manager import get_openai_callback
 from langgraph.graph import END, START, StateGraph
 
 from agent.generation.nodes.asset_generator import asset_generator
@@ -178,7 +179,23 @@ async def run_generation_workflow(
     }
 
     logger.info("run_generation_workflow 시작: gen_id=%s game_id=%s", gen_id, game_id)
-    final_state: GenerationState = await graph.ainvoke(initial_state)
+    with get_openai_callback() as cb:
+        final_state: GenerationState = await graph.ainvoke(initial_state)
+
+    # app 레이어 의존 — agent 단독 스크립트·테스트에서는 ImportError 로 건너뜀
+    try:
+        from app.backend.utils.discord_alerts import send_discord_token_alert
+    except ImportError:
+        pass
+    else:
+        await send_discord_token_alert(
+            session_id=f"{game_id} (gen={gen_id})",
+            prompt_tokens=cb.prompt_tokens,
+            completion_tokens=cb.completion_tokens,
+            total_cost=cb.total_cost,
+            agent_node="Generation Workflow (map/assets)",
+        )
+
     logger.info(
         "run_generation_workflow 완료: is_success=%s phases=%s",
         final_state.get("is_success"),

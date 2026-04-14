@@ -6,24 +6,6 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger'
 
 gsap.registerPlugin(ScrollTrigger)
 
-const FEATURES = [
-  {
-    icon: '✦',
-    title: '자연어 명령',
-    desc: '복잡한 편집기 없이 말하듯 설명하면 AI가 게임 요소를 만들어줍니다.',
-  },
-  {
-    icon: '⟳',
-    title: '즉시 미리보기',
-    desc: 'AI가 생성한 캐릭터, 아이템, 맵을 바로 게임에서 확인할 수 있습니다.',
-  },
-  {
-    icon: '◈',
-    title: '다양한 요소 지원',
-    desc: '캐릭터, 적, 스킬, 아이템, 맵, 이벤트 등 RPG Maker MZ 전 요소를 지원합니다.',
-  },
-]
-
 export default function Home() {
   const navigate = useNavigate()
   const { isAuthenticated } = useSelector((s) => s.user)
@@ -86,86 +68,67 @@ export default function Home() {
     return () => ctx.revert()
   }, [])
 
-  function handleStart() {
-    navigate(isAuthenticated ? '/dashboard' : '/login')
-  }
-
   return (
-    <div ref={mainRef} className="min-h-screen overflow-x-hidden bg-[#0a0a0b] text-[#f2f2f7] selection:bg-[#ff3b5c] selection:text-white font-sans">
-      <div ref={progressRef} className="fixed top-0 left-0 w-full h-1 bg-[#ff3b5c] origin-left scale-x-0 z-50"></div>
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+      {/* 배경 */}
+      {/* 헤더 */}
+      <header className="relative flex items-center justify-between px-6 py-5 max-w-4xl mx-auto w-full">
+        <Link to="/" className="flex items-center gap-2 group">
+          <div className="w-6 h-6 rounded-md flex items-center justify-center text-white font-bold text-xs" style={{ background: 'var(--accent)' }}>R</div>
+          <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>Re:Verse</span>
+        </Link>
+        <nav className="flex items-center gap-4">
+          <Link to="/docs" className="text-xs transition-colors hover:text-white" style={{ color: 'var(--text-secondary)' }}>문서</Link>
+          {isAuthenticated
+            ? <Link to="/dashboard" className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>대시보드</Link>
+            : <Link to="/login" className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>로그인</Link>
+          }
+        </nav>
+      </header>
 
-      <section ref={heroRef} className="relative h-screen flex flex-col items-center justify-center px-6 text-center z-10">
-        <div className="hero-sub mb-8 inline-flex items-center justify-center w-20 h-20 rounded-[2.5rem] bg-[#ff3b5c] shadow-[0_0_50px_rgba(255,59,92,0.5)] text-white font-bold text-4xl transform hover:rotate-12 transition-transform">
-          R
-        </div>
-        <h1
-          ref={titleRef}
-          className="text-7xl md:text-9xl font-black mb-8 tracking-tighter text-white drop-shadow-[0_0_30px_rgba(255,255,255,0.2)]"
-        >
-          Re:Verse
+      {/* 히어로 */}
+      <main className="flex-1 flex flex-col items-center justify-center px-6 pb-24">
+        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-center mb-4" style={{ color: 'var(--text-primary)' }}>
+          채팅으로 RPG를 만드세요
         </h1>
-        <div className="hero-sub max-w-2xl">
-          <p className="text-xl md:text-2xl text-[#8e8e93] mb-12 font-light leading-relaxed">
-            당신의 상상을 현실로. <br />
-            자연어 한 문장으로 시작하는 RPG 제작의 혁명.
-          </p>
-          <button
-            onClick={handleStart}
-            className="group relative px-10 py-4 text-lg bg-white text-black hover:text-white rounded-full font-bold transition-all duration-300 overflow-hidden"
-          >
-            <span className="relative z-10">무료로 시작하기</span>
-            <div className="absolute inset-0 bg-[#ff3b5c] translate-y-full group-hover:translate-y-0 transition-transform"></div>
-          </button>
-        </div>
-      </section>
+        <p className="text-sm text-center max-w-sm mb-10 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          Re:Verse는 자연어로 RPG Maker MZ 게임을 제작하는 도구입니다.
+          캐릭터, 맵, 이벤트를 대화로 만들고 바로 플레이할 수 있습니다.
+        </p>
 
-      <section className="relative py-48 px-6 max-w-7xl mx-auto z-10">
-        <h2 className="text-4xl md:text-5xl font-bold mb-24 text-center tracking-tight">더 쉽고, 더 빠르게.</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-          {FEATURES.map((f, i) => (
-            <div
-              key={f.title}
-              ref={(el) => (featureRefs.current[i] = el)}
-              className="group p-10 rounded-[2.5rem] bg-[#1c1c1e]/50 backdrop-blur-xl border border-white/5 hover:border-[#ff3b5c]/30 transition-all hover:-translate-y-4"
-            >
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#2c2c2e] to-[#1c1c1e] flex items-center justify-center text-3xl mb-8 text-[#ff3b5c] group-hover:rotate-[360deg] transition-transform duration-1000">
-                {f.icon}
-              </div>
-              <h3 className="text-2xl font-bold mb-5 group-hover:text-[#ff3b5c] transition-colors">{f.title}</h3>
-              <p className="text-[#8e8e93] text-lg leading-relaxed font-light">{f.desc}</p>
+        <div className="flex items-center gap-3 mb-16">
+          <button onClick={() => navigate(isAuthenticated ? '/dashboard' : '/register')}
+            className="re-btn-primary px-6 py-2.5 text-sm rounded-lg font-medium"
+            style={{ background: 'var(--accent)', color: '#fff' }}>
+            {isAuthenticated ? '대시보드' : '시작하기'}
+          </button>
+          <Link to="/docs" className="px-5 py-2.5 text-sm rounded-lg font-medium transition-colors hover:bg-white/5"
+            style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+            가이드
+          </Link>
+        </div>
+
+        {/* 기능 */}
+        <div className="grid grid-cols-3 gap-px max-w-lg w-full rounded-lg overflow-hidden "
+          style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
+          {[
+            { icon: '~', label: '자연어 생성', sub: '대화로 게임 요소 생성' },
+            { icon: '>', label: '즉시 플레이', sub: '생성 즉시 실행 확인' },
+            { icon: '#', label: 'MZ 전 요소', sub: '캐릭터부터 이벤트까지' },
+          ].map((f) => (
+            <div key={f.label} className="px-4 py-5 text-center" style={{ background: 'var(--bg-secondary)' }}>
+              <span className="text-lg block mb-1" style={{ color: 'var(--accent)' }}>{f.icon}</span>
+              <p className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-primary)' }}>{f.label}</p>
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{f.sub}</p>
             </div>
           ))}
         </div>
-      </section>
+      </main>
 
-      <section className="relative py-60 px-6 text-center z-10">
-        <div className="cta-content max-w-4xl mx-auto">
-          <h2 className="text-4xl md:text-5xl font-extralight mb-8 leading-tight tracking-tight text-white/90">
-            준비되셨나요? <br />
-            당신의 첫 번째 맵을 <span className="font-bold text-white text-5xl md:text-7xl ml-2">만드세요.</span>
-          </h2>
-          {!isAuthenticated && (
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-8 mt-16">
-              <Link to="/register" className="px-8 py-3 bg-[#ff3b5c] text-white rounded-full font-semibold hover:shadow-[0_0_30px_rgba(255,59,92,0.4)] transition-all">
-                지금 시작하기
-              </Link>
-              <Link to="/docs" className="text-lg text-[#8e8e93] hover:text-white transition-colors border-b border-white/10 pb-1">
-                가이드 둘러보기
-              </Link>
-            </div>
-          )}
-        </div>
-      </section>
-
-      <footer className="py-20 px-6 text-center border-t border-white/5 opacity-40">
-        <p className="text-sm tracking-widest uppercase">© 2026 Re:Verse Project.</p>
+      {/* 풋터 */}
+      <footer className="relative px-6 py-5 text-center">
+        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Re:Verse — AI RPG 제작 도구</p>
       </footer>
-
-      <div className="fixed top-0 left-0 w-full h-full pointer-events-none -z-10 overflow-hidden">
-        <div ref={blob1Ref} className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-[#ff3b5c]/15 blur-[150px] rounded-full"></div>
-        <div ref={blob2Ref} className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-blue-600/10 blur-[150px] rounded-full"></div>
-        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
-      </div>
     </div>
   )
 }

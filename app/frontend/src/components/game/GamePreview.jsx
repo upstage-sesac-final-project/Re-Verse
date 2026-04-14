@@ -4,9 +4,9 @@ import MapViewer from './MapViewer'
 import GameDataViewer from './GameDataViewer'
 
 const TABS = [
-  { id: 'play', label: 'Play' },
-  { id: 'map', label: 'Map Viewer' },
-  { id: 'data', label: 'Game Data' },
+  { id: 'play', label: '플레이' },
+  { id: 'map', label: '맵 뷰어' },
+  { id: 'data', label: '게임 데이터' },
 ]
 
 export default function GamePreview({ refreshKey, gameId }) {
@@ -23,7 +23,7 @@ export default function GamePreview({ refreshKey, gameId }) {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className="px-4 h-full text-sm font-medium relative"
+            className="px-4 h-full text-xs font-medium relative"
             style={{ color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)' }}
           >
             {tab.label}

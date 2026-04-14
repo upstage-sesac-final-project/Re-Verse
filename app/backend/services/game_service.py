@@ -4,6 +4,7 @@ Executor(게임 데이터 수정)와는 별개의 레이어.
 Executor는 이 서비스를 호출하지 않는다.
 """
 
+import asyncio
 import logging
 import shutil
 import uuid
@@ -23,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 
 class GameService:
+    _create_lock = asyncio.Lock()
+
     async def create_project(
         self,
         user_id: int,
@@ -30,7 +33,17 @@ class GameService:
         description: str | None,
         db: AsyncSession,
     ) -> Project:
-        # ① 프로젝트 수 제한
+        # ① 프로젝트 수 제한 (Lock으로 동시 요청 직렬화)
+        async with self._create_lock:
+            return await self._create_project_inner(user_id, name, description, db)
+
+    async def _create_project_inner(
+        self,
+        user_id: int,
+        name: str,
+        description: str | None,
+        db: AsyncSession,
+    ) -> Project:
         count = await project_repository.count_by_user(user_id, db)
         if count >= settings.MAX_PROJECTS_PER_USER:
             logger.warning(
