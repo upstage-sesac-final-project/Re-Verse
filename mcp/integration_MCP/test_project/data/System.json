@@ -1,0 +1,11 @@
+{
+  "gameTitle": "Test Game",
+  "versionId": 12345,
+  "locale": "ja_JP",
+  "currencyUnit": "G",
+  "variables": ["", "V1", "V2"],
+  "switches": ["", "S1"],
+  "startMapId": 1,
+  "startX": 0,
+  "startY": 0
+}

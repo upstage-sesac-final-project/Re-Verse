@@ -2,30 +2,52 @@
 # Re:Verse Backend - FastAPI, Python 3.12, uv
 # EC2에서 단독 실행용
 # 빌드 컨텍스트: 프로젝트 루트 (Re-Verse/)
-#
-# MCP(Node stdio 서버)는 현재 배포에서 비활성화. executor_v2 dispatch 경로로 처리.
-# - MCP 기능 복귀 시: mcp-builder 스테이지 + nodejs 설치 + MCP_NODE_SERVER_PATH를 복원하고
-#   `MCP_ENABLED=true` 를 주입한다.
+
+# ------------------------------------------------------------
+# Stage 1: 통합 RPG Maker MZ MCP 서버 빌드 (Node)
+# - stdio MCP는 백엔드 컨테이너 내부에 실행파일이 있어야 함
+# - 레포 내부 mcp/integration_MCP 소스를 COPY해 build 후 /mcp/default 로 복사한다.
+# - --ignore-scripts: robotjs gyp 컴파일, puppeteer Chromium 다운로드 등 postinstall 훅 차단
+#   (alpine에 build-base/X11 헤더 없어 robotjs 실패 + puppeteer는 런타임 playtest 미사용 전제)
+# ------------------------------------------------------------
+FROM node:20-alpine AS mcp-builder
+WORKDIR /src
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+
+COPY mcp/integration_MCP/ /src/
+
+RUN --mount=type=cache,target=/root/.npm \
+    set -eux; \
+    if [ -f package-lock.json ]; then npm ci --ignore-scripts; else npm install --ignore-scripts; fi; \
+    npm run build; \
+    mkdir -p /mcp/default; \
+    cp -R /src/. /mcp/default/
 
 FROM python:3.12-slim
 
 # debconf가 대화형 입력을 기다리지 않도록 설정
+# nodesource 설치 스크립트(setup_20.x)가 내부적으로 apt-get을 실행할 때도 적용됨
 ENV DEBIAN_FRONTEND=noninteractive
-
-# MCP 비활성 기본값. docker-compose의 env_file/environment에서 재정의 가능하지만
-# 이미지 레벨 기본을 명시해 오작동(= MCP 호출 시 바이너리 없음) 가능성을 낮춘다.
-ENV MCP_ENABLED=false
 
 WORKDIR /app
 
-# 시스템 의존성 설치 (DB 빌드 도구)
+# 시스템 의존성 설치 (DB 빌드 도구 및 MCP용 Node.js 포함)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gcc \
     libpq-dev \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# MCP 빌드 산출물을 런타임 이미지에 포함 (컨테이너 내부 경로 기준)
+# - 다중 MCP 루트: /app/mcp/<key>
+# - 기존 단일 경로 호환: /app/mcp-server -> /app/mcp/default
+COPY --from=mcp-builder /mcp /app/mcp
+RUN ln -s /app/mcp/default /app/mcp-server
+ENV MCP_NODE_SERVER_PATH=/app/mcp-server/dist/index.js
 
 # uv 설치 (pip 캐시 마운트로 반복 빌드 가속)
 RUN --mount=type=cache,target=/root/.cache/pip \
