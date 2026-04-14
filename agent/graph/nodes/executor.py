@@ -5,6 +5,7 @@ import functools
 import json
 import logging
 import os
+import re
 import shutil
 import time
 import uuid
@@ -35,11 +36,21 @@ logger = logging.getLogger(__name__)
 game_locks: defaultdict[str, asyncio.Lock] = defaultdict(lambda: asyncio.Lock())
 
 # ────────────────────────────────────────────────────────────
-# MCP (k4zuki RPG Maker MZ Node 서버) — 구조화 스텝만 인터셉트
-# (target_file, action_type) → list_tools() 이름과 동일. 맵 전용 툴(get_map*, *map_event*, add_event_command)은 제외.
+# MCP (통합 integration_MCP) — 구조화 스텝만 인터셉트
+# (target_file, action_type) → MCP tool 이름.
 #
-# 통합 MCP (integration_MCP / @rein634/rpg-maker-mz-mcp) 기준 툴 매핑.
-# 4개 리포를 하나로 합친 서버가 제공하는 tool 이름에 맞춤.
+# 맵 관련 (통합 MCP에 있으나 예전에는 미연결이었음 — 아래 규칙으로 연결):
+# - MapInfos.json + list|query → list_maps (MapInfos.json 백업 힌트)
+# - MapInfos.json + create → create_map (신규 맵 메타 + MapNNN.json 생성은 MCP가 처리)
+# - MapNNN.json (예: Map003.json) + query|read → get_map
+# - MapNNN.json + update → update_map (target_info.updates)
+# - MapNNN.json + list_events → get_map_events
+# - MapNNN.json + search|search_events → search_map_events (searchTerm)
+# - MapNNN.json + create_event → create_map_event (이벤트/NPC 배치 등, name,x,y…)
+# - MapNNN.json + update_event → update_map_event
+# - MapNNN.json + add_event_command → add_event_command (command 객체)
+# - MapNNN.json + draw_tile → draw_map_tile
+# 플래너는 target_file에 Map003.json 형태를 쓰고, mapId는 파일명에서 자동 보강된다.
 # ────────────────────────────────────────────────────────────
 MCP_TOOL_MAP: dict[tuple[str, str], dict[str, Any]] = {
     # Actors.json
@@ -113,7 +124,47 @@ MCP_TOOL_MAP: dict[tuple[str, str], dict[str, Any]] = {
         "tool": "update_starting_position",
         "backup_files": ["System.json"],
     },
+    # MapInfos.json — 맵 목록/생성 (맵 단일 파일 MapNNN.json 과 구분)
+    ("MapInfos.json", "list"): {"tool": "list_maps", "backup_files": ["MapInfos.json"]},
+    ("MapInfos.json", "query"): {"tool": "list_maps", "backup_files": ["MapInfos.json"]},
+    ("MapInfos.json", "create"): {"tool": "create_map", "backup_files": ["MapInfos.json"]},
 }
+
+
+_MAP_JSON_FILE_RE = re.compile(r"^Map(\d{1,3})\.json$", re.IGNORECASE)
+
+
+def _parse_map_id_from_target_file(target_file: str) -> int | None:
+    m = _MAP_JSON_FILE_RE.match((target_file or "").strip())
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+
+def _resolve_mcp_map_file_entry(target_file: str, action: str) -> dict[str, Any] | None:
+    """Map001.json … Map999.json + action → MCP 툴 (MCP_TOOL_MAP 정적 키로 넣기 어려워 동적 분기)."""
+    if _parse_map_id_from_target_file(target_file) is None:
+        return None
+    a = (action or "").strip().lower()
+    tool_by_action: dict[str, str] = {
+        "query": "get_map",
+        "read": "get_map",
+        "update": "update_map",
+        "list_events": "get_map_events",
+        "search": "search_map_events",
+        "search_events": "search_map_events",
+        "create_event": "create_map_event",
+        "update_event": "update_map_event",
+        "add_event_command": "add_event_command",
+        "draw_tile": "draw_map_tile",
+    }
+    tool = tool_by_action.get(a)
+    if not tool:
+        return None
+    return {"tool": tool, "backup_files": [target_file]}
 
 
 def _coerce_list_from_mcp_search_payload(data: Any) -> list[Any]:
@@ -605,6 +656,93 @@ def _normalize_mcp_arguments(
         if isinstance(updates, dict):
             built["updates"] = updates
         return built
+
+    # ── MapInfos.json (맵 목록/신규 맵) ──
+    if target_file == "MapInfos.json" and action in ("list", "query"):
+        return {}
+
+    if target_file == "MapInfos.json" and action == "create":
+        mname = out.get("mapName") or out.get("map_name") or out.get("name")
+        cmap: dict[str, Any] = {}
+        if mname is not None:
+            cmap["mapName"] = str(mname)
+        if out.get("width") is not None:
+            cmap["width"] = _as_int(out["width"])
+        if out.get("height") is not None:
+            cmap["height"] = _as_int(out["height"])
+        tid = out.get("tilesetId") if out.get("tilesetId") is not None else out.get("tileset_id")
+        if tid is not None:
+            cmap["tilesetId"] = _as_int(tid)
+        return cmap
+
+    # ── MapNNN.json (단일 맵 파일 — mapId는 파일명에서도 보강됨) ──
+    mid_file = _parse_map_id_from_target_file(target_file)
+    if mid_file is not None:
+        mid = out.get("mapId") if out.get("mapId") is not None else out.get("map_id")
+        if mid is None:
+            mid = mid_file
+        mid = _as_int(mid)
+
+        if action in ("query", "read"):
+            return {"mapId": mid}
+        if action == "update":
+            upd = out.get("updates")
+            if not isinstance(upd, dict):
+                return {}
+            return {"mapId": mid, "updates": upd}
+        if action == "list_events":
+            return {"mapId": mid}
+        if action in ("search", "search_events"):
+            st = out.get("searchTerm") or out.get("search_term") or out.get("query") or ""
+            return {"mapId": mid, "searchTerm": str(st)}
+        if action == "create_event":
+            evb: dict[str, Any] = {"mapId": mid}
+            nm = out.get("name") or out.get("event_name")
+            if nm is not None:
+                evb["name"] = str(nm)
+            if out.get("x") is not None:
+                evb["x"] = _as_int(out["x"])
+            if out.get("y") is not None:
+                evb["y"] = _as_int(out["y"])
+            if out.get("note") is not None:
+                evb["note"] = str(out["note"])
+            if isinstance(out.get("pages"), list):
+                evb["pages"] = out["pages"]
+            return evb
+        if action == "update_event":
+            eid = out.get("eventId") if out.get("eventId") is not None else out.get("event_id")
+            upd = out.get("updates")
+            if eid is None or not isinstance(upd, dict):
+                return {}
+            return {"mapId": mid, "eventId": _as_int(eid), "updates": upd}
+        if action == "add_event_command":
+            eid = out.get("eventId") if out.get("eventId") is not None else out.get("event_id")
+            pidx = (
+                out.get("pageIndex") if out.get("pageIndex") is not None else out.get("page_index")
+            )
+            cmd = out.get("command")
+            if eid is None or pidx is None or not isinstance(cmd, dict):
+                return {}
+            ac: dict[str, Any] = {
+                "mapId": mid,
+                "eventId": _as_int(eid),
+                "pageIndex": _as_int(pidx),
+                "command": cmd,
+            }
+            if out.get("position") is not None:
+                ac["position"] = _as_int(out["position"])
+            return ac
+        if action == "draw_tile":
+            tid = out.get("tileId") if out.get("tileId") is not None else out.get("tile_id")
+            if None in (out.get("x"), out.get("y"), out.get("layer"), tid):
+                return {}
+            return {
+                "mapId": mid,
+                "x": _as_int(out["x"]),
+                "y": _as_int(out["y"]),
+                "layer": _as_int(out["layer"]),
+                "tileId": _as_int(tid),
+            }
 
     # list / query(get_system 등 인자 없음) / get_game_title / get_variables / get_switches
     if action in ("list", "query", "get_game_title", "list_variables", "list_switches"):
@@ -1619,6 +1757,13 @@ async def _execute_one_structured_step(
     # raw_action은 디버그/에러 메시지에 남기고, 실제 실행 분기는 정규화된 action으로 통일한다.
     raw_action = (step.get("action_type") or "").strip().lower()
     action = _normalize_structured_action(target_file, raw_action, target_info)
+    # Map003.json 등: mapId를 파일명에서 채워 MCP(get_map 등) 인자 누락을 줄인다.
+    _mid_file = _parse_map_id_from_target_file(target_file)
+    if _mid_file is not None:
+        if target_info.get("mapId") is None and target_info.get("map_id") is None:
+            target_info = {**target_info, "mapId": _mid_file}
+        elif target_info.get("map_id") is not None and target_info.get("mapId") is None:
+            target_info = {**target_info, "mapId": _as_int(target_info.get("map_id"))}
     if target_file == "Actors.json" and action == "update_actor":
         target_info = _coerce_actors_update_actor_target_info(target_info)
     ts = datetime.now().isoformat()
@@ -1671,7 +1816,9 @@ async def _execute_one_structured_step(
         # ── MCP 인터셉터: 켜져 있고 (파일, 액션) 매핑이 있으면 stdio MCP 우선 ──
         # 성공 시 즉시 반환. 실패·미설정 시 아래 Class/Actor/System 매니저로 폴백한다.
         if is_mcp_enabled():
-            mcp_entry = MCP_TOOL_MAP.get((target_file, action))
+            mcp_entry = MCP_TOOL_MAP.get((target_file, action)) or _resolve_mcp_map_file_entry(
+                target_file, action
+            )
             mcp_server_id: str | None = None
             if isinstance(mcp_entry, dict):
                 _explicit = (
