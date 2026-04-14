@@ -113,11 +113,12 @@ async def _run_generation_in_background(
     options: dict,
 ) -> None:
     """백그라운드 생성 태스크. 세마포어로 동시 1개만 실행."""
-    # 대기열에 추가
+    # 세마포어 여유가 없으면 대기열
+    is_busy = _generation_semaphore._value == 0
     _generation_queue.append(generation_id)
-    queue_pos = len(_generation_queue) - 1
+    queue_pos = len(_generation_queue)  # 대기열 내 순서 (1부터)
 
-    if queue_pos > 0:
+    if is_busy:
         _generation_states[generation_id] = GenerationStatusResponse(
             generation_id=generation_id,
             status="queued",
@@ -131,6 +132,13 @@ async def _run_generation_in_background(
                 "queue_position": queue_pos,
                 "message": f"대기열 {queue_pos}번째 — 약 {queue_pos * 5}분 후 시작",
             },
+        )
+    else:
+        _generation_states[generation_id] = GenerationStatusResponse(
+            generation_id=generation_id,
+            status="in_progress",
+            phase="spec",
+            progress=0,
         )
 
     # 세마포어 획득 대기 (앞 생성이 끝날 때까지)
