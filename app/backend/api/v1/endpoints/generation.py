@@ -376,7 +376,7 @@ async def generation_websocket(
         return
 
     await websocket.accept()
-    logger.info("WebSocket 연결: gen_id=%s user_id=%d", generation_id, user.id)
+    logger.info("WebSocket 연결: gen_id=%s user_id=%d", generation_id, verified_user_id)
 
     try:
         async for event in subscribe_generation_events(generation_id):
