@@ -38,10 +38,17 @@ def get_engine() -> AsyncEngine | None:
     if settings.DATABASE_URL.startswith("sqlite"):
         connect_args = {"check_same_thread": False}
 
+    is_sqlite = settings.DATABASE_URL.startswith("sqlite")
     _engine = create_async_engine(
         settings.DATABASE_URL,
-        echo=False,  # SQLAlchemy 로그는 shared/logging_config.py의 dictConfig로 제어
+        echo=False,
         connect_args=connect_args,
+        # 커넥션 풀 설정: 기본 10개, 최대 20개, 재활용 5분
+        pool_size=1 if is_sqlite else 10,
+        max_overflow=0 if is_sqlite else 20,
+        pool_recycle=300,
+        pool_pre_ping=True,
+        pool_timeout=10,
     )
     _async_session = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
     logger.info("AsyncSQLAlchemy engine 초기화 완료")

@@ -6,6 +6,7 @@ canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §8
 
 import asyncio
 import logging
+import time
 from uuid import uuid4
 
 from fastapi import (
@@ -50,6 +51,26 @@ _generation_owners: dict[str, int] = {}
 
 # 프로젝트 매핑: {project_id: generation_id} (활성 생성만)
 _project_generations: dict[int, str] = {}
+
+# 완료 시각 기록: {generation_id: timestamp}
+_completion_times: dict[str, float] = {}
+
+# 완료 후 10분 뒤 자동 정리
+_CLEANUP_TTL = 600
+
+
+def _cleanup_stale_states() -> None:
+    """완료된 generation 상태를 TTL 후 정리."""
+    now = time.time()
+    stale = [gid for gid, t in _completion_times.items() if now - t > _CLEANUP_TTL]
+    for gid in stale:
+        _generation_states.pop(gid, None)
+        _generation_owners.pop(gid, None)
+        _completion_times.pop(gid, None)
+        # _project_generations에서도 제거
+        to_remove = [pid for pid, g in _project_generations.items() if g == gid]
+        for pid in to_remove:
+            _project_generations.pop(pid, None)
 
 
 def _on_progress(generation_id: str, event: dict) -> None:
@@ -119,6 +140,7 @@ async def _run_generation_in_background(
             final_message=final_state.get("final_message"),
             validation_errors=final_state.get("validation_errors", []),
         )
+        _completion_times[generation_id] = time.time()
 
     except Exception as exc:
         logger.exception("generation 실패: gen_id=%s", generation_id)
@@ -127,6 +149,7 @@ async def _run_generation_in_background(
             status="failed",
             error_message=str(exc),
         )
+        _completion_times[generation_id] = time.time()
         await publish_progress(
             generation_id,
             {
@@ -181,6 +204,7 @@ async def get_generation_status(
     current_user: User = Depends(get_current_user),
 ) -> GenerationStatusResponse:
     """진행 상황 폴링."""
+    _cleanup_stale_states()
     state = _generation_states.get(generation_id)
     if state is None or _generation_owners.get(generation_id) != current_user.id:
         raise HTTPException(status_code=404, detail="생성 작업을 찾을 수 없습니다.")
