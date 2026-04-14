@@ -15,7 +15,6 @@ const CATEGORIES = [
   {
     label: '월드',
     prompts: [
-      '초원 마을 맵을 만들어줘.',
       '체력 포션 아이템을 추가해줘.',
     ],
   },
