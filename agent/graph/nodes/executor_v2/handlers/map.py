@@ -141,9 +141,12 @@ def _create_map(data_path: Path, info: dict) -> dict[str, Any]:
             try:
                 # 파일 복사
                 shutil.copy2(src_path, map_fp)
-                # 복사된 파일의 displayName 수정
+                # 복사된 파일의 displayName 수정 및 이벤트 초기화
                 map_data = json.loads(map_fp.read_text(encoding="utf-8"))
                 map_data["displayName"] = name
+                # 샘플맵의 기존 이벤트를 모두 제거 (깨진 워프 방지)
+                map_data["events"] = [None]
+
                 map_fp.write_text(
                     json.dumps(map_data, ensure_ascii=False, separators=(",", ":")),
                     encoding="utf-8",
