@@ -1636,6 +1636,22 @@ def test_create_enemy_sync_params_validation_fail(tmp_path):
     assert "스키마" in r["stderr"] or "검증" in r["stderr"]
 
 
+def test_map_mcp_resolve_and_normalize():
+    """MapNNN.json → MCP 맵 툴 매핑 및 mapId 정규화."""
+    executor_module = importlib.import_module("agent.graph.nodes.executor")
+    assert executor_module._parse_map_id_from_target_file("Map003.json") == 3
+    assert executor_module._parse_map_id_from_target_file("map001.json") == 1
+    assert executor_module._parse_map_id_from_target_file("Actors.json") is None
+    e = executor_module._resolve_mcp_map_file_entry("Map003.json", "query")
+    assert e is not None and e["tool"] == "get_map"
+    n = executor_module._normalize_mcp_arguments("Map003.json", "query", {})
+    assert n == {"mapId": 3}
+    n2 = executor_module._normalize_mcp_arguments(
+        "Map001.json", "create_event", {"name": "NPC", "x": 5, "y": 7}
+    )
+    assert n2["mapId"] == 1 and n2["name"] == "NPC" and n2["x"] == 5 and n2["y"] == 7
+
+
 if __name__ == "__main__":
     # 단독 실행시 테스트
     print("=" * 60)
