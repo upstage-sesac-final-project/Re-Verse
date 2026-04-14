@@ -57,9 +57,11 @@ def _align_map_types_with_game_spec(map_specs: list[MapSpec], game_spec: GameSpe
             game_type = raw_type if raw_type in {"town", "dungeon"} else "dungeon"
         else:
             game_type = "dungeon"
-        # 첫 번째 맵은 항상 town
+        # 첫 번째 맵은 항상 town, 마지막 맵은 항상 boss
         if i == 0:
             game_type = "town"
+        elif i == len(sorted_specs) - 1:
+            game_type = "boss"
         if ms.map_type != game_type:
             logger.info(
                 "_align_map_types: map_id=%d '%s' 타입 보정 %s → %s",

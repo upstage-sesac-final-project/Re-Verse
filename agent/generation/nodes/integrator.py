@@ -712,6 +712,7 @@ def translate_map_ids(
 
     # 리다이렉션할 기본 목적지 후보들 (ID 리스트)
     valid_ids = sorted(id_mapping.values())
+    valid_new_ids = set(id_mapping.values())  # event_compiler가 이미 할당한 새 ID 집합
     fallback_id = valid_ids[0]  # 기본값: 첫 번째 맵
 
     events = map_json.get("events", [])
@@ -729,8 +730,13 @@ def translate_map_ids(
                         # 1. 맵 ID 번역
                         old_map_id = params[1]
                         if old_map_id in id_mapping:
+                            # 샘플 맵 원본 ID → 게임 내 새 ID로 번역
                             params[1] = id_mapping[old_map_id]
+                        elif old_map_id in valid_new_ids:
+                            # event_compiler가 이미 새 ID를 사용한 경우 → 그대로 유지
+                            pass
                         else:
+                            # 진짜 존재하지 않는 맵 참조만 fallback
                             params[1] = fallback_id
                             logger.info(
                                 "후처리 리다이렉션: 존재하지 않는 맵 참조 %d를 유효한 맵 %d로 변경했습니다.",
