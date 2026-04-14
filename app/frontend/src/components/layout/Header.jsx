@@ -1,12 +1,15 @@
+import { useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate, Link } from 'react-router-dom'
 import { logoutUser } from '../../store/userSlice'
+import BugReportModal from '../common/BugReportModal'
 
 export default function Header() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
   const { isAuthenticated, user } = useSelector((s) => s.user)
   const currentProject = useSelector((s) => s.game.currentProject)
+  const [bugOpen, setBugOpen] = useState(false)
 
   async function handleLogout() {
     await dispatch(logoutUser())
@@ -47,6 +50,13 @@ export default function Header() {
                 관리자
               </Link>
             )}
+            <button
+              onClick={() => setBugOpen(true)}
+              className="re-nav-link text-xs px-3 py-1.5"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              버그리포트
+            </button>
             <Link
               to="/docs"
               className="re-nav-link text-xs px-3 py-1.5"
@@ -98,6 +108,7 @@ export default function Header() {
           </>
         )}
       </div>
+      {bugOpen && <BugReportModal onClose={() => setBugOpen(false)} />}
     </header>
   )
 }
