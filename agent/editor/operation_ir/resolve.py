@@ -1,4 +1,4 @@
-"""GameIndex 기반 operation IR 후처리 — Definition 노드 내부에서 호출되는 결정론 헬퍼.
+"""operation_ir 후처리 (Step 9) — GameIndex 기반 id/file/ref 확정.
 
 `apply_index_resolution(ops, game_id)` 가 entry point.
 operation_tuples 를 받아:
@@ -6,7 +6,8 @@ operation_tuples 를 받아:
   2. subject.name 만 있고 file 이 잘못된 경우 → 다른 파일에서 검색하여 교정 (단, action='create' 면 skip)
   3. value.ref 를 GameIndex 로 해소 (System.json 타입 또는 엔티티 ID)
 
-LLM 호출 0회, 순수 결정론. 과거에는 graph node 였으나 Definition 내부 단계로 통합됨.
+LLM 호출 0회, 순수 결정론. Definition Step 9 로 통합돼 호출된다.
+(과거 파일 위치: `agent/editor/nodes/game_index_resolve.py`)
 """
 
 from __future__ import annotations

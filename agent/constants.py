@@ -12,7 +12,7 @@ from typing import Any
 # 카테고리 ↔ 파일 매핑
 # ──────────────────────────────────────────────
 
-# 사용: definition.py, game_index_resolve.py
+# 사용: definition.py, operation_ir/resolve.py, operation_ir/normalize.py
 CATEGORY_TO_FILE: dict[str, str] = {
     "actor": "Actors.json",
     "enemy": "Enemies.json",
@@ -113,7 +113,7 @@ SYSTEM_TYPE_ARRAYS: dict[str, str] = {
     "equipTypes": "equipTypes",
 }
 
-# 사용: game_index_resolve.py
+# 사용: operation_ir/resolve.py
 KIND_TO_SYSTEM_KEY: dict[str, str] = {
     "element": "elements",
     "weapon_type": "weaponTypes",
@@ -360,7 +360,7 @@ FIELD_REROUTE_FIXES: dict[str, dict[str, str | dict]] = {
 }
 
 # ──────────────────────────────────────────────
-# 한국어 property → RPG Maker field 매핑 (definition Step 4.6)
+# 한국어 property → RPG Maker field 매핑
 # ──────────────────────────────────────────────
 
 # 사용: definition.py

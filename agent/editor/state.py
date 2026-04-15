@@ -34,7 +34,7 @@ class AgentState(TypedDict, total=False):
     extracted_ids: dict  # 이름→ID 매핑 (예: {"enemy_id": 1})
     params_sufficient: bool  # 파라미터 충분 여부
 
-    # ── 2.5단계 Operation IR (definition → game_index_resolve → planner) ──
+    # ── 2.5단계 Operation IR (definition → operation_ir.resolve → planner) ──
     operation_tuples: list[dict]  # 정규화된 operation IR
     plan_meta: dict  # planner → validator (op_idx → step_ids 역매핑)
 
