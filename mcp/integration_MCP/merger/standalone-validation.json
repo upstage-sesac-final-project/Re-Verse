@@ -1,0 +1,19 @@
+{
+  "generatedAt": "2026-04-13T00:24:25.186Z",
+  "ok": true,
+  "checks": [
+    {
+      "name": "no_relative_file_deps",
+      "ok": true,
+      "details": []
+    },
+    {
+      "name": "entry_no_sibling_import",
+      "ok": true
+    },
+    {
+      "name": "toolmap_internal_imports_only",
+      "ok": true
+    }
+  ]
+}

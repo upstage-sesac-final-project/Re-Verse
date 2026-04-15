@@ -1,0 +1,61 @@
+{
+  "description": "워크스페이스 내 4개 MCP 폴더의 역할과 등록 툴 개요. 단일 MCP 통합 시 포팅 우선순위 판단용.",
+  "sources": {
+    "mcp1_hyphen_rpgmaker": {
+      "folder": "../-rpgmaker-mz-mcp",
+      "role": "DB/맵/시스템 조회·검색 중심 (get_actors, get_map, update_map_event 등)",
+      "entry": "src/index.ts",
+      "toolCountApprox": 35,
+      "notes": "툴 이름이 get_/create_/update_/search_ 패턴. 통합 시 canonical(list_*, create_*)와 alias로 매핑."
+    },
+    "mcp2_rpgmaker_extended": {
+      "folder": "../rpgmaker-mz-mcp",
+      "role": "프로젝트 분석·생성·시나리오·Gemini 자산·리소스 레지스트리 등 확장 툴",
+      "entry": "src/index.ts",
+      "toolCountApprox": 32,
+      "notes": "list_projects, generate_*, autonomous_create_game, analyze_assets 등. 외부 API·장기 작업 의존. generation 프로파일 후보."
+    },
+    "mcp3_rpgmaker_mz_mcp_base": {
+      "folder": ".",
+      "role": "통합 베이스 서버 (현재 유일하게 완성된 핸들러 연결)",
+      "entry": "index.ts",
+      "implementationKeys": 28,
+      "notes": "handlers/, utils/, playtest, undo, 이벤트 추상화. 단일 MCP의 실행 루트."
+    },
+    "mcp4_mcp_maker": {
+      "folder": "../MCP-Maker",
+      "role": "McpServer + zod, 엔진 경로·스캔·DB CRUD (get_database_info, install_plugin 등)",
+      "entry": "src/index.ts",
+      "toolCountApprox": 28,
+      "notes": "RPGMAKER_PROJECT_PATH 필수. get_maps/create_map/update_map, scan_dlc_packages 등 엔진 연동. engine 프로파일 후보."
+    }
+  },
+  "namingConflictsExamples": [
+    {
+      "topic": "액터 목록",
+      "mcp1": "get_actors",
+      "mcp4": "get_actors",
+      "unifiedCanonical": "list_actors",
+      "aliases": ["get_actors"]
+    },
+    {
+      "topic": "액터 생성",
+      "mcp3": "add_actor (구현 키)",
+      "mcp4": "create_actor",
+      "unifiedCanonical": "create_actor",
+      "implementationMapping": "create_actor -> add_actor (현재 index.ts)"
+    },
+    {
+      "topic": "맵 목록",
+      "mcp4": "get_maps",
+      "unifiedCanonical": "list_maps",
+      "aliases": ["get_maps"]
+    }
+  ],
+  "mergeOrderRecommendation": [
+    "Phase A: 순수 JSON/data 읽기·쓰기 (MCP1/4와 겹치는 DB 툴)",
+    "Phase B: 맵·이벤트 고급 (MCP1 get_map_event 등 + MCP3 이벤트 추상화와 통합)",
+    "Phase C: 엔진·스캔 (MCP4 resourceTools, pluginTools — 환경변수 분기)",
+    "Phase D: 생성·AI·시나리오 (MCP2 — API 키, 프로파일 기본 off)"
+  ]
+}

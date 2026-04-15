@@ -1,0 +1,296 @@
+{
+    "101": {
+        "name": "문장 표시",
+        "description": "메시지 창에 텍스트 표시",
+        "parameters": [
+            {
+                "index": 0,
+                "name": "FaceImageName",
+                "type": "string",
+                "desc": "얼굴 그래픽 파일 이름"
+            },
+            {
+                "index": 1,
+                "name": "FaceImageIndex",
+                "type": "number",
+                "desc": "얼굴 그래픽 인덱스(0-7)"
+            },
+            {
+                "index": 2,
+                "name": "Background",
+                "type": "number",
+                "desc": "0:창, 1: 어둡게, 2:투명"
+            },
+            {
+                "index": 3,
+                "name": "PositionType",
+                "type": "number",
+                "desc": "0:上, 1:中, 2:下"
+            }
+        ],
+        "next": "code 401에서 텍스트 줄 계속"
+    },
+    "401": {
+        "name": "문장 표시(계속)",
+        "description": "code 101 뒤에 오는 텍스트 줄",
+        "parameters": [
+            {
+                "index": 0,
+                "name": "Text",
+                "type": "string",
+                "desc": "표시할 텍스트"
+            }
+        ]
+    },
+    "102": {
+        "name": "선택사항 표시",
+        "description": "선택을 표시하고 플레이어 선택에 따라 분기",
+        "parameters": [
+            {
+                "index": 0,
+                "name": "Choices",
+                "type": "array<string>",
+                "desc": "옵션의 텍스트 배열(최대 6개)"
+            },
+            {
+                "index": 1,
+                "name": "CancelType",
+                "type": "number",
+                "desc": "-1:금지, 0-5:선택지수"
+            }
+        ],
+        "next": "code 402(When), 403(Cancel), 404(End)로 분기 구조 구축"
+    },
+    "402": {
+        "name": "When",
+        "description": "선택 사례",
+        "parameters": [
+            {
+                "index": 0,
+                "name": "ResultIndex",
+                "type": "number",
+                "desc": "선택 색인"
+            },
+            {
+                "index": 1,
+                "name": "ChoiceText",
+                "type": "string",
+                "desc": "선택 텍스트"
+            }
+        ],
+        "indent": "+1로 내용 작성"
+    },
+    "403": {
+        "name": "When Cancel",
+        "description": "취소 시 케이스",
+        "parameters": [
+            {
+                "index": 0,
+                "name": "CancelBehavior",
+                "type": "number",
+                "desc": "일반적으로 4"
+            }
+        ]
+    },
+    "404": {
+        "name": "End",
+        "description": "분기 종료",
+        "parameters": []
+    },
+    "121": {
+        "name": "스위치 작업",
+        "description": "게임 스위치 켜기/끄기",
+        "parameters": [
+            {
+                "index": 0,
+                "name": "StartSwitchId",
+                "type": "number",
+                "desc": "시작 스위치 ID"
+            },
+            {
+                "index": 1,
+                "name": "EndSwitchId",
+                "type": "number",
+                "desc": "종료 스위치 ID(단일 경우 시작과 동일)"
+            },
+            {
+                "index": 2,
+                "name": "Value",
+                "type": "number",
+                "desc": "0:ON, 1:OFF"
+            }
+        ]
+    },
+    "122": {
+        "name": "변수 작업",
+        "description": "게임 변수에 값 할당 또는 연산",
+        "parameters": [
+            {
+                "index": 0,
+                "name": "StartVariableId",
+                "type": "number"
+            },
+            {
+                "index": 1,
+                "name": "EndVariableId",
+                "type": "number"
+            },
+            {
+                "index": 2,
+                "name": "OperationType",
+                "type": "number",
+                "desc": "0:代入, 1:加算, 2:減算, 3:乗算, 4:除算, 5:剰余"
+            },
+            {
+                "index": 3,
+                "name": "OperandType",
+                "type": "number",
+                "desc": "0:定数, 1:変数"
+            },
+            {
+                "index": 4,
+                "name": "Operand",
+                "type": "number",
+                "desc": "값 또는 변수 ID"
+            }
+        ]
+    },
+    "231": {
+        "name": "그림 표시",
+        "description": "화면에 그림 표시",
+        "parameters": [
+            {
+                "index": 0,
+                "name": "PictureId",
+                "type": "number",
+                "desc": "그림 번호(1-100)"
+            },
+            {
+                "index": 1,
+                "name": "ImageName",
+                "type": "string",
+                "desc": "이미지 파일 이름(확장자 없음)"
+            },
+            {
+                "index": 2,
+                "name": "Origin",
+                "type": "number",
+                "desc": "0:左上, 1:中心"
+            },
+            {
+                "index": 3,
+                "name": "ApointmentType",
+                "type": "number",
+                "desc": "0:直接指定, 1:変数指定"
+            },
+            {
+                "index": 4,
+                "name": "X",
+                "type": "number",
+                "desc": "X座標"
+            },
+            {
+                "index": 5,
+                "name": "Y",
+                "type": "number",
+                "desc": "Y座標"
+            },
+            {
+                "index": 6,
+                "name": "ScaleX",
+                "type": "number",
+                "desc": "폭 확대율(%)"
+            },
+            {
+                "index": 7,
+                "name": "ScaleY",
+                "type": "number",
+                "desc": "높이 확대율(%)"
+            },
+            {
+                "index": 8,
+                "name": "Opacity",
+                "type": "number",
+                "desc": "不透明度(0-255)"
+            },
+            {
+                "index": 9,
+                "name": "BlendMode",
+                "type": "number",
+                "desc": "0: 보통, 1: 더하기, 2: 곱하기, 3: 스크린"
+            }
+        ]
+    },
+    "0": {
+        "name": "Empty",
+        "description": "이벤트 목록의 끝 또는 자리 표시자",
+        "parameters": [],
+        "note": "모든 이벤트 목록은 code: 0으로 끝나야 합니다"
+    },
+    "112": {
+        "name": "루프",
+        "description": "블록의 처리를 무한대로 반복",
+        "parameters": [],
+        "next": "code 413(Repeat Above)로 닫기"
+    },
+    "413": {
+        "name": "이상 반복",
+        "description": "루프 종료",
+        "parameters": [],
+        "indent": "-1"
+    },
+    "113": {
+        "name": "루프 중단",
+        "description": "가장 안쪽 루프 탈출",
+        "parameters": []
+    },
+    "111": {
+        "name": "条件分岐",
+        "description": "조건을 충족하거나 그렇지 않은 경우 처리를 분리",
+        "parameters": [
+            {
+                "index": 0,
+                "name": "Code",
+                "type": "number",
+                "desc": "조건 코드 (0: 스위치, 1: 변수, etc.)"
+            },
+            {
+                "index": 1,
+                "name": "DataA",
+                "type": "number",
+                "desc": "데이터 A(스위치 ID, 변수 ID 등)"
+            },
+            {
+                "index": 2,
+                "name": "Operation",
+                "type": "number",
+                "desc": "비교 연산자 (0: 동일, 1: 이상, etc.)"
+            },
+            {
+                "index": 3,
+                "name": "DataB",
+                "type": "number",
+                "desc": "데이터 B(상수, 변수 ID 등)"
+            },
+            {
+                "index": 4,
+                "name": "Class",
+                "type": "number",
+                "desc": "확장 데이터"
+            }
+        ],
+        "next": "code 411(Else), 412(Branch End)로 분기 구조 구축"
+    },
+    "411": {
+        "name": "그 이외의 경우",
+        "description": "조건을 충족하지 않는 경우 처리",
+        "parameters": [],
+        "indent": "분기 들여쓰기 조정"
+    },
+    "412": {
+        "name": "分岐終了",
+        "description": "조건 분기 종료",
+        "parameters": [],
+        "indent": "-1"
+    }
+}
