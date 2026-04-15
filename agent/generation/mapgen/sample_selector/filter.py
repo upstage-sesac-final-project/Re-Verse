@@ -15,7 +15,7 @@ _METADATA_PATH = Path(__file__).parents[1] / "data" / "map_metadata.json"
 
 # 룰 점수 가중치 (PLAN.md §4.1)
 W_TILESET = 2.0
-W_TAG = 3.0
+W_TAG = 5.0
 W_DESC = 1.0
 W_SCALE = 1.5
 
