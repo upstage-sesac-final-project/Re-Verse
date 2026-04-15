@@ -1,6 +1,9 @@
 """I 노드 — generation_validator: RPG Maker MZ 프로젝트 검증.
 
-11개 검증 함수 (error: 재시도 대상, warning: 통과 후 메시지 포함).
+검증 함수 구성:
+  error(11): R_NULL, R1, array_lengths, R16, R17, R18, R19, R23, R26, R27, R28
+  warning(4): balance, R20, R22, R24
+  직접 호출(1): R25 (map reachability)
 auto-repair 우선 적용 후 남은 오류만 retry 라우팅.
 canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §4.I
 canonical: docs/The_world/risks_and_mitigations.md
@@ -9,6 +12,8 @@ canonical: docs/The_world/game_ending_design.md §check_ending_reachable
 """
 
 import logging
+import os
+import struct
 from collections import deque
 
 from agent.generation.balance import check_balance as simulate_check_balance
@@ -24,6 +29,56 @@ MAX_RETRY = 2
 
 # 이 오류들이 MAX_RETRY 도달 시에도 남아 있으면 게임 진행 불가 → 강제 실패
 _CRITICAL_TAGS: frozenset[str] = frozenset({"R1", "R_NULL", "R16", "R18"})
+
+# ── 전투 화면 크기 / 배틀러 스프라이트 높이 테이블 (R17 검증·교정 기준) ────
+_BATTLE_W: int = 816  # 전투 배경 가로 (px)
+_BATTLE_H: int = 624  # 전투 배경 세로 (px)
+_DEFAULT_SPRITE_HALF_H: int = 96  # battlerName 미매핑 시 기본값 (보수적으로 큰 쪽)
+
+
+def _build_battler_height_table() -> dict[str, int]:
+    """base_game/img/enemies/*.png 헤더만 읽어 battlerName → 스프라이트 높이(px) 매핑 구축.
+
+    PNG IHDR 청크는 파일 선두 24바이트에 위치하므로 I/O 비용이 극히 낮다.
+    모듈 임포트 시 1회 실행 후 _BATTLER_HEIGHTS 상수에 캐싱된다.
+    EC2 로컬 storage/games/base_game 경로 기준; 경로 없으면 빈 dict 반환.
+    """
+    table: dict[str, int] = {}
+    base = os.path.normpath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "..",
+            "storage",
+            "games",
+            "base_game",
+            "img",
+            "enemies",
+        )
+    )
+    if not os.path.isdir(base):
+        logger.debug("_build_battler_height_table: 경로 없음 → 기본값 사용 (%s)", base)
+        return table
+    for fname in os.listdir(base):
+        if not fname.endswith(".png"):
+            continue
+        try:
+            with open(os.path.join(base, fname), "rb") as f:
+                if f.read(8) != b"\x89PNG\r\n\x1a\n":
+                    continue
+                f.read(8)  # IHDR length + type
+                f.read(4)  # width
+                h = struct.unpack(">I", f.read(4))[0]
+            table[fname[:-4]] = h
+        except OSError:
+            pass
+    logger.debug("_build_battler_height_table: %d개 배틀러 높이 로드 완료", len(table))
+    return table
+
+
+# 모듈 로드 시 1회 구축 (EC2 로컬 디스크 I/O, ~수 ms)
+_BATTLER_HEIGHTS: dict[str, int] = _build_battler_height_table()
 
 # ── Array 파일 목록 (R_NULL 검증 대상) ───────────────────────────────────────
 _ARRAY_FILES = [
@@ -189,8 +244,21 @@ def _auto_repair_start_position(final_project: dict, map_tiles: dict[int, list[i
     return final_project
 
 
+def _get_battler_name(final_project: dict, enemy_id: int) -> str:
+    """Enemies.json에서 enemyId에 해당하는 battlerName 반환."""
+    for enemy in final_project.get("Enemies.json", []):
+        if isinstance(enemy, dict) and enemy.get("id") == enemy_id:
+            return enemy.get("battlerName", "")
+    return ""
+
+
 def _check_troop_positions(final_project: dict) -> list[str]:
-    """Troops.json members 좌표가 valid range 내인지 검증 (R17)."""
+    """Troops.json members 좌표가 전투 화면 범위 내인지, 스프라이트 실제 높이 기준 상단 잘림 없는지 검증 (R17).
+
+    RPG Maker MZ 전투에서 적 스프라이트는 중심점이 (x, y)에 위치하므로
+    y < sprite_height / 2 이면 상체가 화면 위로 잘린다.
+    _BATTLER_HEIGHTS 테이블에 없는 경우 보수적 기본값(_DEFAULT_SPRITE_HALF_H)을 사용.
+    """
     errors = []
     troops = final_project.get("Troops.json", [])
     for troop in troops:
@@ -198,9 +266,19 @@ def _check_troop_positions(final_project: dict) -> list[str]:
             continue
         for member in troop.get("members", []):
             x, y = member.get("x", 0), member.get("y", 0)
-            if not (0 <= x <= 816 and 0 <= y <= 816):
+            enemy_id = member.get("enemyId", 0)
+            battler_name = _get_battler_name(final_project, enemy_id)
+            sprite_h = _BATTLER_HEIGHTS.get(battler_name, _DEFAULT_SPRITE_HALF_H * 2)
+            half_h = sprite_h // 2
+
+            if not (0 <= x <= _BATTLE_W):
                 errors.append(
-                    f"[R17] Troops '{troop.get('name', '?')}' member 좌표 ({x},{y}) 범위 초과"
+                    f"[R17] Troops '{troop.get('name', '?')}' member x={x} 범위 초과 (0-{_BATTLE_W})"
+                )
+            if not (half_h <= y <= _BATTLE_H):
+                errors.append(
+                    f"[R17] Troops '{troop.get('name', '?')}' member y={y} "
+                    f"범위 초과 ({half_h}-{_BATTLE_H}, 스프라이트 높이={sprite_h}px) — 상단 잘림 위험"
                 )
     return errors
 
@@ -985,6 +1063,42 @@ def _auto_repair_ending_event(
     return compiled_events, final_project
 
 
+def _auto_repair_troop_positions(final_project: dict) -> dict:
+    """R17: Troops.json member 좌표를 스프라이트 실제 높이 기준 전투 화면 내로 클램핑.
+
+    y < sprite_height / 2 이면 상체가 잘리므로 min_y = sprite_height // 2 로 보정.
+    _BATTLER_HEIGHTS 테이블 미등록 시 _DEFAULT_SPRITE_HALF_H(96) 적용.
+    """
+    troops = final_project.get("Troops.json", [])
+    for troop in troops:
+        if troop is None:
+            continue
+        for member in troop.get("members", []):
+            x, y = member.get("x", 0), member.get("y", 0)
+            enemy_id = member.get("enemyId", 0)
+            battler_name = _get_battler_name(final_project, enemy_id)
+            sprite_h = _BATTLER_HEIGHTS.get(battler_name, _DEFAULT_SPRITE_HALF_H * 2)
+            half_h = sprite_h // 2
+
+            new_x = max(0, min(x, _BATTLE_W))
+            new_y = max(half_h, min(y, _BATTLE_H))
+
+            if new_x != x or new_y != y:
+                logger.warning(
+                    "auto_repair R17: Troops '%s' member (%d,%d) → (%d,%d) [%s, 스프라이트 높이=%dpx]",
+                    troop.get("name", "?"),
+                    x,
+                    y,
+                    new_x,
+                    new_y,
+                    battler_name or "?",
+                    sprite_h,
+                )
+                member["x"] = new_x
+                member["y"] = new_y
+    return final_project
+
+
 # ── 경고 전용 검증 ────────────────────────────────────────────────────────────
 
 
@@ -1177,7 +1291,7 @@ async def generation_validator(state: GenerationState) -> dict:
     map_specs: list[MapSpec] = state.get("map_specs") or []
     map_tiles: dict[int, list[int]] = state.get("map_tiles") or {}
     compiled_events: dict[int, list[dict]] = state.get("compiled_events") or {}
-    connection_info: dict[int, MapConnectionInfo] = state.get("connection_info") or {}
+    connection_info: dict[int, MapConnectionInfo] | None = state.get("connection_info") or None
     # event_dsl: event_planner가 실행된 경우에만 존재 (샘플맵 phase_limit="maps" 등은 None)
     event_dsl: dict[int, list] | None = state.get("event_dsl")
     retry_count: int = state.get("retry_count", 0)
@@ -1194,7 +1308,7 @@ async def generation_validator(state: GenerationState) -> dict:
         map_tiles,
         compiled_events,
         event_dsl=event_dsl,
-        connection_info=connection_info or None,
+        connection_info=connection_info,
     )
 
     # ── 2단계: auto-repair (LLM retry 없이 인-플레이스 수정) ─────────────────
@@ -1215,6 +1329,11 @@ async def generation_validator(state: GenerationState) -> dict:
     if "R28" in tags:
         final_project = _auto_repair_party_members(final_project)
         repaired_tags.add("R28")
+
+    # R17: Troop member 좌표 전투 화면 밖 → 스프라이트 크기 기준 클램핑 (LLM 없음)
+    if "R17" in tags:
+        final_project = _auto_repair_troop_positions(final_project)
+        repaired_tags.add("R17")
 
     # R19: characterName/faceName 공백 → 언더스코어 교정 (LLM 없음)
     if "R19" in tags:
@@ -1253,7 +1372,7 @@ async def generation_validator(state: GenerationState) -> dict:
                 compiled_events=compiled_events,
                 final_project=final_project,
                 map_specs=map_specs,
-                connection_info=connection_info,
+                connection_info=connection_info or {},
                 id_table=id_table,
             )
             for name in iso_names:
@@ -1268,11 +1387,14 @@ async def generation_validator(state: GenerationState) -> dict:
         repaired_tags.add("R23")
 
     # R22: 좌표 중복 → reachable 좌표로 재배치 (retry 대신 인-플레이스 수정)
-    if "R22" in tags and compiled_events:
-        compiled_events = _auto_repair_coordinate_conflicts(
-            compiled_events, final_project, map_specs, map_tiles
-        )
-        repaired_tags.add("R22")
+    # R22 check는 warning 경로에 있어 tags에 포함 안 됨 → 직접 재검증으로 트리거
+    if compiled_events:
+        _r22_conflicts = _check_event_coordinate_conflicts(compiled_events)
+        if _r22_conflicts:
+            compiled_events = _auto_repair_coordinate_conflicts(
+                compiled_events, final_project, map_specs, map_tiles
+            )
+            repaired_tags.add("R22")
 
     # repair가 하나라도 있으면 state 업데이트
     if repaired_tags or _r25_repaired:
@@ -1290,7 +1412,7 @@ async def generation_validator(state: GenerationState) -> dict:
             map_tiles,
             compiled_events,
             event_dsl=event_dsl,
-            connection_info=connection_info or None,
+            connection_info=connection_info,
         )
         logger.info(
             "generation_validator: auto-repair 적용 후 재검증 (repaired=%s, r25=%s, remaining=%d)",
@@ -1298,6 +1420,24 @@ async def generation_validator(state: GenerationState) -> dict:
             _r25_repaired,
             len(errors),
         )
+
+        # R25 재검증: 워프 삽입 후 고립 해소 여부 확인
+        if _r25_repaired and map_specs and compiled_events:
+            still_isolated = _check_map_reachability(compiled_events, map_specs, id_table)
+            if still_isolated:
+                iso_names = [
+                    next(
+                        (s.name for s in map_specs if id_table.get_id("maps", s.name) == mid),
+                        f"Map{mid}",
+                    )
+                    for mid in still_isolated
+                ]
+                logger.warning(
+                    "generation_validator: R25 재검증 — 워프 삽입 후에도 고립 맵 잔존: %s",
+                    iso_names,
+                )
+                for name in iso_names:
+                    warnings.append(f"[R25] 워프 삽입 후에도 고립 맵 잔존: '{name}'")
 
     # ── warning 검증 (통과, 메시지만) ────────────────────────────────────────
     warnings.extend(_check_balance(final_project))
@@ -1364,7 +1504,7 @@ async def generation_validator(state: GenerationState) -> dict:
 def route_after_validation(state: GenerationState) -> str:
     """validator 이후 라우팅 결정.
 
-    auto-repair 대상(R_NULL / R1 / R19 / R22 / R23 / R25)은
+    auto-repair 대상(R16 / R17 / R18 / R19 / R_NULL / R1 / R22 / R23 / R25 / R28)은
     generation_validator 내에서 인-플레이스 수정 후 재검증을 거침.
     여기서는 repair 후에도 남은 오류만 retry 라우팅.
     """
