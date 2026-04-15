@@ -35,5 +35,7 @@ jobs:
             export DOCKER_BUILDKIT=1
             export COMPOSE_DOCKER_CLI_BUILD=1
             docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-            # 사용 안 하는(dangling) 이미지 정리 — builder 캐시와는 별개
-            docker image prune -f
+            # 미사용 이미지 정리 (24시간 지난 항목 위주)
+            docker image prune -af --filter "until=24h"
+            # BuildKit 캐시를 24시간 기준으로 정리하되, 총 1GB는 유지
+            docker builder prune -af --filter "until=24h" --keep-storage 1GB
