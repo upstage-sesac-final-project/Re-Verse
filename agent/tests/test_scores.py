@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 @pytest.mark.parametrize("query", ["마을", "교실"])
 async def test_map_score_distribution(query):
     """맵 필터링 점수 분포 검증 테스트"""

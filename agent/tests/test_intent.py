@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 @pytest.mark.parametrize("query", ["마을", "교실", "사막 던전"])
 async def test_intent_extraction_logic(query):
     """의도 추출 및 후보 맵 필터링 로직 검증 테스트"""
