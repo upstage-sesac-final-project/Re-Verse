@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { useSelector } from 'react-redux'
+import Tetris from '../common/Tetris'
 
 const PHASE_ORDER = [
   { key: 'spec', label: 'A. 게임 기획' },
@@ -42,6 +44,32 @@ function PhaseList({ completedPhases, currentPhase }) {
   )
 }
 
+function TetrisButton() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button onClick={() => setOpen(true)}
+        className="w-full py-2 text-xs rounded-lg transition-colors"
+        style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+        기다리는 동안 테트리스 한 판?
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/70" onClick={() => setOpen(false)} />
+          <div className="relative flex flex-col items-center gap-3">
+            <button onClick={() => setOpen(false)}
+              className="absolute -top-2 -right-2 w-7 h-7 rounded-full flex items-center justify-center text-sm z-10"
+              style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+              ✕
+            </button>
+            <Tetris />
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 export default function GenerationProgress() {
   const { status, progress, message, completedPhases, currentPhase, queuePosition, queueWaitSeconds } =
     useSelector((s) => s.generation)
@@ -70,6 +98,8 @@ export default function GenerationProgress() {
           <p className="text-xs font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>노드 실행 현황</p>
           <PhaseList completedPhases={[]} currentPhase="" />
         </div>
+
+        <TetrisButton />
       </div>
     )
   }
@@ -105,9 +135,12 @@ export default function GenerationProgress() {
       </div>
 
       {!isDone && (
-        <p className="text-xs text-center" style={{ color: 'var(--text-secondary)' }}>
-          게임 생성에는 약 5~10분이 소요됩니다.
-        </p>
+        <>
+          <p className="text-xs text-center" style={{ color: 'var(--text-secondary)' }}>
+            게임 생성에는 약 5~10분이 소요됩니다.
+          </p>
+          <TetrisButton />
+        </>
       )}
     </div>
   )
