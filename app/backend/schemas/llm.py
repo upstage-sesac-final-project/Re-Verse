@@ -15,7 +15,7 @@ class UserInputRequest(BaseModel):
     """사용자 입력 요청 (Frontend -> Backend)"""
 
     project_id: int = Field(..., description="프로젝트 DB ID")
-    message: str = Field(..., description="유저 입력 프롬프트", min_length=1, max_length=500)
+    message: str = Field(..., description="유저 입력 프롬프트", min_length=1, max_length=1000)
 
 
 # ==================== Agent Response ====================
