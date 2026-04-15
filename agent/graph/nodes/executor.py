@@ -430,6 +430,15 @@ def _normalize_mcp_arguments(
     if target_file == "Actors.json" and action == "create":
         if "name" not in out and "actor_name" in out:
             out["name"] = out.pop("actor_name")
+        # 필수 이미지 에셋 필드 기본값 — 누락 시 pydantic 검증 실패.
+        # RPG Maker MZ 기본 프로젝트에 항상 존재하는 Actor1 시트를 사용한다.
+        # 사용자는 editor에서 변경 가능.
+        out.setdefault("faceName", "Actor1")
+        out.setdefault("faceIndex", 0)
+        out.setdefault("characterName", "Actor1")
+        out.setdefault("characterIndex", 0)
+        out.setdefault("battlerName", "Actor1_1")
+        out.setdefault("classId", 1)
         return out
 
     if target_file == "Actors.json" and action == "search":
@@ -1819,6 +1828,70 @@ async def _execute_one_structured_step(
                 "structured": True,
                 "timestamp": ts,
             }
+
+        # ── executor_v2(dispatch_step) 우선 시도 — entity CREATE 한정 ──
+        # MCP create 툴(create_actor 등)이 필수 필드(battlerName 등)를 drop하는
+        # 이슈로 entity CREATE 는 v2 를 기본 경로로 사용한다. UPDATE/QUERY/SEARCH 등
+        # 기존에 MCP로 검증된 경로는 그대로 MCP 우선을 유지한다.
+        _V2_FIRST_TARGETS: frozenset[tuple[str, str]] = frozenset(
+            {
+                ("Actors.json", "create"),
+                ("Enemies.json", "create"),
+                ("Items.json", "create"),
+                ("Weapons.json", "create"),
+                ("Armors.json", "create"),
+                ("Skills.json", "create"),
+                ("Classes.json", "create"),
+                ("States.json", "create"),
+            }
+        )
+        if (target_file, action) in _V2_FIRST_TARGETS:
+            try:
+                async with game_locks[game_id]:
+                    r_v2 = await asyncio.to_thread(
+                        dispatch_step, data_path, action, target_file, target_info
+                    )
+            except Exception as _v2_exc:  # noqa: BLE001
+                r_v2 = {"success": False, "error": f"dispatch_step 예외: {_v2_exc}"}
+            if r_v2.get("success"):
+                modified_files = r_v2.get("modified_files") or [target_file]
+                logger.info(
+                    "[Executor] v2 dispatch 성공: step=%d, action=%s, file=%s",
+                    sid,
+                    action,
+                    target_file,
+                )
+                # 후속 step 이 depends_on 으로 참조할 수 있도록 entity_id 를
+                # 파일별 legacy 키(actor_id / item_id / skill_id 등)로도 노출.
+                _v2_alias_key = {
+                    "Actors.json": "actor_id",
+                    "Items.json": "item_id",
+                    "Skills.json": "skill_id",
+                    "Weapons.json": "weapon_id",
+                    "Armors.json": "armor_id",
+                    "Enemies.json": "enemy_id",
+                    "Classes.json": "class_id",
+                    "States.json": "state_id",
+                }.get(target_file)
+                if _v2_alias_key and r_v2.get("entity_id") is not None:
+                    r_v2 = {**r_v2, _v2_alias_key: r_v2.get("entity_id")}
+                step_results[sid] = {**r_v2, "step_id": sid}
+                return {
+                    "step_id": sid,
+                    "tool_name": f"structured_{target_file.replace('.json', '').lower()}_{action}",
+                    "success": True,
+                    "stdout": str(r_v2.get("data", r_v2.get("message", ""))),
+                    "stderr": r_v2.get("error") or "",
+                    "entity_id": r_v2.get("entity_id"),
+                    "modified_files": modified_files,
+                    "structured": True,
+                    "timestamp": ts,
+                }
+            logger.info(
+                "[Executor] v2 dispatch 실패/미지원 → MCP 폴백 시도: step=%d err=%s",
+                sid,
+                r_v2.get("error"),
+            )
 
         # ── MCP 인터셉터: 켜져 있고 (파일, 액션) 매핑이 있으면 stdio MCP 우선 ──
         # 성공 시 즉시 반환. 실패·미설정 시 아래 Class/Actor/System 매니저로 폴백한다.
