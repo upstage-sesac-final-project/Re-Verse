@@ -9,6 +9,7 @@ CLI 사용:
 import argparse
 import asyncio
 import logging
+import random
 
 from agent.generation.mapgen.intent.extractor import extract_intent
 from agent.generation.mapgen.sample_selector.filter import DEFAULT_TOP_K, load_metadata, rule_filter
@@ -34,12 +35,26 @@ async def select_maps(
         for m in metadata
     }
 
-    # 2. 첫 번째 'Seed' 맵 선정 (가장 점수 높은 놈)
     if not candidates:
         return {"chosen": [], "candidates": []}
 
-    seed_file = candidates[0]["entry"]["file_name"]
+    # 2. 첫 번째 'Seed' 맵 선정 (임계값 기반 무작위 추출)
+    max_score = candidates[0]["score"]
+    # 1등 점수의 95% 이상인 맵들을 '동급' 후보군으로 간주
+    threshold = max_score * 0.95
+    top_candidates = [c for c in candidates if c["score"] >= threshold]
+
+    # 로그 출력: 어떤 후보들이 있었는지 확인
+    logger.info(
+        f"Seed 후보군 ({len(top_candidates)}개, 임계값 {threshold:.2f}): "
+        + ", ".join([f"{c['entry']['file_name']}({c['score']:.2f})" for c in top_candidates])
+    )
+
+    seed_cand = random.choice(top_candidates)
+    seed_file = seed_cand["entry"]["file_name"]
     chosen = [seed_file]
+
+    logger.info(f"최종 Seed 선택: {seed_file} (점수: {seed_cand['score']:.2f})")
 
     # 3. 연결된 맵 추적 (Chain Selection)
     current_file = seed_file
@@ -58,12 +73,11 @@ async def select_maps(
                     next_candidates.append(target_file)
 
         if next_candidates:
-            # 연결된 것 중 테마 점수가 가장 높은 것 선택 (간략화: 첫 번째 후보)
-            # TODO: 여기서도 rule_filter 점수를 참고하면 더 좋음
-            current_file = next_candidates[0]
+            # 연결된 것이 여러 개라면 무작위로 선택 (다양성 확보)
+            current_file = random.choice(next_candidates)
             chosen.append(current_file)
         else:
-            # 연결이 끊기면 다시 룰 필터에서 보충
+            # 연결이 끊기면 다시 룰 필터에서 보충 (이미 뽑힌 것 제외)
             for cand in candidates:
                 fn = cand["entry"]["file_name"]
                 if fn not in chosen:
