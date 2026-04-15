@@ -1,8 +1,19 @@
 import { StrictMode, Component } from 'react'
 import { createRoot } from 'react-dom/client'
 import { SpeedInsights } from '@vercel/speed-insights/react'
+import posthog from 'posthog-js'
 import './index.css'
 import App from './App'
+
+if (typeof window !== 'undefined' && import.meta.env.VITE_POSTHOG_KEY) {
+  posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
+    api_host: import.meta.env.VITE_POSTHOG_HOST || 'https://us.i.posthog.com',
+    person_profiles: 'always',
+    session_recording: {
+      maskAllInputs: true,
+    },
+  })
+}
 
 class ErrorBoundary extends Component {
   state = { hasError: false, message: '' }
