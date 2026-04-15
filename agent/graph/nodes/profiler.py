@@ -165,8 +165,9 @@ async def profile_one(
     target_file = step.get("target_file", "")
     target_info = dict(step.get("target_info") or {})
 
-    # 기존 엔티티 예시 가져오기
-    examples = _get_existing_examples(game_id, target_file)
+    # 기존 엔티티 예시 가져오기 (병목 해결을 위해 비활성화)
+    # examples = _get_existing_examples(game_id, target_file)
+    examples = []
     schema_excerpt = get_schema_reference(target_file)
 
     system_prompt = build_profiler_system_prompt()
