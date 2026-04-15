@@ -1,33 +1,53 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import MessageList from './MessageList'
 import PromptInput from './PromptInput'
 import TypingIndicator from './TypingIndicator'
 import SuggestedPrompts from './SuggestedPrompts'
 import { sendPrompt } from '../../services/llmApi'
+import { authFetch } from '../../services/api'
 
 const MAX_STORED_MESSAGES = 50
 
 export default function ChatInterface({ projectId, onGameUpdate, isCollapsed, onToggleCollapse }) {
-  const [messages, setMessages] = useState(() => {
-    try {
-      const stored = localStorage.getItem(`chat_${projectId}`)
-      return stored ? JSON.parse(stored) : []
-    } catch {
-      return []
-    }
-  })
+  const [messages, setMessages] = useState([])
   const [isLoading, setIsLoading] = useState(false)
   const [draft, setDraft] = useState('')
+  const didFetchRef = useRef(null)
 
+  // projectId 변경 시 백엔드에서 대화 기록 fetch
   useEffect(() => {
+    if (!projectId) return
+    // localStorage 캐시로 즉시 표시 (깜빡임 방지)
     try {
       const stored = localStorage.getItem(`chat_${projectId}`)
-      setMessages(stored ? JSON.parse(stored) : [])
-    } catch {
-      setMessages([])
-    }
+      if (stored) setMessages(JSON.parse(stored))
+      else setMessages([])
+    } catch { setMessages([]) }
+
+    // 백엔드 API에서 실제 데이터 fetch → localStorage 덮어쓰기
+    if (didFetchRef.current === projectId) return
+    didFetchRef.current = projectId
+    authFetch(`/v1/llm/history/${projectId}?limit=50`)
+      .then(logs => {
+        if (!Array.isArray(logs) || logs.length === 0) {
+          // 백엔드에 기록 없으면 localStorage도 비움
+          setMessages([])
+          localStorage.removeItem(`chat_${projectId}`)
+          return
+        }
+        const restored = []
+        logs.reverse().forEach(log => {
+          restored.push({ id: log.id * 2, role: 'user', content: log.user_input })
+          if (log.agent_response) {
+            restored.push({ id: log.id * 2 + 1, role: 'assistant', content: log.agent_response, intent: log.intent })
+          }
+        })
+        setMessages(restored)
+      })
+      .catch(() => { /* localStorage 캐시 유지 */ })
   }, [projectId])
 
+  // messages 변경 시 localStorage 캐시 갱신
   useEffect(() => {
     try {
       localStorage.setItem(`chat_${projectId}`, JSON.stringify(messages.slice(-MAX_STORED_MESSAGES)))

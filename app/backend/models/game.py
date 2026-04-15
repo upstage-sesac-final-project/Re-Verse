@@ -41,7 +41,7 @@ class ConversationLog(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("projects.id"), index=True, nullable=False
+        Integer, ForeignKey("projects.id", ondelete="CASCADE"), index=True, nullable=False
     )
     user_input: Mapped[str] = mapped_column(Text, nullable=False)
     agent_response: Mapped[str | None] = mapped_column(Text, nullable=True)
