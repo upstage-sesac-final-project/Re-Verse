@@ -119,7 +119,7 @@ export default function Dashboard() {
 
   // gen status 변경 시 모달 상태 동기화
   useEffect(() => {
-    if (!genProjectId) return
+    if (!genProjectId || gen.projectId !== genProjectId) return
     if (['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(gen.status)) {
       setGenModal('result')
     }
@@ -127,7 +127,7 @@ export default function Dashboard() {
     if (gen.status === 'in_progress' && genModal === 'progress') {
       // 이미 progress 모달이므로 자동으로 진행률 바로 전환됨 (GenerationProgress가 status 읽음)
     }
-  }, [gen.status, genProjectId, genModal])
+  }, [gen.status, gen.projectId, genProjectId, genModal])
 
   async function handleCreate(e) {
     e.preventDefault()
