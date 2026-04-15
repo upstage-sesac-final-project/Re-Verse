@@ -119,7 +119,7 @@ export default function Dashboard() {
 
   // gen status 변경 시 모달 상태 동기화
   useEffect(() => {
-    if (!genProjectId) return
+    if (!genProjectId || gen.projectId !== genProjectId) return
     if (['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(gen.status)) {
       setGenModal('result')
     }
