@@ -72,11 +72,11 @@ function getActorParams(actor, classes) {
 // ── 공용 UI 컴포넌트 (RPG Maker DB 스타일) ──────────────────────
 function FieldGroup({ title, children, className = '' }) {
   return (
-    <div className={`relative rounded border ${className}`} style={{ borderColor: 'var(--border)', padding: '14px 12px 10px' }}>
+    <div className={className}>
       {title && (
-        <span className="absolute -top-2 left-2.5 px-1.5 text-[11px] font-medium" style={{ background: 'var(--bg-primary)', color: '#7aa2f7' }}>
+        <div className="text-[11px] font-medium mb-2 pb-1" style={{ color: 'var(--text-secondary)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           {title}
-        </span>
+        </div>
       )}
       {children}
     </div>
@@ -97,17 +97,17 @@ function SimpleTable({ columns, rows }) {
   return (
     <table className="w-full text-[11px]" style={{ borderCollapse: 'collapse' }}>
       <thead>
-        <tr style={{ borderBottom: '1px solid var(--border)' }}>
+        <tr>
           {columns.map((col, i) => (
-            <th key={i} className="text-left py-1 px-2 font-medium" style={{ color: 'var(--text-secondary)' }}>{col}</th>
+            <th key={i} className="text-left py-1 px-1.5 font-medium" style={{ color: 'var(--text-secondary)' }}>{col}</th>
           ))}
         </tr>
       </thead>
       <tbody>
         {rows.map((row, ri) => (
-          <tr key={ri} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+          <tr key={ri} className="hover:bg-white/[0.02]">
             {row.map((cell, ci) => (
-              <td key={ci} className="py-1 px-2" style={{ color: 'var(--text-primary)' }}>{cell}</td>
+              <td key={ci} className="py-1 px-1.5" style={{ color: 'var(--text-primary)' }}>{cell}</td>
             ))}
           </tr>
         ))}
@@ -141,8 +141,8 @@ function ActorDetail({ item, lookup, classes }) {
   const traits = (item.traits || []).filter(t => t?.code != null)
 
   return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
-      <div className="space-y-3">
+    <div className="grid gap-4" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
+      <div className="space-y-4">
         <FieldGroup title="일반 설정">
           <div className="grid grid-cols-2 gap-x-4">
             <Field label="이름" value={item.name} />
@@ -171,7 +171,7 @@ function ActorDetail({ item, lookup, classes }) {
             })} />
         </FieldGroup>
       </div>
-      <div className="space-y-3">
+      <div className="space-y-4">
         <FieldGroup title="특성">
           <SimpleTable columns={['유형', '내용']}
             rows={traits.map(t => [TRAIT_CODES[t.code] || `코드${t.code}`, fmtTrait(t)])} />
@@ -193,8 +193,8 @@ function ClassDetail({ item, lookup }) {
   const learnings = [...(item.learnings || [])].sort((a, b) => a.level - b.level)
 
   return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
-      <div className="space-y-3">
+    <div className="grid gap-4" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
+      <div className="space-y-4">
         <FieldGroup title="일반 설정">
           <Field label="이름" value={item.name} />
         </FieldGroup>
@@ -218,7 +218,7 @@ function ClassDetail({ item, lookup }) {
           </FieldGroup>
         )}
       </div>
-      <div className="space-y-3">
+      <div className="space-y-4">
         <FieldGroup title="습득 스킬">
           <SimpleTable columns={['레벨', '스킬']}
             rows={learnings.map(l => [`Lv.${l.level}`, ref(lookup, 'Skills.json', l.skillId) || `#${l.skillId}`])} />
@@ -239,8 +239,8 @@ function SkillDetail({ item, lookup }) {
   const effects = (item.effects || []).filter(e => e?.code)
 
   return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
-      <div className="space-y-3">
+    <div className="grid gap-4" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
+      <div className="space-y-4">
         <FieldGroup title="일반 설정">
           <div className="grid grid-cols-2 gap-x-4">
             <Field label="이름" value={item.name} />
@@ -271,7 +271,7 @@ function SkillDetail({ item, lookup }) {
           </FieldGroup>
         )}
       </div>
-      <div className="space-y-3">
+      <div className="space-y-4">
         <FieldGroup title="사용 효과">
           {effects.length > 0
             ? <SimpleTable columns={['효과']} rows={effects.map(e => [fmtEffect(e, lookup)])} />
@@ -293,8 +293,8 @@ function ItemDetail({ item, lookup }) {
   const effects = (item.effects || []).filter(e => e?.code)
 
   return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
-      <div className="space-y-3">
+    <div className="grid gap-4" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
+      <div className="space-y-4">
         <FieldGroup title="일반 설정">
           <div className="grid grid-cols-2 gap-x-4">
             <Field label="이름" value={item.name} />
@@ -310,7 +310,7 @@ function ItemDetail({ item, lookup }) {
           )}
         </FieldGroup>
       </div>
-      <div className="space-y-3">
+      <div className="space-y-4">
         <FieldGroup title="사용 효과">
           {effects.length > 0
             ? <SimpleTable columns={['효과']} rows={effects.map(e => [fmtEffect(e, lookup)])} />
@@ -332,8 +332,8 @@ function EquipDetail({ item, lookup, isArmor }) {
   const traits = (item.traits || []).filter(t => t?.code != null)
 
   return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
-      <div className="space-y-3">
+    <div className="grid gap-4" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
+      <div className="space-y-4">
         <FieldGroup title="일반 설정">
           <div className="grid grid-cols-2 gap-x-4">
             <Field label="이름" value={item.name} />
@@ -351,7 +351,7 @@ function EquipDetail({ item, lookup, isArmor }) {
           <StatGrid params={item.params} showSign />
         </FieldGroup>
       </div>
-      <div className="space-y-3">
+      <div className="space-y-4">
         <FieldGroup title="특성">
           <SimpleTable columns={['유형', '내용']}
             rows={traits.map(t => [TRAIT_CODES[t.code] || `코드${t.code}`, fmtTrait(t)])} />
@@ -373,8 +373,8 @@ function EnemyDetail({ item, lookup }) {
   const kindFile = { 1: 'Items.json', 2: 'Weapons.json', 3: 'Armors.json' }
 
   return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
-      <div className="space-y-3">
+    <div className="grid gap-4" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
+      <div className="space-y-4">
         <FieldGroup title="일반 설정">
           <Field label="이름" value={item.name} />
         </FieldGroup>
@@ -398,7 +398,7 @@ function EnemyDetail({ item, lookup }) {
           </FieldGroup>
         )}
       </div>
-      <div className="space-y-3">
+      <div className="space-y-4">
         <FieldGroup title="행동 패턴">
           {item.actions?.length > 0
             ? <SimpleTable columns={['스킬', '레이팅']}
@@ -428,7 +428,7 @@ function EnemyDetail({ item, lookup }) {
 // ── 상세 패널: 스테이트 ─────────────────────────────────────────
 function StateDetail({ item }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <FieldGroup title="일반 설정">
         <div className="grid grid-cols-2 gap-x-4">
           <Field label="이름" value={item.name} />
@@ -463,7 +463,7 @@ function StateDetail({ item }) {
 // ── 상세 패널: 시스템 ───────────────────────────────────────────
 function SystemDetail({ data, lookup }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <FieldGroup title="기본 설정">
         <div className="grid grid-cols-2 gap-x-4">
           <Field label="게임 제목" value={data.gameTitle} />
@@ -577,17 +577,14 @@ export default function GameDataViewer({ gameId, refreshKey }) {
   return (
     <div className="flex-1 flex overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
       {/* ── 카테고리 사이드바 ── */}
-      <div className="flex-shrink-0 flex flex-col overflow-y-auto" style={{ width: 88, background: '#1a1d28', borderRight: '1px solid var(--border)' }}>
-        <div className="px-2 py-1.5 text-[10px] font-bold tracking-wider text-center" style={{ color: '#7aa2f7', borderBottom: '1px solid var(--border)', background: '#161926' }}>
-          DATABASE
-        </div>
+      <div className="flex-shrink-0 flex flex-col overflow-y-auto" style={{ width: 88, background: 'var(--bg-secondary)', borderRight: '1px solid var(--border)' }}>
         {DATA_FILES.map(f => (
           <button key={f} onClick={() => setSelectedFile(f)}
             className="text-left px-3 py-2 text-xs transition-colors"
             style={{
-              background: selectedFile === f ? '#252d48' : 'transparent',
-              color: selectedFile === f ? '#7aa2f7' : '#8892b0',
-              borderLeft: selectedFile === f ? '2px solid #7aa2f7' : '2px solid transparent',
+              background: selectedFile === f ? 'rgba(255,255,255,0.05)' : 'transparent',
+              color: selectedFile === f ? 'var(--text-primary)' : 'var(--text-secondary)',
+              borderLeft: selectedFile === f ? '2px solid var(--accent)' : '2px solid transparent',
               fontWeight: selectedFile === f ? 600 : 400,
             }}>
             {FILE_LABEL[f]}
@@ -597,29 +594,29 @@ export default function GameDataViewer({ gameId, refreshKey }) {
 
       {/* ── 아이템 리스트 ── */}
       {!isSystem && (
-        <div className="flex-shrink-0 flex flex-col overflow-hidden" style={{ width: 172, borderRight: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
-          <div className="px-2.5 py-1.5 text-xs font-semibold flex-shrink-0 flex items-center justify-between" style={{ background: '#1e2130', color: '#7aa2f7', borderBottom: '1px solid var(--border)' }}>
+        <div className="flex-shrink-0 flex flex-col overflow-hidden" style={{ width: 172, borderRight: '1px solid var(--border)' }}>
+          <div className="px-2.5 py-1.5 text-xs font-medium flex-shrink-0 flex items-center justify-between" style={{ color: 'var(--text-primary)', borderBottom: '1px solid var(--border)' }}>
             <span>{FILE_LABEL[selectedFile]}</span>
-            {items && <span className="text-[10px] font-normal" style={{ color: '#8892b0' }}>{items.length}</span>}
+            {items && <span className="text-[10px] font-normal" style={{ color: 'var(--text-secondary)' }}>{items.length}</span>}
           </div>
           <div className="px-1.5 py-1 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
               placeholder="검색..."
               className="w-full px-1.5 py-0.5 text-[11px] rounded"
-              style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-primary)', outline: 'none' }} />
+              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-primary)', outline: 'none' }} />
           </div>
           <div className="flex-1 overflow-y-auto">
             {items?.map(item => (
               <div key={item.id} onClick={() => setSelectedItemId(item.id)}
                 className="flex items-center px-2 py-[5px] cursor-pointer transition-colors"
                 style={{
-                  background: selectedItemId === item.id ? 'rgba(122, 162, 247, 0.12)' : 'transparent',
-                  borderLeft: selectedItemId === item.id ? '2px solid #7aa2f7' : '2px solid transparent',
+                  background: selectedItemId === item.id ? 'rgba(255,59,92,0.08)' : 'transparent',
+                  borderLeft: selectedItemId === item.id ? '2px solid var(--accent)' : '2px solid transparent',
                 }}>
-                <span className="flex-shrink-0 tabular-nums text-[11px] mr-1.5" style={{ color: '#8892b0', width: 34 }}>
+                <span className="flex-shrink-0 tabular-nums text-[11px] mr-1.5" style={{ color: 'var(--text-secondary)', width: 34 }}>
                   {String(item.id).padStart(4, '0')}
                 </span>
-                <span className="truncate text-[11px]" style={{ color: selectedItemId === item.id ? '#7aa2f7' : 'var(--text-primary)' }}>
+                <span className="truncate text-[11px]" style={{ color: selectedItemId === item.id ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
                   {item.name || '(이름 없음)'}
                 </span>
               </div>
