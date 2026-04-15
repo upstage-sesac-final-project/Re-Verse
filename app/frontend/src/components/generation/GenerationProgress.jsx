@@ -45,28 +45,40 @@ function PhaseList({ completedPhases, currentPhase }) {
   )
 }
 
-function TetrisButton() {
-  const [open, setOpen] = useState(false)
+function GameOverlay({ children, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
+      <div className="relative flex flex-col items-center gap-3">
+        <button onClick={onClose}
+          className="absolute -top-2 -right-2 w-7 h-7 rounded-full flex items-center justify-center text-sm z-10"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+          ✕
+        </button>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function MiniGameButtons() {
+  const [open, setOpen] = useState(null) // null | 'tetris' | 'dino'
   return (
     <>
-      <button onClick={() => setOpen(true)}
-        className="w-full py-2 text-xs rounded-lg transition-colors"
-        style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-        기다리는 동안 테트리스 한 판?
-      </button>
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/70" onClick={() => setOpen(false)} />
-          <div className="relative flex flex-col items-center gap-3">
-            <button onClick={() => setOpen(false)}
-              className="absolute -top-2 -right-2 w-7 h-7 rounded-full flex items-center justify-center text-sm z-10"
-              style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-              ✕
-            </button>
-            <Tetris />
-          </div>
-        </div>
-      )}
+      <div className="flex gap-2">
+        <button onClick={() => setOpen('dino')}
+          className="flex-1 py-2 text-xs rounded-lg transition-colors"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+          공룡 달리기
+        </button>
+        <button onClick={() => setOpen('tetris')}
+          className="flex-1 py-2 text-xs rounded-lg transition-colors"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+          테트리스
+        </button>
+      </div>
+      {open === 'tetris' && <GameOverlay onClose={() => setOpen(null)}><Tetris /></GameOverlay>}
+      {open === 'dino' && <GameOverlay onClose={() => setOpen(null)}><DinoMiniGame /></GameOverlay>}
     </>
   )
 }
@@ -77,13 +89,10 @@ export default function GenerationProgress() {
 
   const isDone = ['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(status)
   const isQueued = status === 'queued'
-  const isRunning = ['starting', 'queued', 'in_progress'].includes(status)
-  const showMiniGame = isRunning
 
   if (isQueued) {
     return (
       <div className="space-y-6">
-        {showMiniGame && <DinoMiniGame />}
         <div className="text-center py-6">
           <p className="text-lg font-bold mb-2" style={{ color: '#eab308' }}>대기열 {queuePosition}번째</p>
           <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
@@ -103,14 +112,13 @@ export default function GenerationProgress() {
           <PhaseList completedPhases={[]} currentPhase="" />
         </div>
 
-        <TetrisButton />
+        <MiniGameButtons />
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      {showMiniGame && <DinoMiniGame />}
       {/* 진행률 바 */}
       <div>
         <div className="flex justify-between text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
@@ -144,7 +152,7 @@ export default function GenerationProgress() {
           <p className="text-xs text-center" style={{ color: 'var(--text-secondary)' }}>
             게임 생성에는 약 5~10분이 소요됩니다.
           </p>
-          <TetrisButton />
+          <MiniGameButtons />
         </>
       )}
     </div>
