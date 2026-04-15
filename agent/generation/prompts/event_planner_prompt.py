@@ -4,6 +4,9 @@ canonical: docs/The_world/prompt_engineering.md §F. 이벤트 기획자
 canonical: docs/The_world/game_ending_design.md
 """
 
+import re
+from functools import cache
+
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from agent.generation.models import GameSpec, MapConnectionInfo, MapScreenplay, MapSpec
@@ -343,6 +346,41 @@ events:
     battle_switch: 고블린_battle_01
 """
 
+# ── 맵 타입별 허용 이벤트 섹션 ──────────────────────────────────────────────
+_ALLOWED_SECTIONS: dict[str, frozenset[str]] = {
+    "town": frozenset({"npc", "transfer", "chest", "shop", "gate", "quest_chest"}),
+    "dungeon": frozenset({"npc", "transfer", "chest", "battle", "gate", "quest_chest"}),
+    "boss": frozenset({"npc", "battle", "ending", "quest_chest"}),
+    "field": frozenset({"npc", "transfer", "chest", "battle", "gate", "quest_chest"}),
+}
+_ALLOWED_SECTIONS_DEFAULT = frozenset(
+    {"npc", "transfer", "chest", "battle", "shop", "gate", "quest_chest", "ending"}
+)
+
+# ── _SYSTEM 파싱 (모듈 로드 시 1회) ─────────────────────────────────────────
+_footer_idx = _SYSTEM.find("\n## trigger 규칙")
+_SYSTEM_FOOTER = _SYSTEM[_footer_idx:] if _footer_idx >= 0 else ""
+_body = _SYSTEM[:_footer_idx] if _footer_idx >= 0 else _SYSTEM
+
+_SYSTEM_HEADER, *_section_parts = re.split(r"\n### ", _body)
+_SYSTEM_SECTIONS: dict[str, str] = {}
+for _part in _section_parts:
+    _sec_name = _part.split()[0]  # "npc", "transfer", "chest", ...
+    _SYSTEM_SECTIONS[_sec_name] = "\n### " + _part
+
+
+@cache
+def _build_system_prompt(map_type: str) -> str:
+    """맵 타입별 슬림화된 시스템 프롬프트 반환.
+
+    해당 맵 타입에서 등장할 수 없는 이벤트 타입 가이드를 제거하여
+    토큰 수를 줄인다. map_type은 town/dungeon/boss/field 4가지뿐이므로
+    lru_cache로 캐싱하여 매 호출마다 문자열 재조립을 방지한다.
+    """
+    allowed = _ALLOWED_SECTIONS.get(map_type, _ALLOWED_SECTIONS_DEFAULT)
+    sections = "".join(v for k, v in _SYSTEM_SECTIONS.items() if k in allowed)
+    return _SYSTEM_HEADER + sections + _SYSTEM_FOOTER
+
 
 def build_event_planner_prompt(
     map_spec: MapSpec,
@@ -352,6 +390,7 @@ def build_event_planner_prompt(
     connection_info: MapConnectionInfo,
     rag_context: str = "",
     map_story: MapScreenplay | None = None,
+    feedback: str | None = None,
 ) -> list[BaseMessage]:
     # 목적지 맵 타입 조회용 (game_spec.maps 기반)
     game_map_types: dict[str, str] = {gm.name: gm.type for gm in game_spec.maps}
@@ -445,10 +484,14 @@ NPC는 위 이름과 다른 고유한 이름을 가져야 합니다. 위 이름�
 ## 이벤트 생성 가이드
 
 {_describe_required_events(map_spec, game_spec, id_table)}
-{f"{chr(10)}## RPG Maker MZ 기술 참고{chr(10)}{rag_context}{chr(10)}" if rag_context else ""}
+{f"{chr(10)}## RPG Maker MZ 기술 참고{chr(10)}{rag_context}{chr(10)}" if rag_context else ""}\
+{f"{chr(10)}## 이전 시도 오류 피드백 — 아래 오류를 반드시 수정하세요{chr(10)}{feedback}{chr(10)}" if feedback else ""}
 YAML 출력:
 """
-    return [SystemMessage(content=_SYSTEM), HumanMessage(content=human)]
+    return [
+        SystemMessage(content=_build_system_prompt(map_spec.map_type)),
+        HumanMessage(content=human),
+    ]
 
 
 def _build_story_section(map_story: MapScreenplay, map_spec: "MapSpec | None" = None) -> str:

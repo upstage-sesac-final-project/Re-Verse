@@ -50,12 +50,25 @@ def _route_after_tile_generator(state: GenerationState) -> str:
     return "story_phase"
 
 
+def _route_after_sample_map_selector(state: GenerationState) -> str:
+    """sample_map_selector 이후 라우팅: phase_limit에 따라 분기.
+
+    phase_limit=None (Phase 4) 에서는 tile_generator 경로와 동일하게
+    story_planner → event_planner → event_compiler → integrator 를 거친다.
+    phase_limit="assets"/"maps" 에서는 이벤트 생성을 건너뛰고 바로 integrator.
+    """
+    phase_limit = state.get("phase_limit")
+    if phase_limit in ("assets", "maps"):
+        return "skip_to_integrate"
+    return "story_phase"
+
+
 def build_generation_graph() -> Any:
     """Full Generation 그래프 조립.
 
     phase_limit="assets"  → A→B→C→H→I→J
-    phase_limit="maps"    → A→B→C→D→E→H→I→J
-    phase_limit=None      → A→B→C→D→E→F→G→H→I→J
+    phase_limit="maps"    → A→B→C→D→E→H→I→J  (샘플 경로: A→B→C→[samples]→H→I→J)
+    phase_limit=None      → A→B→C→D→E→F→G→H→I→J  (샘플 경로: A→B→C→[samples]→F→G→H→I→J)
     """
     builder: StateGraph = StateGraph(GenerationState)
 
@@ -90,8 +103,15 @@ def build_generation_graph() -> Any:
     )
 
     builder.add_edge("map_designer", "tile_generator")
-    # 샘플맵 경로는 D+E를 건너뛰고 바로 integrator로
-    builder.add_edge("sample_map_selector", "integrator")
+    # 샘플맵 경로: Phase 4(phase_limit=None)는 event_planner까지 실행, 그 외는 integrator로 skip
+    builder.add_conditional_edges(
+        "sample_map_selector",
+        _route_after_sample_map_selector,
+        {
+            "skip_to_integrate": "integrator",
+            "story_phase": "story_planner",
+        },
+    )
 
     # E → (maps → H) or (story → F → G)
     builder.add_conditional_edges(
