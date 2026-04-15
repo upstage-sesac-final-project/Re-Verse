@@ -11,6 +11,7 @@ from app.backend.api.v1.endpoints import (
     games,
     generation,
     llm,
+    notices,
 )
 
 api_router = APIRouter()
@@ -19,6 +20,7 @@ api_router.include_router(games.router, prefix="/games", tags=["Games"])
 api_router.include_router(llm.router, prefix="/llm", tags=["LLM"])
 api_router.include_router(editor.router, prefix="/editor", tags=["Editor"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
+api_router.include_router(notices.router, prefix="/notices", tags=["Notices"])
 api_router.include_router(docs.router, prefix="/docs", tags=["Docs"])
 api_router.include_router(generation.router, prefix="/generate", tags=["Generation"])
 api_router.include_router(bug_report.router, prefix="/bug-report", tags=["BugReport"])
