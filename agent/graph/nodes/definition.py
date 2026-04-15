@@ -652,11 +652,50 @@ async def definition(state: AgentState) -> dict:
 
     # --- [4.6단계: 코드 기반 operation IR 직접 생성 시도] ---
     # Step 1~4 결과만으로 operation_tuples 를 만들 수 있으면 Step 5 LLM 호출을 건너뜀.
+
+    # 맵 CREATE 요청이 있으면 현재 쿼리로 샘플맵 재랭킹 (게임 생성 때 저장된 후보는 다른 쿼리 기반)
+    ranked_map_candidates: list[dict] = state.get("ranked_map_candidates") or []
+    _map_cat_names: set[str] = {
+        (c.get("name") or "").strip().lower()
+        for c in final_classifications
+        if (c.get("category") or "").lower() == "map"
+    }
+    _has_map_create = any(
+        (e.get("action") or "").upper() == "CREATE"
+        and any(
+            mname
+            and (
+                mname in (e.get("subject") or "").lower()
+                or (e.get("subject") or "").lower() in mname
+            )
+            for mname in _map_cat_names
+        )
+        for e in extractions
+    )
+    if _has_map_create and user_input:
+        try:
+            from agent.generation.mapgen.sample_selector import select_maps
+
+            logger.info("[Step4.6] 맵 추가 요청 감지 → 현재 쿼리로 샘플맵 재랭킹: '%s'", user_input)
+            _map_result = await select_maps(user_input, n_maps=1)
+            if _map_result.get("candidates"):
+                ranked_map_candidates = _map_result["candidates"]
+                logger.info(
+                    "[Step4.6] 재랭킹 완료: best=%s (score=%.3f)",
+                    ranked_map_candidates[0]["entry"]["file_name"],
+                    ranked_map_candidates[0].get("score", 0.0),
+                )
+            else:
+                logger.warning("[Step4.6] 재랭킹 결과 없음 → 기존 후보 유지")
+        except Exception as _e:
+            logger.warning("[Step4.6] 샘플맵 재랭킹 실패: %s → 기존 후보 유지", _e)
+
     direct_ops = _extractions_to_operation_tuples(
         extractions,
         final_classifications,
         final_extracted_ids,
         game_id,
+        ranked_map_candidates=ranked_map_candidates,
     )
     if direct_ops:
         logger.info(
@@ -920,10 +959,15 @@ def _extractions_to_operation_tuples(
     classifications: list[dict],
     extracted_ids: dict,
     game_id: str,
+    ranked_map_candidates: list[dict] | None = None,
 ) -> list[dict]:
     """Step 1~4 결과에서 직접 operation_tuples 를 생성한다.
 
     모든 extraction 을 변환할 수 없으면 빈 리스트를 반환 (fallback 신호).
+
+    ranked_map_candidates: 게임 생성 시 계산된 맵 후보군 (점수 순 정렬).
+        맵 추가 요청 시 이 목록에서 다음 후보를 선택해 original_file_name 을 주입한다.
+        None 또는 빈 리스트이면 맵 CREATE 는 Step 5(LLM) 로 fallback.
 
     Returns:
         list[dict] — 성공 시 operation_tuples, 실패 시 [].
@@ -1007,6 +1051,36 @@ def _extractions_to_operation_tuples(
 
         # CREATE
         if action == "CREATE":
+            if sub_cat == "map":
+                # 맵 추가: ranked_map_candidates 가 있으면 최상위 후보를 사용.
+                # 없으면 Step 5(LLM) 경로로 fallback.
+                if ranked_map_candidates:
+                    best = ranked_map_candidates[0]
+                    original_file_name = best["entry"]["file_name"]
+                    logger.info(
+                        "[Step4.6] 맵 추가 요청 → 순위 후보 사용: %s (score=%.3f)",
+                        original_file_name,
+                        best.get("score", 0.0),
+                    )
+                    ops.append(
+                        {
+                            "op": "create",
+                            "file": sub_file or "MapInfos.json",
+                            "subject": {"name": subject, "id": None, "scope": "single"},
+                            "field": None,
+                            "value": {
+                                "kind": "map_creation",
+                                "original_file_name": original_file_name,
+                            },
+                        }
+                    )
+                    continue
+                else:
+                    # 후보군 없음 → Step 5(LLM)에서 처리
+                    logger.info(
+                        "[Step4.6] 맵 추가 요청이지만 ranked_map_candidates 없음 → Step 5 fallback"
+                    )
+                    return []
             ops.append(
                 {
                     "op": "create",
@@ -1278,15 +1352,19 @@ def _create_to_ir(
     """create modification → operation IR.
 
     profiler 가 세부 필드를 채우므로, IR 은 name 만 담는다.
+    맵 생성 시 original_file_name 이 params 에 있으면 value 에 포함한다.
     """
     name = params.get("name") or params.get(f"{target}_name") or ""
+    value = None
+    if target == "map" and "original_file_name" in params:
+        value = {"kind": "map_creation", "original_file_name": params["original_file_name"]}
     return [
         {
             "op": "create",
             "file": file,
             "subject": {"name": name, "id": None, "scope": "single"} if name else None,
             "field": None,
-            "value": None,
+            "value": value,
         }
     ]
 
@@ -1398,7 +1476,7 @@ def _read_to_ir(file: str, target: str, params: dict) -> list[dict]:
             "op": "read",
             "file": file,
             "subject": {"name": name, "id": None, "scope": "single"} if name else None,
-            "field": None,
+            "field": params.get("property"),
             "value": None,
         }
     ]
