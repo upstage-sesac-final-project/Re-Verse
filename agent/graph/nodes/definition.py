@@ -448,13 +448,18 @@ def _validate_operation_tuples(ops: list[dict], extractions: list[dict]) -> tupl
         # updates 페이로드 탐색 (update 계열만)
         updates_empty = False
         if "update" in action:
-            ti = op.get("target_info") or {}
-            updates = ti.get("updates") if isinstance(ti, dict) else None
-            if not updates:
-                val = op.get("value") or {}
-                if isinstance(val, dict):
-                    updates = val.get("raw_updates")
-            updates_empty = not isinstance(updates, dict) or len(updates) == 0
+            # Step 4.6 경로: op["field"] + op["value"] 직접 구조
+            if op.get("field") and op.get("value") is not None:
+                updates_empty = False
+            else:
+                # Step 5 LLM 경로: target_info.updates / value.raw_updates
+                ti = op.get("target_info") or {}
+                updates = ti.get("updates") if isinstance(ti, dict) else None
+                if not updates:
+                    val = op.get("value") or {}
+                    if isinstance(val, dict):
+                        updates = val.get("raw_updates")
+                updates_empty = not isinstance(updates, dict) or len(updates) == 0
 
         if not subject_missing and not updates_empty:
             continue
