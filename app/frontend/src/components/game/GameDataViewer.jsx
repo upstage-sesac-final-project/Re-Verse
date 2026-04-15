@@ -1,37 +1,25 @@
 import { useState, useEffect, useMemo } from 'react'
 
 // ── RPG Maker MZ 코드 해석 ───────────────────────────────────────
-const P = ['MHP', 'MMP', 'ATK', 'DEF', 'MAT', 'MDF', 'AGI', 'LUK']
+const P = ['HP', 'MP', 'ATK', 'DEF', 'MAT', 'MDF', 'AGI', 'LUK']
+const STAT_COLORS = ['#ef4444', '#3b82f6', '#f97316', '#22c55e', '#a855f7', '#06b6d4', '#eab308', '#ec4899']
 const EQUIP_SLOTS = ['무기', '방패', '머리', '몸', '장신구']
 const SCOPE = { 0: '없음', 1: '적 1체', 2: '적 전체', 3: '적 1체(랜덤)', 4: '적 2체(랜덤)', 5: '적 3체(랜덤)', 6: '적 4체(랜덤)', 7: '아군 1체', 8: '아군 전체', 9: '아군 1체(전투불능)', 10: '아군 전체(전투불능)', 11: '사용자' }
 const DMG_TYPE = { 0: '없음', 1: 'HP 데미지', 2: 'MP 데미지', 3: 'HP 회복', 4: 'MP 회복', 5: 'HP 흡수', 6: 'MP 흡수' }
 const DROP_KIND = { 1: '아이템', 2: '무기', 3: '방어구' }
 const RESTRICTION = { 0: '없음', 1: '적 공격', 2: '아무나 공격', 3: '아군 공격', 4: '행동 불가' }
 const ETYPE = { 1: '무기', 2: '방패', 3: '머리', 4: '몸', 5: '장신구' }
-
 const TRAIT_CODES = { 11: '속성내성', 12: '디버프내성', 13: '상태내성', 14: '상태무효', 21: '능력치', 22: '추가능력', 23: '특수능력', 31: '공격속성', 32: '공격상태', 33: '공격속도', 34: '추가타', 41: '스킬타입+', 42: '스킬타입봉인', 43: '스킬+', 44: '스킬봉인', 51: '무기장착', 52: '방어구장착', 53: '장비고정', 54: '장비봉인', 55: '슬롯', 61: '행동추가', 62: '특수플래그', 63: '소멸', 64: '파티능력' }
 const XPARAM = ['명중', '회피', '치명타', '치명타회피', 'MP회피', 'TP충전', '반격', 'HP재생', 'MP재생', 'TP재생']
 const SPARAM = ['타겟율', '방어효과', '회복효과', '약학', 'MP소비', 'TP충전', '물리피해', '마법피해', '바닥피해', '경험치']
 const EFFECT_CODES = { 11: 'HP회복', 12: 'MP회복', 13: 'TP획득', 21: '상태부여', 22: '상태해제', 31: '버프', 32: '디버프', 33: '버프해제', 34: '디버프해제', 41: '특수', 42: '성장', 43: '스킬습득', 44: '커먼이벤트' }
 
-const DATA_FILES = ['Actors.json', 'Classes.json', 'Enemies.json', 'Skills.json', 'States.json', 'Items.json', 'Weapons.json', 'Armors.json', 'System.json']
-const FILE_LABEL = { 'Actors.json': '캐릭터', 'Classes.json': '직업', 'Enemies.json': '적', 'Skills.json': '스킬', 'States.json': '상태', 'Items.json': '아이템', 'Weapons.json': '무기', 'Armors.json': '방어구', 'System.json': '시스템' }
-const REF_FILES = ['Weapons.json', 'Armors.json', 'Items.json', 'Skills.json', 'Classes.json']
-
-const SORT_OPTIONS = {
-  'Actors.json': [['id', 'ID'], ['name', '이름']],
-  'Enemies.json': [['id', 'ID'], ['name', '이름'], ['params.0', 'HP'], ['params.2', 'ATK'], ['exp', 'EXP']],
-  'Skills.json': [['id', 'ID'], ['name', '이름'], ['mpCost', 'MP']],
-  'Items.json': [['id', 'ID'], ['name', '이름'], ['price', '가격']],
-  'Weapons.json': [['id', 'ID'], ['name', '이름'], ['params.2', 'ATK'], ['price', '가격']],
-  'Armors.json': [['id', 'ID'], ['name', '이름'], ['params.3', 'DEF'], ['price', '가격']],
-  'Classes.json': [['id', 'ID'], ['name', '이름']],
-  'States.json': [['id', 'ID'], ['name', '이름'], ['priority', '우선도']],
-}
+const DATA_FILES = ['Actors.json', 'Classes.json', 'Skills.json', 'Items.json', 'Weapons.json', 'Armors.json', 'Enemies.json', 'States.json', 'System.json']
+const FILE_LABEL = { 'Actors.json': '액터', 'Classes.json': '직업', 'Skills.json': '스킬', 'Items.json': '아이템', 'Weapons.json': '무기', 'Armors.json': '방어구', 'Enemies.json': '적', 'States.json': '스테이트', 'System.json': '시스템' }
+const REF_FILES = ['Weapons.json', 'Armors.json', 'Items.json', 'Skills.json', 'Classes.json', 'States.json']
 
 // ── 유틸 ─────────────────────────────────────────────────────────
 function ref(lookup, file, id) { return id && lookup?.[file]?.[id] || null }
-function getVal(obj, path) { return path.split('.').reduce((o, k) => o?.[k], obj) ?? 0 }
 function buildLookup(cache) {
   const lk = {}
   for (const f of REF_FILES) {
@@ -42,6 +30,7 @@ function buildLookup(cache) {
 }
 
 function fmtTrait(t) {
+  if (!t || t.code == null) return null
   const c = t.code, label = TRAIT_CODES[c] || `코드${c}`
   if (c === 21) return `${P[t.dataId] || '?'} ${Math.round(t.value * 100)}%`
   if (c === 22) { const v = Math.round(t.value * 100); return `${XPARAM[t.dataId] || '?'} ${v >= 0 ? '+' : ''}${v}%` }
@@ -53,349 +42,474 @@ function fmtTrait(t) {
   return label
 }
 
-function fmtEffect(e) {
+function fmtEffect(e, lookup) {
   const label = EFFECT_CODES[e.code] || `효과${e.code}`
   if (e.code === 11 || e.code === 12) {
     const p = []; if (e.value1) p.push(`${Math.round(e.value1 * 100)}%`); if (e.value2) p.push(`${e.value2 > 0 ? '+' : ''}${e.value2}`)
     return `${label} ${p.join(' ')}`
   }
   if (e.code === 13) return `${label} +${e.value1}`
-  if (e.code === 21 || e.code === 22) return `${label} #${e.dataId} ${Math.round(e.value1 * 100)}%`
+  if (e.code === 21 || e.code === 22) {
+    const name = lookup?.['States.json']?.[e.dataId] || `#${e.dataId}`
+    return `${label} ${name} ${Math.round(e.value1 * 100)}%`
+  }
   if (e.code === 31 || e.code === 32) return `${label} ${P[e.dataId] || '?'} ${e.value1}턴`
   if (e.code === 42) return `${label} ${P[e.dataId] || '?'} +${e.value1}`
-  if (e.code === 43) return `${label} #${e.dataId}`
+  if (e.code === 43) {
+    const name = lookup?.['Skills.json']?.[e.dataId] || `#${e.dataId}`
+    return `${label} ${name}`
+  }
   return label
 }
 
-// ── 공용 컴포넌트 ────────────────────────────────────────────────
-function StatBar({ label, value, max, color = 'var(--accent)' }) {
-  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0
-  return (
-    <div className="flex items-center gap-1.5 text-xs py-0.5">
-      <span className="w-8 text-right flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>{label}</span>
-      <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
-        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color, minWidth: pct > 0 ? '2px' : 0 }} />
-      </div>
-      <span className="w-12 text-right flex-shrink-0 tabular-nums" style={{ color: 'var(--text-primary)' }}>{value}</span>
-    </div>
-  )
+function getActorParams(actor, classes) {
+  const cls = classes?.find(c => c?.id === actor.classId)
+  if (!cls?.params) return [0, 0, 0, 0, 0, 0, 0, 0]
+  const level = actor.initialLevel ?? 1
+  return cls.params.map(curve => Array.isArray(curve) ? (curve[level] ?? 0) : 0)
 }
 
-function Badge({ children, color }) {
+// ── 공용 UI 컴포넌트 (RPG Maker DB 스타일) ──────────────────────
+function FieldGroup({ title, children, className = '' }) {
   return (
-    <span className="inline-flex px-1.5 py-0.5 rounded text-xs whitespace-nowrap" style={{ background: color || 'var(--border)', color: 'var(--text-primary)' }}>
-      {children}
-    </span>
-  )
-}
-
-function Tag({ children }) {
-  return <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--border)', color: 'var(--text-secondary)' }}>{children}</span>
-}
-
-function Section({ label, children }) {
-  if (!children) return null
-  return (
-    <div className="mt-2">
-      <div className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>{label}</div>
+    <div className={className}>
+      {title && (
+        <div className="text-[11px] font-medium mb-2 pb-1" style={{ color: 'var(--text-secondary)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          {title}
+        </div>
+      )}
       {children}
     </div>
   )
 }
 
-// ── 캐릭터 카드 (Actors) ─────────────────────────────────────────
-function ActorCard({ item, lookup, maxParams }) {
-  const cls = ref(lookup, 'Classes.json', item.classId)
-  const params = item.params || []
+function Field({ label, value }) {
   return (
-    <div className="rounded-lg p-3 mb-2" style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
-      <div className="flex gap-4">
-        {/* 좌: 기본 정보 */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{item.name}</span>
-            {item.nickname && <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{item.nickname}</span>}
-          </div>
-          <div className="flex gap-1.5 mb-2 flex-wrap">
-            {cls && <Badge color="rgba(139, 92, 246, 0.15)">{cls}</Badge>}
-            <Tag>Lv.{item.initialLevel ?? 1}~{item.maxLevel ?? 99}</Tag>
-          </div>
-          {/* 능력치 바 */}
-          <div>
-            {[0, 2, 3, 4, 5, 6, 7].map((i) => (
-              params[i] != null && <StatBar key={i} label={P[i]} value={params[i]} max={maxParams[i] || 1} color={i === 0 ? '#ef4444' : i === 1 ? '#3b82f6' : 'var(--accent)'} />
+    <div className="flex items-baseline gap-2 py-0.5">
+      <span className="text-[11px] flex-shrink-0 text-right" style={{ color: 'var(--text-secondary)', minWidth: 56 }}>{label}:</span>
+      <span className="text-xs" style={{ color: 'var(--text-primary)' }}>{value ?? '—'}</span>
+    </div>
+  )
+}
+
+function SimpleTable({ columns, rows }) {
+  if (!rows?.length) return <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>없음</p>
+  return (
+    <table className="w-full text-[11px]" style={{ borderCollapse: 'collapse' }}>
+      <thead>
+        <tr>
+          {columns.map((col, i) => (
+            <th key={i} className="text-left py-1 px-1.5 font-medium" style={{ color: 'var(--text-secondary)' }}>{col}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, ri) => (
+          <tr key={ri} className="hover:bg-white/[0.02]">
+            {row.map((cell, ci) => (
+              <td key={ci} className="py-1 px-1.5" style={{ color: 'var(--text-primary)' }}>{cell}</td>
             ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+function StatGrid({ params, showSign = false }) {
+  return (
+    <div className="grid grid-cols-4 gap-x-4 gap-y-1">
+      {P.map((label, i) => {
+        const v = params?.[i] ?? 0
+        const display = showSign && v !== 0 ? `${v > 0 ? '+' : ''}${v}` : String(v)
+        return (
+          <div key={i} className="flex items-center gap-1.5">
+            <span className="text-[11px] font-semibold tabular-nums" style={{ color: STAT_COLORS[i], width: 26, textAlign: 'right' }}>{label}</span>
+            <span className="text-xs tabular-nums" style={{ color: v !== 0 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{display}</span>
           </div>
-        </div>
-        {/* 우: 장비 + 특성 */}
-        <div className="w-44 flex-shrink-0">
-          <Section label="장비">
-            <div className="flex flex-col gap-0.5">
-              {(item.equips || []).map((id, i) => {
-                const f = i === 0 ? 'Weapons.json' : 'Armors.json'
-                const name = ref(lookup, f, id)
-                return <span key={i} className="text-xs" style={{ color: id ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{EQUIP_SLOTS[i]}: {id ? (name || `#${id}`) : '—'}</span>
-              })}
+        )
+      })}
+    </div>
+  )
+}
+
+// ── 상세 패널: 액터 ─────────────────────────────────────────────
+function ActorDetail({ item, lookup, classes }) {
+  const cls = ref(lookup, 'Classes.json', item.classId)
+  const params = getActorParams(item, classes)
+  const equips = item.equips || []
+  const traits = (item.traits || []).filter(t => t?.code != null)
+
+  return (
+    <div className="grid gap-4" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
+      <div className="space-y-4">
+        <FieldGroup title="일반 설정">
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="이름" value={item.name} />
+            <Field label="닉네임" value={item.nickname} />
+            <Field label="직업" value={cls || `#${item.classId}`} />
+            <div />
+            <Field label="초기 레벨" value={item.initialLevel ?? 1} />
+            <Field label="최대 레벨" value={item.maxLevel ?? 99} />
+          </div>
+          {item.profile && (
+            <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+              <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>프로필:</span>
+              <p className="text-xs mt-0.5 whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{item.profile}</p>
             </div>
-          </Section>
-          {item.traits?.length > 0 && (
-            <Section label="특성">
-              <div className="flex flex-wrap gap-1">{item.traits.map((t, i) => <Tag key={i}>{fmtTrait(t)}</Tag>)}</div>
-            </Section>
           )}
-        </div>
+        </FieldGroup>
+        <FieldGroup title={`초기 스탯 (Lv.${item.initialLevel ?? 1})`}>
+          <StatGrid params={params} />
+        </FieldGroup>
+        <FieldGroup title="초기 장비">
+          <SimpleTable columns={['유형', '장비 아이템']}
+            rows={EQUIP_SLOTS.map((slot, i) => {
+              const id = equips[i] || 0
+              const f = i === 0 ? 'Weapons.json' : 'Armors.json'
+              return [slot, id ? (ref(lookup, f, id) || `#${id}`) : '없음']
+            })} />
+        </FieldGroup>
+      </div>
+      <div className="space-y-4">
+        <FieldGroup title="특성">
+          <SimpleTable columns={['유형', '내용']}
+            rows={traits.map(t => [TRAIT_CODES[t.code] || `코드${t.code}`, fmtTrait(t)])} />
+        </FieldGroup>
+        <FieldGroup title="메모">
+          <p className="text-xs whitespace-pre-wrap min-h-[40px]" style={{ color: item.note ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+            {item.note || '(없음)'}
+          </p>
+        </FieldGroup>
       </div>
     </div>
   )
 }
 
-// ── 적 카드 (Enemies) ────────────────────────────────────────────
-function EnemyCard({ item, lookup, maxParams }) {
-  const params = item.params || []
-  const drops = (item.dropItems || []).filter((d) => d.kind > 0)
-  const kindFile = { 1: 'Items.json', 2: 'Weapons.json', 3: 'Armors.json' }
-  return (
-    <div className="rounded-lg p-3 mb-2" style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
-      <div className="flex items-start justify-between mb-2">
-        <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{item.name}</span>
-        <div className="flex gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-          {item.exp > 0 && <span>EXP <b style={{ color: 'var(--text-primary)' }}>{item.exp}</b></span>}
-          {item.gold > 0 && <span>Gold <b style={{ color: '#eab308' }}>{item.gold}</b></span>}
-        </div>
-      </div>
-      <div className="flex gap-4">
-        <div className="flex-1">
-          {P.map((label, i) => params[i] != null && params[i] > 0 && (
-            <StatBar key={i} label={label} value={params[i]} max={maxParams[i] || 1} color={i === 0 ? '#ef4444' : i <= 1 ? '#3b82f6' : '#f97316'} />
-          ))}
-        </div>
-        <div className="w-40 flex-shrink-0">
-          {(item.actions?.length > 0) && (
-            <Section label="행동 패턴">
-              <div className="flex flex-col gap-0.5">
-                {item.actions.map((a, i) => {
-                  const name = ref(lookup, 'Skills.json', a.skillId)
-                  return <span key={i} className="text-xs" style={{ color: 'var(--text-primary)' }}>{name || `스킬#${a.skillId}`} <span style={{ color: 'var(--text-secondary)' }}>R:{a.rating}</span></span>
-                })}
-              </div>
-            </Section>
-          )}
-          {drops.length > 0 && (
-            <Section label="드롭">
-              <div className="flex flex-col gap-0.5">
-                {drops.map((d, i) => {
-                  const name = ref(lookup, kindFile[d.kind], d.dataId)
-                  return <span key={i} className="text-xs" style={{ color: 'var(--text-primary)' }}>{name || `${DROP_KIND[d.kind]}#${d.dataId}`} <span style={{ color: 'var(--text-secondary)' }}>1/{d.denominator}</span></span>
-                })}
-              </div>
-            </Section>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── 장비 카드 (Weapons / Armors) — 그리드 ────────────────────────
-function EquipGridCard({ item, lookup, maxStat, statIndex, filename }) {
-  const params = item.params || []
-  const mainVal = params[statIndex] || 0
-  const nonzero = params.map((v, i) => [P[i], v]).filter(([, v]) => v !== 0)
-  return (
-    <div className="rounded-lg p-2.5 flex flex-col" style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
-      <div className="flex items-baseline justify-between mb-1">
-        <span className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{item.name}</span>
-        {item.price > 0 && <span className="text-xs flex-shrink-0 ml-1" style={{ color: '#eab308' }}>{item.price}G</span>}
-      </div>
-      {filename === 'Armors.json' && item.etypeId && (
-        <span className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>{ETYPE[item.etypeId] || `유형${item.etypeId}`}</span>
-      )}
-      <StatBar label={P[statIndex]} value={mainVal} max={maxStat || 1} color={statIndex === 2 ? '#f97316' : '#3b82f6'} />
-      {nonzero.length > 1 && (
-        <div className="flex flex-wrap gap-1 mt-1">
-          {nonzero.filter(([k]) => k !== P[statIndex]).map(([k, v]) => (
-            <Tag key={k}>{k}+{v}</Tag>
-          ))}
-        </div>
-      )}
-      {item.traits?.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-1">
-          {item.traits.slice(0, 3).map((t, i) => <Tag key={i}>{fmtTrait(t)}</Tag>)}
-          {item.traits.length > 3 && <Tag>+{item.traits.length - 3}</Tag>}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── 스킬 행 (Skills) ─────────────────────────────────────────────
-function SkillRow({ item }) {
-  const dmg = item.damage
-  return (
-    <div className="flex items-center gap-3 py-2 px-3 rounded-lg mb-1" style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
-      <span className="text-sm font-medium w-28 truncate flex-shrink-0" style={{ color: 'var(--text-primary)' }}>{item.name}</span>
-      <div className="flex gap-1.5 flex-wrap flex-1 min-w-0">
-        {item.mpCost > 0 && <Badge color="rgba(59, 130, 246, 0.15)">MP {item.mpCost}</Badge>}
-        {item.tpCost > 0 && <Badge color="rgba(34, 197, 94, 0.15)">TP {item.tpCost}</Badge>}
-        {item.scope > 0 && <Tag>{SCOPE[item.scope]}</Tag>}
-        {dmg && dmg.type > 0 && <Tag>{DMG_TYPE[dmg.type]}</Tag>}
-        {dmg?.formula && <span className="text-xs font-mono truncate" style={{ color: 'var(--text-secondary)' }}>{dmg.formula}</span>}
-      </div>
-      {item.effects?.length > 0 && (
-        <div className="flex gap-1 flex-shrink-0">
-          {item.effects.slice(0, 2).map((e, i) => <Tag key={i}>{fmtEffect(e)}</Tag>)}
-          {item.effects.length > 2 && <Tag>+{item.effects.length - 2}</Tag>}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── 아이템 그리드 (Items) ────────────────────────────────────────
-function ItemGridCard({ item }) {
-  const hpEff = item.effects?.find((e) => e.code === 11)
-  const mpEff = item.effects?.find((e) => e.code === 12)
-  return (
-    <div className="rounded-lg p-2.5 flex flex-col" style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
-      <div className="flex items-baseline justify-between mb-1">
-        <span className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{item.name}</span>
-        {item.price > 0 && <span className="text-xs flex-shrink-0 ml-1" style={{ color: '#eab308' }}>{item.price}G</span>}
-      </div>
-      {item.description && <span className="text-xs mb-1 line-clamp-1" style={{ color: 'var(--text-secondary)' }}>{item.description}</span>}
-      <div className="flex flex-wrap gap-1 mt-auto">
-        {item.scope > 0 && <Tag>{SCOPE[item.scope]}</Tag>}
-        {hpEff && <Badge color="rgba(239, 68, 68, 0.15)">HP {hpEff.value1 ? `${Math.round(hpEff.value1 * 100)}%` : ''}{hpEff.value2 ? `+${hpEff.value2}` : ''}</Badge>}
-        {mpEff && <Badge color="rgba(59, 130, 246, 0.15)">MP {mpEff.value1 ? `${Math.round(mpEff.value1 * 100)}%` : ''}{mpEff.value2 ? `+${mpEff.value2}` : ''}</Badge>}
-        {item.effects?.filter((e) => e.code !== 11 && e.code !== 12).slice(0, 2).map((e, i) => <Tag key={i}>{fmtEffect(e)}</Tag>)}
-      </div>
-    </div>
-  )
-}
-
-// ── 직업 카드 (Classes) ──────────────────────────────────────────
-function ClassCard({ item, lookup }) {
+// ── 상세 패널: 직업 ─────────────────────────────────────────────
+function ClassDetail({ item, lookup }) {
   const params = item.params || []
   const is2d = Array.isArray(params[0])
   const learnings = [...(item.learnings || [])].sort((a, b) => a.level - b.level)
+
   return (
-    <div className="rounded-lg p-3 mb-2" style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
-      <div className="flex items-baseline gap-2 mb-2">
-        <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{item.name}</span>
-        {learnings.length > 0 && <Tag>스킬 {learnings.length}개</Tag>}
-      </div>
-      {/* 성장 곡선 */}
-      {is2d && (
-        <div className="mb-2">
-          {params.slice(0, 8).map((curve, i) => {
-            if (!Array.isArray(curve)) return null
-            const lv1 = curve[1] ?? 0, lvMax = curve[curve.length - 1] ?? 0
-            if (lv1 === 0 && lvMax === 0) return null
-            return (
-              <div key={i} className="flex items-center gap-2 text-xs py-0.5">
-                <span className="w-8 text-right flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>{P[i]}</span>
-                <span className="w-10 text-right tabular-nums" style={{ color: 'var(--text-primary)' }}>{lv1}</span>
-                <div className="flex-1 h-1.5 rounded-full relative" style={{ background: 'var(--border)' }}>
-                  <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: '100%', background: `linear-gradient(90deg, ${i === 0 ? '#ef4444' : i === 1 ? '#3b82f6' : 'var(--accent)'} 0%, transparent 100%)`, opacity: 0.4 }} />
+    <div className="grid gap-4" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
+      <div className="space-y-4">
+        <FieldGroup title="일반 설정">
+          <Field label="이름" value={item.name} />
+        </FieldGroup>
+        {is2d && (
+          <FieldGroup title="성장 곡선 (Lv.1 → Lv.Max)">
+            {params.slice(0, 8).map((curve, i) => {
+              if (!Array.isArray(curve)) return null
+              const lv1 = curve[1] ?? 0, lvMax = curve[curve.length - 1] ?? 0
+              if (lv1 === 0 && lvMax === 0) return null
+              return (
+                <div key={i} className="flex items-center gap-2 py-0.5">
+                  <span className="text-[11px] font-semibold tabular-nums" style={{ color: STAT_COLORS[i], width: 26, textAlign: 'right' }}>{P[i]}</span>
+                  <span className="text-xs tabular-nums" style={{ color: 'var(--text-primary)', width: 36, textAlign: 'right' }}>{lv1}</span>
+                  <div className="flex-1 h-1.5 rounded-full relative" style={{ background: 'var(--border)' }}>
+                    <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: '100%', background: `linear-gradient(90deg, ${STAT_COLORS[i]}88, ${STAT_COLORS[i]}22)` }} />
+                  </div>
+                  <span className="text-xs tabular-nums font-medium" style={{ color: 'var(--text-primary)', width: 36 }}>{lvMax}</span>
                 </div>
-                <span className="w-10 text-left tabular-nums font-medium" style={{ color: 'var(--text-primary)' }}>{lvMax}</span>
-              </div>
-            )
-          })}
-        </div>
-      )}
-      {/* 습득 스킬 타임라인 */}
-      {learnings.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {learnings.map((l, i) => {
-            const name = ref(lookup, 'Skills.json', l.skillId)
-            return <Badge key={i} color="rgba(139, 92, 246, 0.1)">Lv.{l.level} {name || `#${l.skillId}`}</Badge>
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── 상태 행 (States) ─────────────────────────────────────────────
-function StateRow({ item }) {
-  return (
-    <div className="flex items-center gap-3 py-2 px-3 rounded-lg mb-1" style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
-      <span className="text-sm font-medium w-24 truncate flex-shrink-0" style={{ color: 'var(--text-primary)' }}>{item.name}</span>
-      <div className="flex gap-1.5 flex-wrap flex-1">
-        {item.restriction > 0 && <Badge color="rgba(239, 68, 68, 0.15)">{RESTRICTION[item.restriction]}</Badge>}
-        <Tag>우선도 {item.priority}</Tag>
-        {(item.minTurns > 0 || item.maxTurns > 0) && <Tag>{item.minTurns ?? 0}~{item.maxTurns ?? '∞'}턴</Tag>}
-        {item.removeAtBattleEnd && <Tag>전투 종료 시 해제</Tag>}
-        {item.removeByDamage && <Tag>피격 해제 {item.chanceByDamage}%</Tag>}
-        {item.removeByWalking && <Tag>{item.stepsToRemove}걸음 해제</Tag>}
+              )
+            })}
+          </FieldGroup>
+        )}
+      </div>
+      <div className="space-y-4">
+        <FieldGroup title="습득 스킬">
+          <SimpleTable columns={['레벨', '스킬']}
+            rows={learnings.map(l => [`Lv.${l.level}`, ref(lookup, 'Skills.json', l.skillId) || `#${l.skillId}`])} />
+        </FieldGroup>
+        {item.note && (
+          <FieldGroup title="메모">
+            <p className="text-xs whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{item.note}</p>
+          </FieldGroup>
+        )}
       </div>
     </div>
   )
 }
 
-// ── 시스템 대시보드 (System) ──────────────────────────────────────
-function SystemDashboard({ data, lookup }) {
-  const cards = [
-    { label: '게임 제목', value: data.gameTitle },
-    { label: '시작 위치', value: `맵 #${data.startMapId} (${data.startX}, ${data.startY})` },
-    { label: '파티 멤버', value: (data.partyMembers || []).map((id) => ref(lookup, 'Actors.json', id) || `#${id}`).join(', ') || '없음' },
-    { label: '화폐', value: data.currency || 'G' },
-    { label: '사이드뷰', value: data.optSideView ? '사용' : '미사용' },
-    { label: 'TP 표시', value: data.optDisplayTp ? '표시' : '숨김' },
-    { label: '언어', value: data.locale },
-    { label: '타일 크기', value: data.tileSize ? `${data.tileSize}px` : '48px' },
-  ]
-  // Actors lookup for partyMembers — pre-build
-  const actorLookup = useMemo(() => {
-    // build actor lookup from lookup itself won't work, we need a separate one
-    // but we can reuse the existing mechanism
-    return {}
-  }, [])
+// ── 상세 패널: 스킬 ─────────────────────────────────────────────
+function SkillDetail({ item, lookup }) {
+  const dmg = item.damage
+  const effects = (item.effects || []).filter(e => e?.code)
 
   return (
-    <div className="grid grid-cols-2 gap-2">
-      {cards.map((c) => (
-        <div key={c.label} className="rounded-lg p-3" style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
-          <div className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>{c.label}</div>
-          <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{c.value || '—'}</div>
-        </div>
-      ))}
+    <div className="grid gap-4" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
+      <div className="space-y-4">
+        <FieldGroup title="일반 설정">
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="이름" value={item.name} />
+            <Field label="범위" value={SCOPE[item.scope] || '—'} />
+            <Field label="MP 소비" value={item.mpCost ?? 0} />
+            <Field label="TP 소비" value={item.tpCost ?? 0} />
+            <Field label="성공률" value={`${item.successRate ?? 100}%`} />
+            <Field label="연속 횟수" value={item.repeats ?? 1} />
+          </div>
+          {item.description && (
+            <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+              <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>설명:</span>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--text-primary)' }}>{item.description}</p>
+            </div>
+          )}
+        </FieldGroup>
+        {dmg && dmg.type > 0 && (
+          <FieldGroup title="데미지">
+            <div className="grid grid-cols-2 gap-x-4">
+              <Field label="타입" value={DMG_TYPE[dmg.type]} />
+              <Field label="속성" value={dmg.elementId > 0 ? `#${dmg.elementId}` : '통상'} />
+            </div>
+            {dmg.formula && (
+              <div className="mt-2 rounded px-3 py-1.5 font-mono text-xs" style={{ background: 'rgba(0,0,0,0.25)', color: 'var(--text-primary)' }}>
+                {dmg.formula}
+              </div>
+            )}
+          </FieldGroup>
+        )}
+      </div>
+      <div className="space-y-4">
+        <FieldGroup title="사용 효과">
+          {effects.length > 0
+            ? <SimpleTable columns={['효과']} rows={effects.map(e => [fmtEffect(e, lookup)])} />
+            : <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>없음</p>
+          }
+        </FieldGroup>
+        {item.note && (
+          <FieldGroup title="메모">
+            <p className="text-xs whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{item.note}</p>
+          </FieldGroup>
+        )}
+      </div>
     </div>
   )
 }
 
-// ── 최대값 계산 (스탯 바 스케일링용) ──────────────────────────────
-function calcMaxParams(items) {
-  const max = [0, 0, 0, 0, 0, 0, 0, 0]
-  for (const item of items) {
-    const p = item.params; if (!Array.isArray(p)) continue
-    for (let i = 0; i < 8; i++) max[i] = Math.max(max[i], typeof p[i] === 'number' ? p[i] : 0)
-  }
-  return max
+// ── 상세 패널: 아이템 ───────────────────────────────────────────
+function ItemDetail({ item, lookup }) {
+  const effects = (item.effects || []).filter(e => e?.code)
+
+  return (
+    <div className="grid gap-4" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
+      <div className="space-y-4">
+        <FieldGroup title="일반 설정">
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="이름" value={item.name} />
+            <Field label="가격" value={`${(item.price ?? 0).toLocaleString()} G`} />
+            <Field label="범위" value={SCOPE[item.scope] || '—'} />
+            <Field label="소비" value={item.consumable !== false ? '소비' : '비소비'} />
+          </div>
+          {item.description && (
+            <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+              <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>설명:</span>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--text-primary)' }}>{item.description}</p>
+            </div>
+          )}
+        </FieldGroup>
+      </div>
+      <div className="space-y-4">
+        <FieldGroup title="사용 효과">
+          {effects.length > 0
+            ? <SimpleTable columns={['효과']} rows={effects.map(e => [fmtEffect(e, lookup)])} />
+            : <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>없음</p>
+          }
+        </FieldGroup>
+        {item.note && (
+          <FieldGroup title="메모">
+            <p className="text-xs whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{item.note}</p>
+          </FieldGroup>
+        )}
+      </div>
+    </div>
+  )
 }
 
-function calcMaxStat(items, index) {
-  let max = 0
-  for (const item of items) {
-    const p = item.params; if (!Array.isArray(p)) continue
-    max = Math.max(max, p[index] || 0)
-  }
-  return max
+// ── 상세 패널: 무기 / 방어구 ────────────────────────────────────
+function EquipDetail({ item, lookup, isArmor }) {
+  const traits = (item.traits || []).filter(t => t?.code != null)
+
+  return (
+    <div className="grid gap-4" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
+      <div className="space-y-4">
+        <FieldGroup title="일반 설정">
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="이름" value={item.name} />
+            <Field label="가격" value={`${(item.price ?? 0).toLocaleString()} G`} />
+            {isArmor && <Field label="장비 유형" value={ETYPE[item.etypeId] || `유형${item.etypeId}`} />}
+          </div>
+          {item.description && (
+            <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+              <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>설명:</span>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--text-primary)' }}>{item.description}</p>
+            </div>
+          )}
+        </FieldGroup>
+        <FieldGroup title="능력치 보정">
+          <StatGrid params={item.params} showSign />
+        </FieldGroup>
+      </div>
+      <div className="space-y-4">
+        <FieldGroup title="특성">
+          <SimpleTable columns={['유형', '내용']}
+            rows={traits.map(t => [TRAIT_CODES[t.code] || `코드${t.code}`, fmtTrait(t)])} />
+        </FieldGroup>
+        {item.note && (
+          <FieldGroup title="메모">
+            <p className="text-xs whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{item.note}</p>
+          </FieldGroup>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── 상세 패널: 적 ───────────────────────────────────────────────
+function EnemyDetail({ item, lookup }) {
+  const params = item.params || []
+  const drops = (item.dropItems || []).filter(d => d.kind > 0)
+  const kindFile = { 1: 'Items.json', 2: 'Weapons.json', 3: 'Armors.json' }
+
+  return (
+    <div className="grid gap-4" style={{ gridTemplateColumns: '1fr minmax(160px, 0.5fr)' }}>
+      <div className="space-y-4">
+        <FieldGroup title="일반 설정">
+          <Field label="이름" value={item.name} />
+        </FieldGroup>
+        <FieldGroup title="능력치">
+          <StatGrid params={params} />
+        </FieldGroup>
+        <FieldGroup title="보상">
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="경험치" value={item.exp?.toLocaleString() ?? 0} />
+            <Field label="골드" value={item.gold?.toLocaleString() ?? 0} />
+          </div>
+        </FieldGroup>
+        {drops.length > 0 && (
+          <FieldGroup title="드롭 아이템">
+            <SimpleTable columns={['종류', '아이템', '확률']}
+              rows={drops.map(d => [
+                DROP_KIND[d.kind],
+                ref(lookup, kindFile[d.kind], d.dataId) || `#${d.dataId}`,
+                d.denominator > 0 ? `1/${d.denominator}` : '—',
+              ])} />
+          </FieldGroup>
+        )}
+      </div>
+      <div className="space-y-4">
+        <FieldGroup title="행동 패턴">
+          {item.actions?.length > 0
+            ? <SimpleTable columns={['스킬', '레이팅']}
+                rows={item.actions.map(a => [
+                  ref(lookup, 'Skills.json', a.skillId) || `스킬#${a.skillId}`,
+                  String(a.rating),
+                ])} />
+            : <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>없음</p>
+          }
+        </FieldGroup>
+        {item.traits?.length > 0 && (
+          <FieldGroup title="특성">
+            <SimpleTable columns={['유형', '내용']}
+              rows={item.traits.filter(t => t?.code != null).map(t => [TRAIT_CODES[t.code] || `코드${t.code}`, fmtTrait(t)])} />
+          </FieldGroup>
+        )}
+        {item.note && (
+          <FieldGroup title="메모">
+            <p className="text-xs whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{item.note}</p>
+          </FieldGroup>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── 상세 패널: 스테이트 ─────────────────────────────────────────
+function StateDetail({ item }) {
+  return (
+    <div className="space-y-4">
+      <FieldGroup title="일반 설정">
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="이름" value={item.name} />
+          <Field label="우선도" value={item.priority} />
+          <Field label="제한" value={RESTRICTION[item.restriction] || '없음'} />
+          {item.iconIndex > 0 && <Field label="아이콘" value={`#${item.iconIndex}`} />}
+        </div>
+      </FieldGroup>
+      <FieldGroup title="자동 해제">
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="지속 턴" value={(item.minTurns || item.maxTurns) ? `${item.minTurns ?? 0} ~ ${item.maxTurns ?? '∞'}` : '영구'} />
+          <Field label="전투 종료" value={item.removeAtBattleEnd ? '해제' : '유지'} />
+          <Field label="피격 해제" value={item.removeByDamage ? `${item.chanceByDamage ?? 100}%` : '안 함'} />
+          <Field label="걸음 해제" value={item.removeByWalking ? `${item.stepsToRemove ?? 0}걸음` : '안 함'} />
+        </div>
+      </FieldGroup>
+      {item.traits?.length > 0 && (
+        <FieldGroup title="특성">
+          <SimpleTable columns={['유형', '내용']}
+            rows={item.traits.filter(t => t?.code != null).map(t => [TRAIT_CODES[t.code] || `코드${t.code}`, fmtTrait(t)])} />
+        </FieldGroup>
+      )}
+      {item.note && (
+        <FieldGroup title="메모">
+          <p className="text-xs whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{item.note}</p>
+        </FieldGroup>
+      )}
+    </div>
+  )
+}
+
+// ── 상세 패널: 시스템 ───────────────────────────────────────────
+function SystemDetail({ data, lookup }) {
+  return (
+    <div className="space-y-4">
+      <FieldGroup title="기본 설정">
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="게임 제목" value={data.gameTitle} />
+          <Field label="화폐 단위" value={data.currencyUnit || 'G'} />
+          <Field label="시작 맵" value={`맵 #${data.startMapId}`} />
+          <Field label="시작 좌표" value={`(${data.startX}, ${data.startY})`} />
+          <Field label="언어" value={data.locale || '—'} />
+          <Field label="타일 크기" value={data.tileSize ? `${data.tileSize}px` : '48px'} />
+        </div>
+      </FieldGroup>
+      <FieldGroup title="초기 파티">
+        <div className="text-xs" style={{ color: 'var(--text-primary)' }}>
+          {(data.partyMembers || []).map((id, i) => (
+            <span key={id}>
+              {i > 0 && ', '}
+              {ref(lookup, 'Actors.json', id) || `#${id}`}
+            </span>
+          )) || '없음'}
+        </div>
+      </FieldGroup>
+      <FieldGroup title="옵션">
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="사이드뷰" value={data.optSideView ? '사용' : '미사용'} />
+          <Field label="TP 표시" value={data.optDisplayTp ? '표시' : '숨김'} />
+          <Field label="자동 전투" value={data.optAutoBattle ? '허용' : '불가'} />
+          <Field label="대시" value={data.optExtraExp !== false ? '허용' : '불가'} />
+        </div>
+      </FieldGroup>
+    </div>
+  )
 }
 
 // ── 메인 컴포넌트 ────────────────────────────────────────────────
 export default function GameDataViewer({ gameId, refreshKey }) {
   const [cache, setCache] = useState({})
   const [selectedFile, setSelectedFile] = useState('Actors.json')
+  const [selectedItemId, setSelectedItemId] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
   const [search, setSearch] = useState('')
-  const [sortKey, setSortKey] = useState('id')
-  const [sortAsc, setSortAsc] = useState(true)
 
-  useEffect(() => { setSearch(''); setSortKey('id'); setSortAsc(true) }, [selectedFile])
+  // 카테고리 변경 시 초기화
+  useEffect(() => { setSearch(''); setSelectedItemId(null) }, [selectedFile])
   useEffect(() => { setCache({}) }, [refreshKey])
 
+  // 참조 데이터 프리로드
   useEffect(() => {
     REF_FILES.forEach((f) => {
       if (cache[f]) return
@@ -407,6 +521,7 @@ export default function GameDataViewer({ gameId, refreshKey }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId, refreshKey])
 
+  // 선택된 파일 로드
   useEffect(() => {
     if (cache[selectedFile]) return
     setIsLoading(true); setError(null)
@@ -421,6 +536,7 @@ export default function GameDataViewer({ gameId, refreshKey }) {
   const lookup = buildLookup(cache)
   const data = cache[selectedFile]
   const isArray = Array.isArray(data)
+  const isSystem = selectedFile === 'System.json'
 
   const items = useMemo(() => {
     if (!isArray) return null
@@ -429,92 +545,98 @@ export default function GameDataViewer({ gameId, refreshKey }) {
       const q = search.trim().toLowerCase()
       list = list.filter((it) => (it.name && it.name.toLowerCase().includes(q)) || String(it.id) === q)
     }
-    list = [...list].sort((a, b) => {
-      const av = getVal(a, sortKey), bv = getVal(b, sortKey)
-      if (typeof av === 'string' && typeof bv === 'string') return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av)
-      return sortAsc ? (av > bv ? 1 : -1) : (bv > av ? 1 : -1)
-    })
-    return list
-  }, [data, isArray, search, sortKey, sortAsc])
+    return list.sort((a, b) => a.id - b.id)
+  }, [data, isArray, search])
 
-  const maxParams = useMemo(() => items ? calcMaxParams(items) : [], [items])
-  const sortOptions = SORT_OPTIONS[selectedFile] || [['id', 'ID'], ['name', '이름']]
-  const isGrid = ['Weapons.json', 'Armors.json', 'Items.json'].includes(selectedFile)
+  // 첫 아이템 자동 선택
+  useEffect(() => {
+    if (items?.length > 0 && (selectedItemId == null || !items.find(it => it.id === selectedItemId))) {
+      setSelectedItemId(items[0].id)
+    }
+  }, [items, selectedItemId])
 
-  // 타입별 렌더
-  function renderItems() {
-    if (!items) return null
+  const selectedItem = items?.find(it => it.id === selectedItemId)
+
+  function renderDetail() {
+    if (isSystem && data) return <SystemDetail data={data} lookup={lookup} />
+    if (!selectedItem) return null
+    const classes = Array.isArray(cache['Classes.json']) ? cache['Classes.json'] : []
     switch (selectedFile) {
-      case 'Actors.json':
-        return items.map((it) => <ActorCard key={it.id} item={it} lookup={lookup} maxParams={maxParams} />)
-      case 'Enemies.json':
-        return items.map((it) => <EnemyCard key={it.id} item={it} lookup={lookup} maxParams={maxParams} />)
-      case 'Classes.json':
-        return items.map((it) => <ClassCard key={it.id} item={it} lookup={lookup} />)
-      case 'Skills.json':
-        return items.map((it) => <SkillRow key={it.id} item={it} />)
-      case 'States.json':
-        return items.map((it) => <StateRow key={it.id} item={it} />)
-      case 'Items.json':
-        return <div className="grid grid-cols-2 gap-2">{items.map((it) => <ItemGridCard key={it.id} item={it} />)}</div>
-      case 'Weapons.json': {
-        const max = calcMaxStat(items, 2)
-        return <div className="grid grid-cols-2 gap-2">{items.map((it) => <EquipGridCard key={it.id} item={it} lookup={lookup} maxStat={max} statIndex={2} filename={selectedFile} />)}</div>
-      }
-      case 'Armors.json': {
-        const max = calcMaxStat(items, 3)
-        return <div className="grid grid-cols-2 gap-2">{items.map((it) => <EquipGridCard key={it.id} item={it} lookup={lookup} maxStat={max} statIndex={3} filename={selectedFile} />)}</div>
-      }
-      default:
-        return null
+      case 'Actors.json': return <ActorDetail item={selectedItem} lookup={lookup} classes={classes} />
+      case 'Classes.json': return <ClassDetail item={selectedItem} lookup={lookup} />
+      case 'Skills.json': return <SkillDetail item={selectedItem} lookup={lookup} />
+      case 'Items.json': return <ItemDetail item={selectedItem} lookup={lookup} />
+      case 'Weapons.json': return <EquipDetail item={selectedItem} lookup={lookup} />
+      case 'Armors.json': return <EquipDetail item={selectedItem} lookup={lookup} isArmor />
+      case 'Enemies.json': return <EnemyDetail item={selectedItem} lookup={lookup} />
+      case 'States.json': return <StateDetail item={selectedItem} />
+      default: return null
     }
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      {/* 탭 */}
-      <div className="flex gap-1 p-2 flex-shrink-0 flex-wrap" style={{ borderBottom: '1px solid var(--border)' }}>
-        {DATA_FILES.map((f) => (
+    <div className="flex-1 flex overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
+      {/* ── 카테고리 사이드바 ── */}
+      <div className="flex-shrink-0 flex flex-col overflow-y-auto" style={{ width: 88, background: 'var(--bg-secondary)', borderRight: '1px solid var(--border)' }}>
+        {DATA_FILES.map(f => (
           <button key={f} onClick={() => setSelectedFile(f)}
-            className="px-2.5 py-1 rounded text-xs transition-colors"
-            style={{ background: selectedFile === f ? 'var(--accent)' : 'var(--border)', color: 'var(--text-primary)' }}
-          >{FILE_LABEL[f]}</button>
+            className="text-left px-3 py-2 text-xs transition-colors"
+            style={{
+              background: selectedFile === f ? 'rgba(255,255,255,0.05)' : 'transparent',
+              color: selectedFile === f ? 'var(--text-primary)' : 'var(--text-secondary)',
+              borderLeft: selectedFile === f ? '2px solid var(--accent)' : '2px solid transparent',
+              fontWeight: selectedFile === f ? 600 : 400,
+            }}>
+            {FILE_LABEL[f]}
+          </button>
         ))}
       </div>
 
-      {/* 툴바 */}
-      {isArray && items && (
-        <div className="flex items-center gap-2 px-3 py-1.5 flex-shrink-0 flex-wrap" style={{ borderBottom: '1px solid var(--border)' }}>
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="이름 검색..." className="px-2 py-1 rounded text-xs flex-1 min-w-[100px]"
-            style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-primary)', outline: 'none' }}
-          />
-          <div className="flex items-center gap-1">
-            {sortOptions.map(([key, label]) => (
-              <button key={key}
-                onClick={() => { if (sortKey === key) setSortAsc((p) => !p); else { setSortKey(key); setSortAsc(true) } }}
-                className="px-1.5 py-0.5 rounded text-xs"
-                style={{ background: sortKey === key ? 'var(--accent)' : 'var(--border)', color: 'var(--text-primary)' }}
-              >{label}{sortKey === key ? (sortAsc ? ' ↑' : ' ↓') : ''}</button>
+      {/* ── 아이템 리스트 ── */}
+      {!isSystem && (
+        <div className="flex-shrink-0 flex flex-col overflow-hidden" style={{ width: 172, borderRight: '1px solid var(--border)' }}>
+          <div className="px-2.5 py-1.5 text-xs font-medium flex-shrink-0 flex items-center justify-between" style={{ color: 'var(--text-primary)', borderBottom: '1px solid var(--border)' }}>
+            <span>{FILE_LABEL[selectedFile]}</span>
+            {items && <span className="text-[10px] font-normal" style={{ color: 'var(--text-secondary)' }}>{items.length}</span>}
+          </div>
+          <div className="px-1.5 py-1 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="검색..."
+              className="w-full px-1.5 py-0.5 text-[11px] rounded"
+              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', color: 'var(--text-primary)', outline: 'none' }} />
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {items?.map(item => (
+              <div key={item.id} onClick={() => setSelectedItemId(item.id)}
+                className="flex items-center px-2 py-[5px] cursor-pointer transition-colors"
+                style={{
+                  background: selectedItemId === item.id ? 'rgba(255,59,92,0.08)' : 'transparent',
+                  borderLeft: selectedItemId === item.id ? '2px solid var(--accent)' : '2px solid transparent',
+                }}>
+                <span className="flex-shrink-0 tabular-nums text-[11px] mr-1.5" style={{ color: 'var(--text-secondary)', width: 34 }}>
+                  {String(item.id).padStart(4, '0')}
+                </span>
+                <span className="truncate text-[11px]" style={{ color: selectedItemId === item.id ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                  {item.name || '(이름 없음)'}
+                </span>
+              </div>
             ))}
+            {items?.length === 0 && (
+              <div className="px-3 py-4 text-[11px] text-center" style={{ color: 'var(--text-secondary)' }}>
+                {search ? '검색 결과 없음' : '데이터 없음'}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* 콘텐츠 */}
-      <div className="flex-1 overflow-y-auto p-3">
-        {isLoading && <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>로딩 중...</p>}
-        {error && <p className="text-sm" style={{ color: '#e05555' }}>{error}</p>}
-        {!isLoading && !error && data && (
-          <>
-            <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
-              {FILE_LABEL[selectedFile]} {isArray && `— ${search ? `${items.length}개 검색됨` : `총 ${items.length}개`}`}
-            </p>
-            {isArray
-              ? renderItems()
-              : <SystemDashboard data={data} lookup={lookup} />
-            }
-          </>
+      {/* ── 상세 패널 ── */}
+      <div className="flex-1 overflow-y-auto p-3 min-w-0">
+        {isLoading && <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>로딩 중...</p>}
+        {error && <p className="text-xs" style={{ color: '#e05555' }}>{error}</p>}
+        {!isLoading && !error && data && renderDetail()}
+        {!isLoading && !error && !data && (
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>데이터를 선택하세요</p>
         )}
       </div>
     </div>
