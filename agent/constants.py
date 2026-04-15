@@ -54,7 +54,7 @@ CATEGORY_TO_ID_FIELD: dict[str, str] = {
     "element": "element_id",
 }
 
-# 사용: planner_v2/rule_engine.py
+# 사용: planner/rule_engine.py
 ALL_ENTITY_FILES: tuple[str, ...] = tuple(CATEGORY_TO_FILE.values())
 
 # ──────────────────────────────────────────────
@@ -89,7 +89,7 @@ KEYWORD_TO_CATEGORY: dict[str, str] = {
 # 배열 필드
 # ──────────────────────────────────────────────
 
-# 사용: definition.py, planner_v2/rule_engine.py
+# 사용: definition.py, planner/rule_engine.py
 ARRAY_FIELDS: frozenset[str] = frozenset(
     {
         "traits",
@@ -104,7 +104,7 @@ ARRAY_FIELDS: frozenset[str] = frozenset(
 # System.json 관련
 # ──────────────────────────────────────────────
 
-# 사용: planner_v2/rule_engine.py
+# 사용: planner/rule_engine.py
 SYSTEM_TYPE_ARRAYS: dict[str, str] = {
     "elements": "elements",
     "skillTypes": "skillTypes",
@@ -122,13 +122,13 @@ KIND_TO_SYSTEM_KEY: dict[str, str] = {
     "equip_type": "equipTypes",
 }
 
-# 사용: planner_v2/rule_engine.py
+# 사용: planner/rule_engine.py
 SYSTEM_DEDICATED_FIELDS: dict[str, str] = {
     "gameTitle": "update_game_title",
     "game_title": "update_game_title",
 }
 
-# 사용: planner_v2/rule_engine.py
+# 사용: planner/rule_engine.py
 SYSTEM_TYPE_ARRAY_NAMES: frozenset[str] = frozenset(
     {
         "skillTypes",
@@ -143,7 +143,7 @@ SYSTEM_TYPE_ARRAY_NAMES: frozenset[str] = frozenset(
 # 검색 임계값 / 전역 설정
 # ──────────────────────────────────────────────
 
-# 사용: planner_v2/rule_engine.py
+# 사용: planner/rule_engine.py
 FUZZY_THRESHOLD: float = 0.6
 
 # 사용: validator/__init__.py
@@ -258,7 +258,7 @@ TRAIT_CODE_TO_HINT: dict[int, str] = {
 # trait/effect 의미→코드 매핑 (array_op 해석용)
 # ──────────────────────────────────────────────
 
-# 사용: planner_v2/array_op_resolver.py
+# 사용: planner/array_op_resolver.py
 MATCH_HINT_TO_TRAIT_CODE: dict[str, int] = {
     "속성 내성": 11,
     "원소 내성": 11,
@@ -303,7 +303,7 @@ MATCH_HINT_TO_TRAIT_CODE: dict[str, int] = {
     "파티 능력": 64,
 }
 
-# 사용: planner_v2/array_op_resolver.py
+# 사용: planner/array_op_resolver.py
 TRAIT_DATAID_SOURCE: dict[int, tuple[str | None, str]] = {
     11: ("system", "elements"),
     13: ("entity", "States.json"),
@@ -317,7 +317,7 @@ TRAIT_DATAID_SOURCE: dict[int, tuple[str | None, str]] = {
     52: ("system", "armorTypes"),
 }
 
-# 사용: planner_v2/array_op_resolver.py
+# 사용: planner/array_op_resolver.py
 MATCH_HINT_TO_EFFECT_CODE: dict[str, int] = {
     "HP 회복": 11,
     "HP회복": 11,
@@ -347,7 +347,7 @@ MATCH_HINT_TO_EFFECT_CODE: dict[str, int] = {
 # TODO: Step4.6 안정화 시 제거 가능
 # ──────────────────────────────────────────────
 
-# 사용: planner_v2/rule_engine.py
+# 사용: planner/rule_engine.py
 FIELD_REROUTE_FIXES: dict[str, dict[str, str | dict]] = {
     "damage.elementId": {
         "field": "traits",

@@ -2,7 +2,7 @@
 
 사용자의 자연어 한 줄로 기존 RPG Maker MZ 데이터를 **생성·수정·조회**하는 증분 편집 에이전트. Generator("게임 만들어줘")와는 별개 파이프라인.
 
-> 엔트리: `agent/graph/workflow.py` · 상태: `agent/graph/state.py` · 라우팅: `agent/graph/routing.py`
+> 엔트리: `agent/editor/workflow.py` · 상태: `agent/editor/state.py` · 라우팅: `agent/editor/routing.py`
 
 ---
 
@@ -155,7 +155,7 @@ class AgentState(TypedDict, total=False):
 ## 5. 디렉터리 레이아웃
 
 ```
-agent/graph/
+agent/editor/
 ├── workflow.py                     LangGraph 전체 워크플로우 정의
 ├── state.py                        AgentState TypedDict
 ├── routing.py                      조건부 분기 (route_after_router, route_after_definition, route_after_validator)
@@ -358,13 +358,13 @@ retry 시 누적 log에서 step별 최신 로그만 사용.
 
 ## 8. 읽기 순서
 
-1. `agent/graph/state.py`
-2. `agent/graph/workflow.py`
-3. `agent/graph/routing.py`
-4. `agent/graph/nodes/router.py`
-5. `agent/graph/nodes/reader.py`
-6. `agent/graph/nodes/definition.py`
-7. `agent/graph/nodes/planner.py`
-8. `agent/graph/nodes/executor.py`
-9. `agent/graph/nodes/validator/`
-10. `agent/graph/nodes/synthesizer.py`
+1. `agent/editor/state.py`
+2. `agent/editor/workflow.py`
+3. `agent/editor/routing.py`
+4. `agent/editor/nodes/router.py`
+5. `agent/editor/nodes/reader.py`
+6. `agent/editor/nodes/definition.py`
+7. `agent/editor/nodes/planner.py`
+8. `agent/editor/nodes/executor.py`
+9. `agent/editor/nodes/validator/`
+10. `agent/editor/nodes/synthesizer.py`

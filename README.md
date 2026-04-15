@@ -204,8 +204,8 @@ npm run lint
 
 - Backend entry: `app/backend/main.py`
 - Frontend entry: `app/frontend/src/main.jsx`
-- Agent workflow: `agent/graph/workflow.py`
-- Validator node: `agent/graph/nodes/validator.py`
+- Agent workflow: `agent/editor/workflow.py`
+- Validator node: `agent/editor/nodes/validator.py`
 - 프로젝트 문서 인덱스: `docs/index.md`
 
 ---

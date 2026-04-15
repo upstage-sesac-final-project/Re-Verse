@@ -56,7 +56,7 @@ CATEGORY_TO_ID_FIELD = {
 
 ---
 
-## 1. Reader (`agent/graph/nodes/reader.py`)
+## 1. Reader (`agent/editor/nodes/reader.py`)
 
 ### 현재 상태
 
@@ -111,7 +111,7 @@ CATEGORY_TO_ID_FIELD = {
 
 ---
 
-## 2. Definition (`agent/graph/nodes/definition.py`)
+## 2. Definition (`agent/editor/nodes/definition.py`)
 
 ### 현재 상태
 
@@ -170,7 +170,7 @@ CLAUDE.md에 적힌 5단계 파이프라인 (subject 추출 → 카테고리 분
 
 ---
 
-## 3. Planner (`agent/graph/nodes/planner.py`)
+## 3. Planner (`agent/editor/nodes/planner.py`)
 
 ### 현재 상태
 
@@ -255,7 +255,7 @@ Validator (MapInfos/MapNNN 스키마 + query consistency 범위 확장) — 후�
 
 ## 참고 파일
 
-- `agent/graph/nodes/executor.py` — PR #85에서 추가된 `MCP_TOOL_MAP` 맵 엔트리, `_resolve_mcp_map_file_entry`, `_normalize_mcp_arguments`의 맵 블록
+- `agent/editor/nodes/executor.py` — PR #85에서 추가된 `MCP_TOOL_MAP` 맵 엔트리, `_resolve_mcp_map_file_entry`, `_normalize_mcp_arguments`의 맵 블록
 - `agent/tests/executor_step4_map_test.py` — execution_plan을 수기로 짜서 Executor만 호출하는 참조 예시
-- `agent/prompts/router_prompt.py` — 맵 관련 Router 정책(지원 범위 / 범위_외 경계)
+- `agent/editor/prompts/router_prompt.py` — 맵 관련 Router 정책(지원 범위 / 범위_외 경계)
 - CLAUDE.md §2 Definition, §3 Planner, §4 Executor

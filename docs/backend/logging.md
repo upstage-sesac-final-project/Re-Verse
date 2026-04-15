@@ -66,7 +66,7 @@ logs/
 
 | 환경 | 포맷 |
 |------|------|
-| 개발 | `2026-04-02 01:02:21.038 \| INFO     \| nickname_user_id \| agent.graph.nodes.planner \| 메시지` |
+| 개발 | `2026-04-02 01:02:21.038 \| INFO     \| nickname_user_id \| agent.editor.nodes.planner \| 메시지` |
 | 프로덕션 | `{"timestamp":"...","level":"INFO","user":"nickname_user_id","logger":"...","message":"..."}` |
 
 ### 일반 로그 (DailyUserFileHandler)
