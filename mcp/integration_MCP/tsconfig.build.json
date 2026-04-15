@@ -1,0 +1,33 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": [
+    "index.ts",
+    "mcpToolMap.ts",
+    "toolSchemas.ts",
+    "toolSchemaTypes.ts",
+    "unifiedToolSchemas.ts",
+    "generated/**/*.ts",
+    "handlers/**/*.ts",
+    "utils/**/*.ts",
+    "utils/**/*.js",
+    "types/**/*.ts",
+    "schemas/**/*.js",
+    "resources/**/*.json"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test_project",
+    "automation",
+    "**/*.test.js",
+    "**/*.test.ts",
+    "**/*.test.d.ts"
+  ]
+}

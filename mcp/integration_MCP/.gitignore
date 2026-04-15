@@ -1,0 +1,51 @@
+# Dependencies
+node_modules
+dist/
+test_temp//
+
+# Logs
+*.log
+*.log.*
+debug_log.txt
+error.log
+server.log
+crash_log.txt
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Build outputs
+dist/
+build/
+
+# TypeScript compiled outputs
+*.js.map
+handlers/*.js
+utils/mapHelpers.js
+utils/validation.js
+!handlers/*.test.js
+!utils/*.test.js
+!utils/commandAnnotator.js
+!utils/constants.js
+!utils/errors.js
+!utils/logger.js
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+temp_*
+*.tmp
+
+# Screenshots (automation)
+automation/screenshots/*.png
+!automation/screenshots/.gitkeep

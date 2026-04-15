@@ -1,0 +1,67 @@
+{
+  "name": "@rein634/rpg-maker-mz-mcp",
+  "version": "0.1.2",
+  "description": "MCP server for RPG Maker MZ game development automation",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "rpg-maker-mz-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "resources/",
+    "README.md"
+  ],
+  "keywords": [
+    "mcp",
+    "rpg-maker",
+    "rpg-maker-mz",
+    "game-development",
+    "automation",
+    "model-context-protocol"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rein1225/RPGMakerMZ_MCP.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "start": "tsx index.ts",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit --pretty false",
+    "test:e2e": "node automation/test_full_suite.js",
+    "build:registry": "node scripts/build-tool-registry.mjs",
+    "build:baseline": "node scripts/build-compat-baseline.mjs",
+    "report:diff": "node scripts/report-tool-diff.mjs",
+    "validate:standalone": "node scripts/validate-standalone.mjs",
+    "audit:tools": "node scripts/audit-tool-coverage.mjs",
+    "test:tools": "node scripts/run-tool-matrix.mjs",
+    "build": "npm run build:registry && node ./node_modules/typescript/bin/tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build && npm run test:run",
+    "build:utils": "tsc -p tsconfig.utils.json",
+    "build:handlers": "tsc -p tsconfig.handlers.json",
+    "build:index": "tsc index.ts --outDir . --module esnext --target es2022 --moduleResolution node --esModuleInterop --skipLibCheck"
+  },
+  "author": "rein1225",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.22.0",
+    "jimp": "^1.6.0",
+    "puppeteer": "^24.31.0",
+    "screenshot-desktop": "^1.15.3",
+    "serve-handler": "^6.1.6",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.0",
+    "robotjs": "^0.6.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.0"
+  }
+}
