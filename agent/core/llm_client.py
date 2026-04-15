@@ -16,7 +16,7 @@ from agent.core.config import agent_config
 logger = logging.getLogger(__name__)
 
 _llm_cache: dict[float, BaseChatModel] = {}
-_llm_semaphore = asyncio.Semaphore(2)  # 동시 LLM 호출 최대 2개 (메모리 절약)
+_llm_semaphore = asyncio.Semaphore(4)  # 동시 LLM 호출 최대 4개 (t3.small 기준)
 
 
 def get_llm(temperature: float | None = None) -> BaseChatModel:

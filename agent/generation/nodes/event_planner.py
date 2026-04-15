@@ -202,7 +202,8 @@ async def _plan_single_map(
     tilesets: list | None = None,
 ) -> list:
     rag_context = get_event_planner_context(map_spec.map_type)
-    for attempt in range(3):
+    last_error: str | None = None
+    for attempt in range(2):
         try:
             prompt = build_event_planner_prompt(
                 map_spec,
@@ -212,10 +213,15 @@ async def _plan_single_map(
                 connection_info,
                 rag_context,
                 map_story=map_story,
+                feedback=last_error,
             )
             raw = cast(str, await invoke_llm(prompt, temperature=_TEMPERATURE))
             events = _parse_dsl_safe(raw, map_spec.map_id)
             if events is None:
+                preview = raw[:200].replace("\n", " ")
+                last_error = (
+                    f"YAML 파싱 실패: 올바른 YAML 형식으로 출력하세요.\n출력 미리보기: {preview}"
+                )
                 logger.warning("Map%d DSL 파싱 실패 (시도 %d)", map_spec.map_id, attempt + 1)
                 continue
 
@@ -237,10 +243,18 @@ async def _plan_single_map(
             valid = _validate_npc_names(valid, id_table, map_story=map_story)
             if valid is not None:
                 return _fix_battle_sprites(valid, troop_to_sprite)
+
+            last_error = (
+                f"이벤트 검증 실패 (시도 {attempt + 1}): "
+                "잘못된 이름(스위치·아이템·맵·적 그룹), "
+                "허용되지 않는 이벤트 타입, 또는 NPC 이름 충돌이 발생했습니다. "
+                "사용 가능한 이름 목록을 다시 확인하고 정확히 사용하세요."
+            )
         except Exception as e:
+            last_error = f"예외 발생 (시도 {attempt + 1}): {e}"
             logger.warning("Map%d 이벤트 기획 시도 %d 실패: %s", map_spec.map_id, attempt + 1, e)
 
-    logger.error("Map%d 이벤트 기획 3회 실패 → 폴백 사용", map_spec.map_id)
+    logger.error("Map%d 이벤트 기획 2회 실패 → 폴백 사용", map_spec.map_id)
     return _fallback_events(map_spec, id_table)
 
 
