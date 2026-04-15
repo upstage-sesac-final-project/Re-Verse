@@ -137,6 +137,14 @@ async def execute_one(game_id: str, step: dict) -> dict:
     action = step.get("action_type", "")
     target_file = step.get("target_file", "")
     target_info = dict(step.get("target_info") or {})
+
+    # MapInfos.json 액션 정규화 (executor._normalize_structured_action 와 동일)
+    if target_file == "MapInfos.json":
+        if action == "create":
+            action = "create_map"
+        elif action == "delete":
+            action = "delete_map"
+
     target_info = _reconcile_id(target_info, target_file, data_path, action)
     ts = datetime.now().isoformat()
 

@@ -1,9 +1,72 @@
+import { useEffect, useRef } from 'react'
 import { useSelector } from 'react-redux'
 import { useNavigate, Link } from 'react-router-dom'
+import gsap from 'gsap'
+import { ScrollTrigger } from 'gsap/ScrollTrigger'
+
+gsap.registerPlugin(ScrollTrigger)
 
 export default function Home() {
   const navigate = useNavigate()
   const { isAuthenticated } = useSelector((s) => s.user)
+  const mainRef = useRef(null)
+  const heroRef = useRef(null)
+  const titleRef = useRef(null)
+  const featureRefs = useRef([])
+  const progressRef = useRef(null)
+  const blob1Ref = useRef(null)
+  const blob2Ref = useRef(null)
+
+  useEffect(() => {
+    const ctx = gsap.context(() => {
+      // 1. Top Progress Bar
+      gsap.to(progressRef.current, {
+        scaleX: 1,
+        ease: 'none',
+        scrollTrigger: {
+          trigger: mainRef.current,
+          start: 'top top',
+          end: 'bottom bottom',
+          scrub: 0.3
+        }
+      })
+
+      // 2. Hero Title Animation
+      if (titleRef.current) {
+        const text = titleRef.current.innerText
+        titleRef.current.innerHTML = text.split('').map(c =>
+          `<span class="inline-block">${c === ' ' ? '&nbsp;' : c}</span>`
+        ).join('')
+
+        gsap.from(titleRef.current.children, {
+          y: 100,
+          opacity: 0,
+          rotateX: -90,
+          stagger: 0.05,
+          duration: 1.2,
+          ease: 'back.out(1.7)',
+          delay: 0.2
+        })
+      }
+
+      // 3. Hero Sub & Blobs
+      gsap.from('.hero-sub', { y: 30, opacity: 0, duration: 1, delay: 0.8, ease: 'power3.out' })
+      gsap.to(blob1Ref.current, { y: 200, x: 100, scrollTrigger: { trigger: mainRef.current, scrub: 1 } })
+      gsap.to(blob2Ref.current, { y: -300, x: -50, scrollTrigger: { trigger: mainRef.current, scrub: 1.5 } })
+
+      // 4. Features & CTA
+      featureRefs.current.forEach((el, i) => {
+        if (el) {
+          gsap.from(el, {
+            scrollTrigger: { trigger: el, start: 'top 85%' },
+            y: 60, opacity: 0, scale: 0.95, duration: 0.8, delay: i * 0.1
+          })
+        }
+      })
+      gsap.from('.cta-content', { scrollTrigger: { trigger: '.cta-content', start: 'top 85%' }, y: 40, opacity: 0, duration: 1 })
+    }, mainRef)
+    return () => ctx.revert()
+  }, [])
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>

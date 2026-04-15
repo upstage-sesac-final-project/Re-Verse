@@ -820,6 +820,11 @@ async def integrator(state: GenerationState) -> dict:
     # 4. base_game에서 상속받는 고정 파일들 로드 (tilesets를 먼저 확보)
     final_project["States.json"] = _load_base_game_file("States.json")
     final_project["Animations.json"] = _load_base_game_file("Animations.json")
+
+    # ── 추가: 검색된 맵 후보군 저장 ───────────────────────
+    ranked_candidates = state.get("ranked_map_candidates")
+    if ranked_candidates:
+        final_project["SampleMapCandidates.json"] = ranked_candidates
     # CommonEvents.json — 보스 처치 엔딩 CommonEvent 삽입
     common_events = _load_base_game_file("CommonEvents.json")
     boss_switch_id: int | None = None

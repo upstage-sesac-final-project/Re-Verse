@@ -21,7 +21,7 @@ async def select_maps(
     *,
     n_maps: int = 3,
     top_k: int = DEFAULT_TOP_K,
-) -> list[str]:
+) -> dict[str, list]:
     """쿼리에 가장 어울리는 샘플맵 세트(연결된 체인)를 반환."""
     intent = await extract_intent(query, n_maps=n_maps)
 
@@ -36,7 +36,7 @@ async def select_maps(
 
     # 2. 첫 번째 'Seed' 맵 선정 (가장 점수 높은 놈)
     if not candidates:
-        return []
+        return {"chosen": [], "candidates": []}
 
     seed_file = candidates[0]["entry"]["file_name"]
     chosen = [seed_file]
@@ -72,7 +72,7 @@ async def select_maps(
                     break
 
     logger.info("연결성 기반 맵 선택 완료: %s", " -> ".join(chosen))
-    return chosen[:n_maps]
+    return {"chosen": chosen[:n_maps], "candidates": candidates}
 
 
 async def _amain() -> None:
@@ -88,7 +88,8 @@ async def _amain() -> None:
         format="%(levelname)s %(name)s: %(message)s",
     )
 
-    chosen = await select_maps(args.query, n_maps=args.n_maps, top_k=args.top_k)
+    result = await select_maps(args.query, n_maps=args.n_maps, top_k=args.top_k)
+    chosen = result["chosen"]
     print("\n선택된 맵:")
     for i, fn in enumerate(chosen, 1):
         print(f"  {i}. {fn}")
