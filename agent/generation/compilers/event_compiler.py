@@ -6,6 +6,7 @@ canonical: docs/The_world/game_ending_design.md
 """
 
 import logging
+import re
 
 from agent.generation.compilers.dsl_models import (
     BattleEvent,
@@ -66,19 +67,51 @@ class EventCompiler:
 
     # ── ID 해석 ──────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        """이름 정규화: 공백·특수문자 제거, 소문자 변환.
+
+        LLM이 생성한 이름과 id_table 등록 이름의 미묘한 차이
+        (공백 유무, 대소문자, 괄호 등)를 허용한다.
+        예: "수변 상업 지구" → "수변상업지구", "SF Actor1" → "sfactor1"
+        """
+        return re.sub(r"[\s\-_·()（）]", "", name).lower()
+
     def resolve_map_id(self, name: str) -> int:
-        if name not in self.id_table.maps:
-            raise CompileError(f"맵 '{name}'을 id_table에서 찾을 수 없음")
-        return self.id_table.maps[name]
+        # 1차: 정확히 일치
+        if name in self.id_table.maps:
+            return self.id_table.maps[name]
+        # 2차: 공백·특수문자 정규화 후 비교
+        normalized = self._normalize_name(name)
+        for k, v in self.id_table.maps.items():
+            if self._normalize_name(k) == normalized:
+                logger.info("resolve_map_id: '%s' → '%s' 정규화 매칭", name, k)
+                return v
+        raise CompileError(f"맵 '{name}'을 id_table에서 찾을 수 없음")
 
     def resolve_item_id(self, name: str, item_type: str | None = None) -> int:
         """아이템 이름 → ID. item_type 지정 시 해당 테이블만 검색."""
+        # 1차: 정확히 일치
         if item_type in ("item", None) and name in self.id_table.items:
             return self.id_table.items[name]
         if item_type in ("weapon", None) and name in self.id_table.weapons:
             return self.id_table.weapons[name]
         if item_type in ("armor", None) and name in self.id_table.armors:
             return self.id_table.armors[name]
+        # 2차: 공백·특수문자 정규화 후 비교
+        normalized = self._normalize_name(name)
+        tables = []
+        if item_type in ("item", None):
+            tables.append(self.id_table.items)
+        if item_type in ("weapon", None):
+            tables.append(self.id_table.weapons)
+        if item_type in ("armor", None):
+            tables.append(self.id_table.armors)
+        for table in tables:
+            for k, v in table.items():
+                if self._normalize_name(k) == normalized:
+                    logger.info("resolve_item_id: '%s' → '%s' 정규화 매칭", name, k)
+                    return v
         raise CompileError(f"아이템 '{name}' (type={item_type})을 id_table에서 찾을 수 없음")
 
     def resolve_troop_id(self, name: str) -> int:
