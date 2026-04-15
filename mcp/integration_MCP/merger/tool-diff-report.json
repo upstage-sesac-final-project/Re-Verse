@@ -1,0 +1,694 @@
+{
+  "generatedAt": "2026-04-13T00:24:25.044Z",
+  "summary": {
+    "pass": 110,
+    "diff": 0,
+    "envBlocked": 4
+  },
+  "classifications": [
+    {
+      "name": "add_actor",
+      "canonical": "create_actor",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "add_break_loop",
+      "canonical": "add_break_loop",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "add_choice",
+      "canonical": "add_choice",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "add_class",
+      "canonical": "create_class",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "add_conditional_branch",
+      "canonical": "add_conditional_branch",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "add_dialogue",
+      "canonical": "add_dialogue",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "add_event",
+      "canonical": "create_map_event",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "add_event_command",
+      "canonical": "add_event_command",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "add_item",
+      "canonical": "create_item",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "add_loop",
+      "canonical": "add_loop",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "add_skill",
+      "canonical": "create_skill",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "analyze_assets",
+      "canonical": "analyze_assets",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "analyze_project_structure",
+      "canonical": "analyze_project_structure",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "autonomous_create_game",
+      "canonical": "autonomous_create_game",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "check_assets_integrity",
+      "canonical": "check_assets_integrity",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_actor",
+      "canonical": "create_actor",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_armor",
+      "canonical": "create_armor",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_buff_skill",
+      "canonical": "create_buff_skill",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_class",
+      "canonical": "create_class",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_damage_skill",
+      "canonical": "create_damage_skill",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_enemy",
+      "canonical": "create_enemy",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_healing_skill",
+      "canonical": "create_healing_skill",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_item",
+      "canonical": "create_item",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_map",
+      "canonical": "create_map",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_map_event",
+      "canonical": "create_map_event",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_project",
+      "canonical": "create_project",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_skill",
+      "canonical": "create_skill",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_state",
+      "canonical": "create_state",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_state_skill",
+      "canonical": "create_state_skill",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "create_weapon",
+      "canonical": "create_weapon",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "delete_event_command",
+      "canonical": "delete_event_command",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "execute_prompt",
+      "canonical": "execute_prompt",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "extract_game_design_patterns",
+      "canonical": "extract_game_design_patterns",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "generate_and_implement_scenario",
+      "canonical": "generate_and_implement_scenario",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "generate_asset",
+      "canonical": "generate_asset",
+      "status": "ENV-BLOCKED",
+      "reason": "requires external runtime/API/browser policy"
+    },
+    {
+      "name": "generate_asset_batch",
+      "canonical": "generate_asset_batch",
+      "status": "ENV-BLOCKED",
+      "reason": "requires external runtime/API/browser policy"
+    },
+    {
+      "name": "generate_project_context",
+      "canonical": "generate_project_context",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "generate_scenario",
+      "canonical": "generate_scenario",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "generate_scenario_variations",
+      "canonical": "generate_scenario_variations",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_actor",
+      "canonical": "get_actor",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_actors",
+      "canonical": "list_actors",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_armors",
+      "canonical": "list_armors",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_classes",
+      "canonical": "list_classes",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_core_script_versions",
+      "canonical": "get_core_script_versions",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_database_info",
+      "canonical": "get_database_info",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_database_limits",
+      "canonical": "get_database_limits",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_enemies",
+      "canonical": "list_enemies",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_event_page",
+      "canonical": "get_event_page",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_game_title",
+      "canonical": "get_game_title",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_generator_parts",
+      "canonical": "get_generator_parts",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_installed_plugins",
+      "canonical": "list_plugins",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_items",
+      "canonical": "list_items",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_map",
+      "canonical": "get_map",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_map_event",
+      "canonical": "get_map_event",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_map_events",
+      "canonical": "get_map_events",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_map_infos",
+      "canonical": "get_map_infos",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_maps",
+      "canonical": "list_maps",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_plugins_config",
+      "canonical": "get_plugins_config",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_project_info",
+      "canonical": "get_project_info",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_sample_maps",
+      "canonical": "get_sample_maps",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_skill",
+      "canonical": "get_skill",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_skills",
+      "canonical": "list_skills",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_states",
+      "canonical": "list_states",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_switches",
+      "canonical": "get_switches",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_system",
+      "canonical": "get_system",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_variables",
+      "canonical": "get_variables",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "get_weapons",
+      "canonical": "list_weapons",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "implement_scenario",
+      "canonical": "implement_scenario",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "inspect_game_state",
+      "canonical": "inspect_game_state",
+      "status": "ENV-BLOCKED",
+      "reason": "requires external runtime/API/browser policy"
+    },
+    {
+      "name": "install_plugin",
+      "canonical": "install_plugin",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "list_assets",
+      "canonical": "list_assets",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "list_backups",
+      "canonical": "list_backups",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "list_data_files",
+      "canonical": "list_data_files",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "list_maps",
+      "canonical": "list_maps",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "list_plugins",
+      "canonical": "list_plugins",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "list_projects",
+      "canonical": "list_projects",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "list_resources",
+      "canonical": "list_resources",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "read_data_file",
+      "canonical": "read_data_file",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "read_map",
+      "canonical": "get_map",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "read_project_info",
+      "canonical": "get_project_info",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "register_prompt_template",
+      "canonical": "register_prompt_template",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "register_resource",
+      "canonical": "register_resource",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "run_playtest",
+      "canonical": "run_playtest",
+      "status": "ENV-BLOCKED",
+      "reason": "requires external runtime/API/browser policy"
+    },
+    {
+      "name": "scan_dlc_packages",
+      "canonical": "scan_dlc_packages",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "scan_resources",
+      "canonical": "scan_resources",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "search_actors",
+      "canonical": "search_actors",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "search_database",
+      "canonical": "search_database",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "search_events",
+      "canonical": "search_events",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "search_items",
+      "canonical": "search_items",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "search_map_events",
+      "canonical": "search_map_events",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "search_skills",
+      "canonical": "search_skills",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "set_database_limit",
+      "canonical": "set_database_limit",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "set_switch_name",
+      "canonical": "set_switch_name",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "set_variable_name",
+      "canonical": "set_variable_name",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "show_picture",
+      "canonical": "show_picture",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "undo_last_change",
+      "canonical": "undo_last_change",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_actor",
+      "canonical": "update_actor",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_armor",
+      "canonical": "update_armor",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_class",
+      "canonical": "update_class",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_database",
+      "canonical": "update_database",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_enemy",
+      "canonical": "update_enemy",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_event_command",
+      "canonical": "update_event_command",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_game_title",
+      "canonical": "update_game_title",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_item",
+      "canonical": "update_item",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_map",
+      "canonical": "update_map",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_map_event",
+      "canonical": "update_map_event",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_map_tile",
+      "canonical": "draw_map_tile",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_plugins_config",
+      "canonical": "update_plugins_config",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_skill",
+      "canonical": "update_skill",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_starting_position",
+      "canonical": "update_starting_position",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_state",
+      "canonical": "update_state",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "update_weapon",
+      "canonical": "update_weapon",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "write_data_file",
+      "canonical": "write_data_file",
+      "status": "PASS",
+      "reason": "covered"
+    },
+    {
+      "name": "write_plugin_code",
+      "canonical": "write_plugin_code",
+      "status": "PASS",
+      "reason": "covered"
+    }
+  ]
+}

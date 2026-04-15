@@ -2,6 +2,7 @@ import { useState } from 'react'
 import RPGMakerFrame from './RPGMakerFrame'
 import MapViewer from './MapViewer'
 import GameDataViewer from './GameDataViewer'
+import { usePanelDwellTimer } from '../../hooks/usePanelDwellTimer'
 
 const TABS = [
   { id: 'play', label: '플레이' },
@@ -11,6 +12,10 @@ const TABS = [
 
 export default function GamePreview({ refreshKey, gameId }) {
   const [activeTab, setActiveTab] = useState('play')
+  usePanelDwellTimer({
+    activePanel: activeTab,
+    projectId: gameId,
+  })
 
   return (
     <div className="flex-1 flex flex-col min-w-0 h-full" style={{ background: 'var(--bg-primary)' }}>

@@ -22,6 +22,7 @@ CATEGORY_TO_FILE: dict[str, str] = {
     "armor": "Armors.json",
     "class": "Classes.json",
     "state": "States.json",
+    "map": "MapInfos.json",
 }
 
 FILE_TO_CATEGORY: dict[str, str] = {v: k for k, v in CATEGORY_TO_FILE.items()}

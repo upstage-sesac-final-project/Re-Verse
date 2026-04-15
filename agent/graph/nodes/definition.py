@@ -12,6 +12,7 @@ from agent.constants import (
     PROPERTY_TO_FIELD,
 )
 from agent.core.llm_client import invoke_llm
+from agent.graph.nodes.game_index_resolve import apply_index_resolution
 from agent.graph.schemas import (
     FinalDefinitionResponse,
     Step1ExtractionResponse,
@@ -416,6 +417,83 @@ def _format_to_progress_spec(modifications: list[dict], classifications: list[di
     return formatted_mods
 
 
+def _validate_operation_tuples(ops: list[dict], extractions: list[dict]) -> tuple[bool, str]:
+    """update/delete/read op의 degenerate 패턴 감지.
+
+    degenerate 판정 기준 (아래 중 하나 이상):
+      (a) action이 update/delete/read인데 subject에 id/name 모두 없음 (대상 미식별)
+      (b) action에 'update' 포함인데 updates 페이로드가 어디에도 비어있음
+
+    예: `독 상태이상의 지속 턴을 5로` → Step 4 매칭 실패로 subject.name=None →
+    (a) 적중. Executor에서 `update_all({})` silent no-op로 통과하는 패턴 차단.
+
+    Returns:
+        (True, "") — 정상
+        (False, message) — degenerate. message는 사용자 안내용
+    """
+    for op in ops:
+        action = (op.get("op") or op.get("action") or "").lower()
+        if not any(kw in action for kw in ("update", "delete", "read")):
+            continue
+
+        subject = op.get("subject") if isinstance(op.get("subject"), dict) else {}
+        sid = subject.get("id")
+        sname = subject.get("name")
+        # subject.name이 literal 'None' 문자열로 들어오는 케이스도 취급
+        if isinstance(sname, str) and sname.strip().lower() in ("", "none"):
+            sname = None
+
+        subject_missing = sid in (None, "", "NEW") and not sname
+
+        # updates 페이로드 탐색 (update 계열만)
+        updates_empty = False
+        if "update" in action:
+            ti = op.get("target_info") or {}
+            updates = ti.get("updates") if isinstance(ti, dict) else None
+            if not updates:
+                val = op.get("value") or {}
+                if isinstance(val, dict):
+                    updates = val.get("raw_updates")
+            updates_empty = not isinstance(updates, dict) or len(updates) == 0
+
+        if not subject_missing and not updates_empty:
+            continue
+
+        # 안내 메시지 작성
+        hinted_name = sname or ""
+        if not hinted_name:
+            for ext in extractions:
+                ext_action = (ext.get("action") or "").upper()
+                if ext_action in ("UPDATE", "DELETE", "READ") and ext.get("subject"):
+                    hinted_name = ext["subject"]
+                    break
+
+        target_file = op.get("file") or "?"
+        if subject_missing and hinted_name:
+            msg = (
+                f"'{hinted_name}'을(를) {target_file}에서 찾지 못했습니다. "
+                "정확한 이름이나 ID를 알려주세요."
+            )
+        elif subject_missing:
+            msg = (
+                f"{target_file}에서 수정할 대상을 특정하지 못했습니다. "
+                "어떤 항목을 바꾸고 싶은지 구체적으로 알려주세요."
+            )
+        elif hinted_name:
+            msg = (
+                f"'{hinted_name}'에서 변경할 필드가 명확하지 않습니다. "
+                "어떤 값을 어떻게 바꿀지 알려주세요."
+            )
+        else:
+            msg = (
+                f"{target_file}에서 변경할 필드가 명확하지 않습니다. "
+                "어떤 값을 바꾸고 싶은지 알려주세요."
+            )
+        return False, msg
+
+    return True, ""
+
+
 async def definition(state: AgentState) -> dict:
     """사용자 입력에서 핵심 파라미터 추출(1단계) 후 최종 명세 생성(5단계) 수행."""
     game_id = state.get("game_id", "game_001")
@@ -652,17 +730,73 @@ async def definition(state: AgentState) -> dict:
 
     # --- [4.6단계: 코드 기반 operation IR 직접 생성 시도] ---
     # Step 1~4 결과만으로 operation_tuples 를 만들 수 있으면 Step 5 LLM 호출을 건너뜀.
+
+    # 맵 CREATE 요청이 있으면 현재 쿼리로 샘플맵 재랭킹 (게임 생성 때 저장된 후보는 다른 쿼리 기반)
+    ranked_map_candidates: list[dict] = state.get("ranked_map_candidates") or []
+    _map_cat_names: set[str] = {
+        (c.get("name") or "").strip().lower()
+        for c in final_classifications
+        if (c.get("category") or "").lower() == "map"
+    }
+    _has_map_create = any(
+        (e.get("action") or "").upper() == "CREATE"
+        and any(
+            mname
+            and (
+                mname in (e.get("subject") or "").lower()
+                or (e.get("subject") or "").lower() in mname
+            )
+            for mname in _map_cat_names
+        )
+        for e in extractions
+    )
+    if _has_map_create and user_input:
+        try:
+            from agent.generation.mapgen.sample_selector import select_maps
+
+            logger.info("[Step4.6] 맵 추가 요청 감지 → 현재 쿼리로 샘플맵 재랭킹: '%s'", user_input)
+            _map_result = await select_maps(user_input, n_maps=1)
+            if _map_result.get("candidates"):
+                ranked_map_candidates = _map_result["candidates"]
+                logger.info(
+                    "[Step4.6] 재랭킹 완료: best=%s (score=%.3f)",
+                    ranked_map_candidates[0]["entry"]["file_name"],
+                    ranked_map_candidates[0].get("score", 0.0),
+                )
+            else:
+                logger.warning("[Step4.6] 재랭킹 결과 없음 → 기존 후보 유지")
+        except Exception as _e:
+            logger.warning("[Step4.6] 샘플맵 재랭킹 실패: %s → 기존 후보 유지", _e)
+
     direct_ops = _extractions_to_operation_tuples(
         extractions,
         final_classifications,
         final_extracted_ids,
         game_id,
+        ranked_map_candidates=ranked_map_candidates,
     )
     if direct_ops:
         logger.info(
             "[Definition] Step 4.6: 코드 기반 IR 생성 성공 (%d ops) → Step 5 건너뜀",
             len(direct_ops),
         )
+        # Step 8: GameIndex 기반 operation IR 후처리 (id/file/ref 확정, 장비 type_hint 보정)
+        direct_ops = apply_index_resolution(direct_ops, game_id)
+
+        # Step 9: degenerate op 검증 (update/update_all with empty updates → params_sufficient=False)
+        ok, reason = _validate_operation_tuples(direct_ops, extractions)
+        if not ok:
+            logger.info("[Definition] Step 4.6 검증 실패(degenerate): %s", reason)
+            return {
+                "target_files": [],
+                "modifications": [],
+                "extracted_ids": final_extracted_ids,
+                "params_sufficient": False,
+                "message_for_user": reason,
+                "final_response": reason,
+                "operation_tuples": [],
+            }
+
         # target_files 도 operation 에서 추출
         target_files_from_ops = sorted({op["file"] for op in direct_ops if op.get("file")})
         result = {
@@ -870,6 +1004,20 @@ async def definition(state: AgentState) -> dict:
     operation_tuples = _to_operation_ir(strictly_formatted_mods, final_extracted_ids)
     logger.info("[Definition] operation IR 변환 완료: %d tuples", len(operation_tuples))
 
+    # Step 8: GameIndex 기반 operation IR 후처리 (id/file/ref 확정, 장비 type_hint 보정)
+    operation_tuples = apply_index_resolution(operation_tuples, game_id)
+
+    # Step 9: degenerate op 검증 (update/update_all with empty updates → params_sufficient=False)
+    degenerate_response: str | None = None
+    if resolved_params_sufficient:
+        ok, reason = _validate_operation_tuples(operation_tuples, extractions)
+        if not ok:
+            logger.info("[Definition] 검증 실패(degenerate): %s", reason)
+            resolved_params_sufficient = False
+            resolved_message_for_user = reason
+            operation_tuples = []
+            degenerate_response = reason
+
     # 최종 결과 반환
     result = {
         "target_files": resolved_target_files,
@@ -879,6 +1027,8 @@ async def definition(state: AgentState) -> dict:
         "message_for_user": resolved_message_for_user,
         "operation_tuples": operation_tuples,
     }
+    if degenerate_response is not None:
+        result["final_response"] = degenerate_response
     logger.info(
         "─── ✅ Definition END (elapsed=%.2fs, targets=%d, mods=%d, ids=%d, params_ok=%s) ──",
         time.perf_counter() - _t0,
@@ -920,10 +1070,15 @@ def _extractions_to_operation_tuples(
     classifications: list[dict],
     extracted_ids: dict,
     game_id: str,
+    ranked_map_candidates: list[dict] | None = None,
 ) -> list[dict]:
     """Step 1~4 결과에서 직접 operation_tuples 를 생성한다.
 
     모든 extraction 을 변환할 수 없으면 빈 리스트를 반환 (fallback 신호).
+
+    ranked_map_candidates: 게임 생성 시 계산된 맵 후보군 (점수 순 정렬).
+        맵 추가 요청 시 이 목록에서 다음 후보를 선택해 original_file_name 을 주입한다.
+        None 또는 빈 리스트이면 맵 CREATE 는 Step 5(LLM) 로 fallback.
 
     Returns:
         list[dict] — 성공 시 operation_tuples, 실패 시 [].
@@ -1007,6 +1162,36 @@ def _extractions_to_operation_tuples(
 
         # CREATE
         if action == "CREATE":
+            if sub_cat == "map":
+                # 맵 추가: ranked_map_candidates 가 있으면 최상위 후보를 사용.
+                # 없으면 Step 5(LLM) 경로로 fallback.
+                if ranked_map_candidates:
+                    best = ranked_map_candidates[0]
+                    original_file_name = best["entry"]["file_name"]
+                    logger.info(
+                        "[Step4.6] 맵 추가 요청 → 순위 후보 사용: %s (score=%.3f)",
+                        original_file_name,
+                        best.get("score", 0.0),
+                    )
+                    ops.append(
+                        {
+                            "op": "create",
+                            "file": sub_file or "MapInfos.json",
+                            "subject": {"name": subject, "id": None, "scope": "single"},
+                            "field": None,
+                            "value": {
+                                "kind": "map_creation",
+                                "original_file_name": original_file_name,
+                            },
+                        }
+                    )
+                    continue
+                else:
+                    # 후보군 없음 → Step 5(LLM)에서 처리
+                    logger.info(
+                        "[Step4.6] 맵 추가 요청이지만 ranked_map_candidates 없음 → Step 5 fallback"
+                    )
+                    return []
             ops.append(
                 {
                     "op": "create",
@@ -1278,15 +1463,19 @@ def _create_to_ir(
     """create modification → operation IR.
 
     profiler 가 세부 필드를 채우므로, IR 은 name 만 담는다.
+    맵 생성 시 original_file_name 이 params 에 있으면 value 에 포함한다.
     """
     name = params.get("name") or params.get(f"{target}_name") or ""
+    value = None
+    if target == "map" and "original_file_name" in params:
+        value = {"kind": "map_creation", "original_file_name": params["original_file_name"]}
     return [
         {
             "op": "create",
             "file": file,
             "subject": {"name": name, "id": None, "scope": "single"} if name else None,
             "field": None,
-            "value": None,
+            "value": value,
         }
     ]
 
@@ -1398,7 +1587,7 @@ def _read_to_ir(file: str, target: str, params: dict) -> list[dict]:
             "op": "read",
             "file": file,
             "subject": {"name": name, "id": None, "scope": "single"} if name else None,
-            "field": None,
+            "field": params.get("property"),
             "value": None,
         }
     ]

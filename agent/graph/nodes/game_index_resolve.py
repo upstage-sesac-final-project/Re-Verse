@@ -1,11 +1,12 @@
-"""game_index_resolve — operation IR 의 ID/참조를 GameIndex 로 확정.
+"""GameIndex 기반 operation IR 후처리 — Definition 노드 내부에서 호출되는 결정론 헬퍼.
 
-definition_v2 가 출력한 operation_tuples 를 받아:
+`apply_index_resolution(ops, game_id)` 가 entry point.
+operation_tuples 를 받아:
   1. subject.id 가 없으면 GameIndex 로 검색하여 채움
-  2. subject.name 만 있고 file 이 잘못된 경우 → 다른 파일에서 검색하여 교정
+  2. subject.name 만 있고 file 이 잘못된 경우 → 다른 파일에서 검색하여 교정 (단, action='create' 면 skip)
   3. value.ref 를 GameIndex 로 해소 (System.json 타입 또는 엔티티 ID)
 
-LLM 호출 0회, 순수 결정론.
+LLM 호출 0회, 순수 결정론. 과거에는 graph node 였으나 Definition 내부 단계로 통합됨.
 """
 
 from __future__ import annotations
@@ -19,24 +20,17 @@ from agent.game_index import (
     resolve_entity_ref,
     resolve_system_type,
 )
-from agent.graph.state import AgentState
 
 logger = logging.getLogger(__name__)
 
 
-async def game_index_resolve(state: AgentState) -> dict:
-    """operation_tuples 의 subject.id, value.ref 를 확정한다."""
-    import time
+def apply_index_resolution(ops: list[dict], game_id: str) -> list[dict]:
+    """operation_tuples 각각의 subject.id, value.ref 를 GameIndex 로 확정.
 
-    _t0 = time.perf_counter()
-    logger.info("─── GameIndexResolve START ─────────────────────────")
-
-    ops: list[dict] = state.get("operation_tuples", []) or []
-    game_id: str = state.get("game_id", "game_001")
-
+    Definition 노드의 후처리 단계에서 호출. LLM 경로/코드 경로 양쪽 모두 통과시킨다.
+    """
     if not ops:
-        logger.info("─── GameIndexResolve END (empty input) ────────────")
-        return {}
+        return ops
 
     resolved: list[dict] = []
     for op in ops:
@@ -44,14 +38,8 @@ async def game_index_resolve(state: AgentState) -> dict:
         op = _resolve_value(op, game_id)
         resolved.append(op)
 
-    elapsed = time.perf_counter() - _t0
-    logger.info("[GameIndexResolve] %d ops resolved", len(resolved))
-    logger.info(
-        "─── GameIndexResolve END (elapsed=%.2fs, ops=%d) ──────",
-        elapsed,
-        len(resolved),
-    )
-    return {"operation_tuples": resolved}
+    logger.info("[IndexResolve] %d ops resolved", len(resolved))
+    return resolved
 
 
 def _resolve_subject(op: dict, game_id: str) -> dict:
@@ -65,6 +53,8 @@ def _resolve_subject(op: dict, game_id: str) -> dict:
         return op
 
     file = op.get("file")
+    action = (op.get("action") or op.get("op") or "").lower()
+    is_create = action == "create"
 
     # 이미 id 가 있으면 그대로
     if subject.get("id") is not None:
@@ -77,6 +67,11 @@ def _resolve_subject(op: dict, game_id: str) -> dict:
             op = dict(op)
             op["subject"] = {**subject, "id": entry.id, "name": entry.name}
             return op
+
+    # create 액션이면 file 재라우팅 금지: 신규 생성인데 다른 파일의 비슷한 엔티티에
+    # 매칭되어 file 이 바뀌는 버그 방지. id/file 모두 비워둔 채 호출자에게 위임.
+    if is_create:
+        return op
 
     # 2. 전체 파일에서 검색 (file 잘못된 경우)
     candidates = find_entity(game_id, name)

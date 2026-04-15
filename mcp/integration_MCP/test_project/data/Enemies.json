@@ -1,0 +1,18 @@
+[
+  null,
+  {
+    "id": 1,
+    "name": "TestEnemy",
+    "battlerName": "",
+    "battlerHue": 0,
+    "params": [100, 0, 10, 10, 10, 10, 10, 10],
+    "exp": 0,
+    "gold": 0,
+    "dropItems": [],
+    "actions": [
+      { "skillId": 1, "conditionType": 0, "conditionParam1": 0, "conditionParam2": 0, "rating": 5 }
+    ],
+    "traits": [],
+    "note": ""
+  }
+]

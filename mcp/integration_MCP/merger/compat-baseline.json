@@ -1,0 +1,2287 @@
+{
+  "generatedAt": "2026-04-13T00:21:15.682Z",
+  "sources": {
+    "integration_MCP": "",
+    "mcp1_hyphen_rpgmaker": "../-rpgmaker-mz-mcp",
+    "mcp2_rpgmaker_extended": "../rpgmaker-mz-mcp",
+    "mcp3_base_reference": "../RPGMakerMZ_MCP",
+    "mcp4_mcp_maker": "../MCP-Maker"
+  },
+  "scans": {
+    "integration_MCP": {
+      "toolNames": [
+        "add_actor",
+        "add_break_loop",
+        "add_choice",
+        "add_conditional_branch",
+        "add_dialogue",
+        "add_event_command",
+        "add_item",
+        "add_loop",
+        "add_skill",
+        "analyze_assets",
+        "analyze_project_structure",
+        "autonomous_create_game",
+        "check_assets_integrity",
+        "create_armor",
+        "create_buff_skill",
+        "create_class",
+        "create_damage_skill",
+        "create_enemy",
+        "create_healing_skill",
+        "create_map",
+        "create_map_event",
+        "create_project",
+        "create_state",
+        "create_state_skill",
+        "create_weapon",
+        "delete_event_command",
+        "execute_prompt",
+        "extract_game_design_patterns",
+        "generate_and_implement_scenario",
+        "generate_asset",
+        "generate_asset_batch",
+        "generate_project_context",
+        "generate_scenario",
+        "generate_scenario_variations",
+        "get_actor",
+        "get_core_script_versions",
+        "get_database_info",
+        "get_database_limits",
+        "get_event_page",
+        "get_game_title",
+        "get_generator_parts",
+        "get_map",
+        "get_map_event",
+        "get_map_events",
+        "get_map_infos",
+        "get_plugins_config",
+        "get_project_info",
+        "get_sample_maps",
+        "get_skill",
+        "get_switches",
+        "get_system",
+        "get_variables",
+        "implement_scenario",
+        "inspect_game_state",
+        "install_plugin",
+        "list_actors",
+        "list_armors",
+        "list_assets",
+        "list_backups",
+        "list_classes",
+        "list_data_files",
+        "list_enemies",
+        "list_items",
+        "list_maps",
+        "list_plugins",
+        "list_projects",
+        "list_resources",
+        "list_skills",
+        "list_states",
+        "list_weapons",
+        "read_data_file",
+        "register_prompt_template",
+        "register_resource",
+        "run_playtest",
+        "scan_dlc_packages",
+        "scan_resources",
+        "search_actors",
+        "search_database",
+        "search_events",
+        "search_items",
+        "search_map_events",
+        "search_skills",
+        "set_database_limit",
+        "set_switch_name",
+        "set_variable_name",
+        "show_picture",
+        "undo_last_change",
+        "update_actor",
+        "update_armor",
+        "update_class",
+        "update_database",
+        "update_enemy",
+        "update_event_command",
+        "update_game_title",
+        "update_item",
+        "update_map",
+        "update_map_event",
+        "update_plugins_config",
+        "update_skill",
+        "update_starting_position",
+        "update_state",
+        "update_weapon",
+        "write_data_file",
+        "write_plugin_code"
+      ],
+      "filesWithTools": {
+        "toolSchemas.ts": [
+          "add_actor",
+          "add_break_loop",
+          "add_choice",
+          "add_conditional_branch",
+          "add_dialogue",
+          "add_item",
+          "add_loop",
+          "add_skill",
+          "check_assets_integrity",
+          "create_map",
+          "delete_event_command",
+          "get_event_page",
+          "get_plugins_config",
+          "get_project_info",
+          "inspect_game_state",
+          "list_assets",
+          "list_backups",
+          "list_data_files",
+          "read_data_file",
+          "run_playtest",
+          "search_events",
+          "show_picture",
+          "undo_last_change",
+          "update_event_command",
+          "update_plugins_config",
+          "write_data_file",
+          "write_plugin_code"
+        ],
+        "unifiedToolSchemas.ts": [
+          "add_event_command",
+          "analyze_assets",
+          "analyze_project_structure",
+          "autonomous_create_game",
+          "create_armor",
+          "create_buff_skill",
+          "create_class",
+          "create_damage_skill",
+          "create_enemy",
+          "create_healing_skill",
+          "create_map_event",
+          "create_project",
+          "create_state",
+          "create_state_skill",
+          "create_weapon",
+          "execute_prompt",
+          "extract_game_design_patterns",
+          "generate_and_implement_scenario",
+          "generate_asset",
+          "generate_asset_batch",
+          "generate_project_context",
+          "generate_scenario",
+          "generate_scenario_variations",
+          "get_actor",
+          "get_core_script_versions",
+          "get_database_info",
+          "get_database_limits",
+          "get_game_title",
+          "get_generator_parts",
+          "get_map",
+          "get_map_event",
+          "get_map_events",
+          "get_map_infos",
+          "get_sample_maps",
+          "get_skill",
+          "get_switches",
+          "get_system",
+          "get_variables",
+          "implement_scenario",
+          "install_plugin",
+          "list_actors",
+          "list_armors",
+          "list_classes",
+          "list_enemies",
+          "list_items",
+          "list_maps",
+          "list_plugins",
+          "list_projects",
+          "list_resources",
+          "list_skills",
+          "list_states",
+          "list_weapons",
+          "register_prompt_template",
+          "register_resource",
+          "scan_dlc_packages",
+          "scan_resources",
+          "search_actors",
+          "search_database",
+          "search_items",
+          "search_map_events",
+          "search_skills",
+          "set_database_limit",
+          "set_switch_name",
+          "set_variable_name",
+          "update_actor",
+          "update_armor",
+          "update_class",
+          "update_database",
+          "update_enemy",
+          "update_game_title",
+          "update_item",
+          "update_map",
+          "update_map_event",
+          "update_skill",
+          "update_starting_position",
+          "update_state",
+          "update_weapon"
+        ]
+      }
+    },
+    "mcp1_hyphen_rpgmaker": {
+      "toolNames": [
+        "add_event_command",
+        "create_actor",
+        "create_buff_skill",
+        "create_damage_skill",
+        "create_healing_skill",
+        "create_map_event",
+        "create_skill",
+        "create_state_skill",
+        "get_actor",
+        "get_actors",
+        "get_armors",
+        "get_game_title",
+        "get_items",
+        "get_map",
+        "get_map_event",
+        "get_map_events",
+        "get_map_infos",
+        "get_skill",
+        "get_skills",
+        "get_switches",
+        "get_system",
+        "get_variables",
+        "get_weapons",
+        "search_actors",
+        "search_items",
+        "search_map_events",
+        "search_skills",
+        "set_switch_name",
+        "set_variable_name",
+        "update_actor",
+        "update_game_title",
+        "update_item",
+        "update_map_event",
+        "update_skill",
+        "update_starting_position"
+      ],
+      "filesWithTools": {
+        "src/index.ts": [
+          "add_event_command",
+          "create_actor",
+          "create_buff_skill",
+          "create_damage_skill",
+          "create_healing_skill",
+          "create_map_event",
+          "create_skill",
+          "create_state_skill",
+          "get_actor",
+          "get_actors",
+          "get_armors",
+          "get_game_title",
+          "get_items",
+          "get_map",
+          "get_map_event",
+          "get_map_events",
+          "get_map_infos",
+          "get_skill",
+          "get_skills",
+          "get_switches",
+          "get_system",
+          "get_variables",
+          "get_weapons",
+          "search_actors",
+          "search_items",
+          "search_map_events",
+          "search_skills",
+          "set_switch_name",
+          "set_variable_name",
+          "update_actor",
+          "update_game_title",
+          "update_item",
+          "update_map_event",
+          "update_skill",
+          "update_starting_position"
+        ]
+      }
+    },
+    "mcp2_rpgmaker_extended": {
+      "toolNames": [
+        "add_actor",
+        "add_class",
+        "add_event",
+        "add_event_command",
+        "add_item",
+        "add_skill",
+        "analyze_assets",
+        "analyze_project_structure",
+        "autonomous_create_game",
+        "create_map",
+        "create_project",
+        "execute_prompt",
+        "extract_game_design_patterns",
+        "generate_and_implement_scenario",
+        "generate_asset",
+        "generate_asset_batch",
+        "generate_project_context",
+        "generate_scenario",
+        "generate_scenario_variations",
+        "implement_scenario",
+        "list_maps",
+        "list_plugins",
+        "list_projects",
+        "list_resources",
+        "read_map",
+        "read_project_info",
+        "register_prompt_template",
+        "register_resource",
+        "search_database",
+        "update_database",
+        "update_map_tile"
+      ],
+      "filesWithTools": {
+        "src/index.ts": [
+          "add_actor",
+          "add_class",
+          "add_event",
+          "add_event_command",
+          "add_item",
+          "add_skill",
+          "analyze_assets",
+          "analyze_project_structure",
+          "autonomous_create_game",
+          "create_map",
+          "create_project",
+          "execute_prompt",
+          "extract_game_design_patterns",
+          "generate_and_implement_scenario",
+          "generate_asset",
+          "generate_asset_batch",
+          "generate_project_context",
+          "generate_scenario",
+          "generate_scenario_variations",
+          "implement_scenario",
+          "list_maps",
+          "list_plugins",
+          "list_projects",
+          "list_resources",
+          "read_map",
+          "read_project_info",
+          "register_prompt_template",
+          "register_resource",
+          "search_database",
+          "update_database",
+          "update_map_tile"
+        ]
+      }
+    },
+    "mcp3_base_reference": {
+      "toolNames": [
+        "add_actor",
+        "add_break_loop",
+        "add_choice",
+        "add_conditional_branch",
+        "add_dialogue",
+        "add_item",
+        "add_loop",
+        "add_skill",
+        "check_assets_integrity",
+        "create_map",
+        "delete_event_command",
+        "get_event_page",
+        "get_plugins_config",
+        "get_project_info",
+        "inspect_game_state",
+        "list_assets",
+        "list_backups",
+        "list_data_files",
+        "read_data_file",
+        "run_playtest",
+        "search_events",
+        "show_picture",
+        "undo_last_change",
+        "update_event_command",
+        "update_plugins_config",
+        "write_data_file",
+        "write_plugin_code"
+      ],
+      "filesWithTools": {
+        "toolSchemas.ts": [
+          "add_actor",
+          "add_break_loop",
+          "add_choice",
+          "add_conditional_branch",
+          "add_dialogue",
+          "add_item",
+          "add_loop",
+          "add_skill",
+          "check_assets_integrity",
+          "create_map",
+          "delete_event_command",
+          "get_event_page",
+          "get_plugins_config",
+          "get_project_info",
+          "inspect_game_state",
+          "list_assets",
+          "list_backups",
+          "list_data_files",
+          "read_data_file",
+          "run_playtest",
+          "search_events",
+          "show_picture",
+          "undo_last_change",
+          "update_event_command",
+          "update_plugins_config",
+          "write_data_file",
+          "write_plugin_code"
+        ]
+      }
+    },
+    "mcp4_mcp_maker": {
+      "toolNames": [
+        "create_actor",
+        "create_armor",
+        "create_class",
+        "create_enemy",
+        "create_item",
+        "create_map",
+        "create_skill",
+        "create_state",
+        "create_weapon",
+        "get_actors",
+        "get_armors",
+        "get_classes",
+        "get_core_script_versions",
+        "get_database_info",
+        "get_database_limits",
+        "get_enemies",
+        "get_generator_parts",
+        "get_installed_plugins",
+        "get_items",
+        "get_maps",
+        "get_sample_maps",
+        "get_skills",
+        "get_states",
+        "get_weapons",
+        "install_plugin",
+        "scan_dlc_packages",
+        "scan_resources",
+        "set_database_limit",
+        "update_actor",
+        "update_armor",
+        "update_class",
+        "update_enemy",
+        "update_item",
+        "update_map",
+        "update_state",
+        "update_weapon"
+      ],
+      "filesWithTools": {
+        "src/tools/actorTools.ts": [
+          "create_actor",
+          "get_actors",
+          "update_actor"
+        ],
+        "src/tools/armorTools.ts": [
+          "create_armor",
+          "get_armors",
+          "update_armor"
+        ],
+        "src/tools/classTools.ts": [
+          "create_class",
+          "get_classes",
+          "update_class"
+        ],
+        "src/tools/databaseTools.ts": [
+          "get_database_info"
+        ],
+        "src/tools/enemyTools.ts": [
+          "create_enemy",
+          "get_enemies",
+          "update_enemy"
+        ],
+        "src/tools/itemTools.ts": [
+          "create_item",
+          "get_items",
+          "update_item"
+        ],
+        "src/tools/limitTools.ts": [
+          "get_database_limits",
+          "set_database_limit"
+        ],
+        "src/tools/mapTools.ts": [
+          "create_map",
+          "get_maps",
+          "update_map"
+        ],
+        "src/tools/pluginTools.ts": [
+          "get_installed_plugins",
+          "install_plugin"
+        ],
+        "src/tools/resourceTools.ts": [
+          "get_core_script_versions",
+          "get_generator_parts",
+          "get_sample_maps",
+          "scan_dlc_packages",
+          "scan_resources"
+        ],
+        "src/tools/skillTools.ts": [
+          "create_skill",
+          "get_skills"
+        ],
+        "src/tools/stateTools.ts": [
+          "create_state",
+          "get_states",
+          "update_state"
+        ],
+        "src/tools/weaponTools.ts": [
+          "create_weapon",
+          "get_weapons",
+          "update_weapon"
+        ]
+      }
+    }
+  },
+  "registry": {
+    "canonicalTools": [
+      "add_break_loop",
+      "add_choice",
+      "add_conditional_branch",
+      "add_dialogue",
+      "add_event_command",
+      "add_loop",
+      "analyze_assets",
+      "analyze_project_structure",
+      "autonomous_create_game",
+      "check_assets_integrity",
+      "create_actor",
+      "create_armor",
+      "create_buff_skill",
+      "create_class",
+      "create_damage_skill",
+      "create_enemy",
+      "create_healing_skill",
+      "create_item",
+      "create_map",
+      "create_map_event",
+      "create_project",
+      "create_skill",
+      "create_state",
+      "create_state_skill",
+      "create_weapon",
+      "delete_event_command",
+      "describe_asset",
+      "draw_map_tile",
+      "execute_prompt",
+      "extract_game_design_patterns",
+      "generate_and_implement_scenario",
+      "generate_asset",
+      "generate_asset_batch",
+      "generate_project_context",
+      "generate_scenario",
+      "generate_scenario_variations",
+      "get_actor",
+      "get_core_script_versions",
+      "get_database_info",
+      "get_database_limits",
+      "get_event_page",
+      "get_game_title",
+      "get_generator_parts",
+      "get_map",
+      "get_map_event",
+      "get_map_events",
+      "get_map_infos",
+      "get_plugins_config",
+      "get_project_info",
+      "get_sample_maps",
+      "get_skill",
+      "get_switches",
+      "get_system",
+      "get_variables",
+      "implement_scenario",
+      "inspect_game_state",
+      "install_plugin",
+      "list_actors",
+      "list_armors",
+      "list_assets",
+      "list_backups",
+      "list_classes",
+      "list_data_files",
+      "list_enemies",
+      "list_items",
+      "list_maps",
+      "list_plugins",
+      "list_projects",
+      "list_resources",
+      "list_skills",
+      "list_states",
+      "list_weapons",
+      "read_data_file",
+      "register_prompt_template",
+      "register_resource",
+      "run_playtest",
+      "scan_dlc_packages",
+      "scan_resources",
+      "search_actors",
+      "search_database",
+      "search_events",
+      "search_items",
+      "search_map_events",
+      "search_skills",
+      "set_database_limit",
+      "set_switch_name",
+      "set_variable_name",
+      "show_picture",
+      "undo_last_change",
+      "update_actor",
+      "update_armor",
+      "update_class",
+      "update_database",
+      "update_enemy",
+      "update_event_command",
+      "update_game_title",
+      "update_item",
+      "update_map",
+      "update_map_event",
+      "update_plugins_config",
+      "update_skill",
+      "update_starting_position",
+      "update_state",
+      "update_weapon",
+      "write_data_file",
+      "write_plugin_code"
+    ],
+    "aliases": {
+      "read_project_info": "get_project_info",
+      "get_maps": "list_maps",
+      "update_map_tile": "draw_map_tile",
+      "add_event": "create_map_event",
+      "get_actors": "list_actors",
+      "add_actor": "create_actor",
+      "get_items": "list_items",
+      "add_item": "create_item",
+      "get_skills": "list_skills",
+      "add_skill": "create_skill",
+      "get_weapons": "list_weapons",
+      "get_armors": "list_armors",
+      "get_classes": "list_classes",
+      "get_states": "list_states",
+      "get_enemies": "list_enemies",
+      "get_installed_plugins": "list_plugins",
+      "read_map": "get_map",
+      "add_class": "create_class"
+    },
+    "profiles": {
+      "core": [
+        "get_project_info",
+        "list_data_files",
+        "read_data_file",
+        "write_data_file",
+        "list_assets",
+        "check_assets_integrity",
+        "get_plugins_config",
+        "update_plugins_config",
+        "list_plugins",
+        "write_plugin_code",
+        "list_maps",
+        "get_map_infos",
+        "get_map",
+        "create_map",
+        "update_map",
+        "draw_map_tile",
+        "get_map_events",
+        "get_map_event",
+        "create_map_event",
+        "update_map_event",
+        "search_map_events",
+        "search_events",
+        "get_event_page",
+        "add_event_command",
+        "update_event_command",
+        "delete_event_command",
+        "add_dialogue",
+        "add_choice",
+        "add_loop",
+        "add_break_loop",
+        "add_conditional_branch",
+        "show_picture",
+        "list_actors",
+        "get_actor",
+        "create_actor",
+        "update_actor",
+        "search_actors",
+        "list_items",
+        "create_item",
+        "update_item",
+        "search_items",
+        "list_weapons",
+        "create_weapon",
+        "update_weapon",
+        "list_armors",
+        "create_armor",
+        "update_armor",
+        "list_skills",
+        "get_skill",
+        "create_skill",
+        "update_skill",
+        "search_skills",
+        "create_damage_skill",
+        "create_healing_skill",
+        "create_buff_skill",
+        "create_state_skill",
+        "list_classes",
+        "create_class",
+        "update_class",
+        "list_states",
+        "create_state",
+        "update_state",
+        "list_enemies",
+        "create_enemy",
+        "update_enemy",
+        "get_system",
+        "get_variables",
+        "set_variable_name",
+        "get_switches",
+        "set_switch_name",
+        "get_game_title",
+        "update_game_title",
+        "update_starting_position",
+        "update_database",
+        "list_backups",
+        "undo_last_change"
+      ],
+      "engine": [
+        "install_plugin",
+        "get_database_info",
+        "get_database_limits",
+        "set_database_limit",
+        "scan_resources",
+        "scan_dlc_packages",
+        "get_core_script_versions",
+        "get_generator_parts",
+        "get_sample_maps"
+      ],
+      "generation": [
+        "list_projects",
+        "generate_project_context",
+        "analyze_project_structure",
+        "extract_game_design_patterns",
+        "create_project",
+        "generate_asset",
+        "generate_asset_batch",
+        "describe_asset",
+        "generate_scenario",
+        "implement_scenario",
+        "generate_and_implement_scenario",
+        "generate_scenario_variations",
+        "autonomous_create_game",
+        "register_resource",
+        "register_prompt_template",
+        "execute_prompt",
+        "list_resources",
+        "search_database",
+        "analyze_assets"
+      ],
+      "playtest": [
+        "run_playtest",
+        "inspect_game_state"
+      ]
+    }
+  },
+  "coverage": {
+    "rows": [
+      {
+        "name": "add_actor",
+        "canonical": "create_actor",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "add_break_loop",
+        "canonical": "add_break_loop",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "add_choice",
+        "canonical": "add_choice",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "add_class",
+        "canonical": "create_class",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "add_conditional_branch",
+        "canonical": "add_conditional_branch",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "add_dialogue",
+        "canonical": "add_dialogue",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "add_event",
+        "canonical": "create_map_event",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "add_event_command",
+        "canonical": "add_event_command",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "add_item",
+        "canonical": "create_item",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "add_loop",
+        "canonical": "add_loop",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "add_skill",
+        "canonical": "create_skill",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "analyze_assets",
+        "canonical": "analyze_assets",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "analyze_project_structure",
+        "canonical": "analyze_project_structure",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "autonomous_create_game",
+        "canonical": "autonomous_create_game",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "check_assets_integrity",
+        "canonical": "check_assets_integrity",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "create_actor",
+        "canonical": "create_actor",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "create_armor",
+        "canonical": "create_armor",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "create_buff_skill",
+        "canonical": "create_buff_skill",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "create_class",
+        "canonical": "create_class",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "create_damage_skill",
+        "canonical": "create_damage_skill",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "create_enemy",
+        "canonical": "create_enemy",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "create_healing_skill",
+        "canonical": "create_healing_skill",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "create_item",
+        "canonical": "create_item",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "create_map",
+        "canonical": "create_map",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "create_map_event",
+        "canonical": "create_map_event",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "create_project",
+        "canonical": "create_project",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "create_skill",
+        "canonical": "create_skill",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "create_state",
+        "canonical": "create_state",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "create_state_skill",
+        "canonical": "create_state_skill",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "create_weapon",
+        "canonical": "create_weapon",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "delete_event_command",
+        "canonical": "delete_event_command",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "describe_asset",
+        "canonical": "describe_asset",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "draw_map_tile",
+        "canonical": "draw_map_tile",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "execute_prompt",
+        "canonical": "execute_prompt",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "extract_game_design_patterns",
+        "canonical": "extract_game_design_patterns",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "generate_and_implement_scenario",
+        "canonical": "generate_and_implement_scenario",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "generate_asset",
+        "canonical": "generate_asset",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "generate_asset_batch",
+        "canonical": "generate_asset_batch",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "generate_project_context",
+        "canonical": "generate_project_context",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "generate_scenario",
+        "canonical": "generate_scenario",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "generate_scenario_variations",
+        "canonical": "generate_scenario_variations",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "get_actor",
+        "canonical": "get_actor",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "get_actors",
+        "canonical": "list_actors",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "get_armors",
+        "canonical": "list_armors",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "get_classes",
+        "canonical": "list_classes",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "get_core_script_versions",
+        "canonical": "get_core_script_versions",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "get_database_info",
+        "canonical": "get_database_info",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "get_database_limits",
+        "canonical": "get_database_limits",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "get_enemies",
+        "canonical": "list_enemies",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "get_event_page",
+        "canonical": "get_event_page",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "get_game_title",
+        "canonical": "get_game_title",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "get_generator_parts",
+        "canonical": "get_generator_parts",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "get_installed_plugins",
+        "canonical": "list_plugins",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "get_items",
+        "canonical": "list_items",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "get_map",
+        "canonical": "get_map",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "get_map_event",
+        "canonical": "get_map_event",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "get_map_events",
+        "canonical": "get_map_events",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "get_map_infos",
+        "canonical": "get_map_infos",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "get_maps",
+        "canonical": "list_maps",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "get_plugins_config",
+        "canonical": "get_plugins_config",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "get_project_info",
+        "canonical": "get_project_info",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "get_sample_maps",
+        "canonical": "get_sample_maps",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "get_skill",
+        "canonical": "get_skill",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "get_skills",
+        "canonical": "list_skills",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "get_states",
+        "canonical": "list_states",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "get_switches",
+        "canonical": "get_switches",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "get_system",
+        "canonical": "get_system",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "get_variables",
+        "canonical": "get_variables",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "get_weapons",
+        "canonical": "list_weapons",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "implement_scenario",
+        "canonical": "implement_scenario",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "inspect_game_state",
+        "canonical": "inspect_game_state",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "install_plugin",
+        "canonical": "install_plugin",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "list_actors",
+        "canonical": "list_actors",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "list_armors",
+        "canonical": "list_armors",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "list_assets",
+        "canonical": "list_assets",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "list_backups",
+        "canonical": "list_backups",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "list_classes",
+        "canonical": "list_classes",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "list_data_files",
+        "canonical": "list_data_files",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "list_enemies",
+        "canonical": "list_enemies",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "list_items",
+        "canonical": "list_items",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "list_maps",
+        "canonical": "list_maps",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "list_plugins",
+        "canonical": "list_plugins",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "list_projects",
+        "canonical": "list_projects",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "list_resources",
+        "canonical": "list_resources",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "list_skills",
+        "canonical": "list_skills",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "list_states",
+        "canonical": "list_states",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "list_weapons",
+        "canonical": "list_weapons",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "read_data_file",
+        "canonical": "read_data_file",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "read_map",
+        "canonical": "get_map",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "read_project_info",
+        "canonical": "get_project_info",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "register_prompt_template",
+        "canonical": "register_prompt_template",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "register_resource",
+        "canonical": "register_resource",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "run_playtest",
+        "canonical": "run_playtest",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "scan_dlc_packages",
+        "canonical": "scan_dlc_packages",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "scan_resources",
+        "canonical": "scan_resources",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "search_actors",
+        "canonical": "search_actors",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "search_database",
+        "canonical": "search_database",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "search_events",
+        "canonical": "search_events",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "search_items",
+        "canonical": "search_items",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "search_map_events",
+        "canonical": "search_map_events",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "search_skills",
+        "canonical": "search_skills",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "set_database_limit",
+        "canonical": "set_database_limit",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "set_switch_name",
+        "canonical": "set_switch_name",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "set_variable_name",
+        "canonical": "set_variable_name",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "show_picture",
+        "canonical": "show_picture",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "undo_last_change",
+        "canonical": "undo_last_change",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "update_actor",
+        "canonical": "update_actor",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "update_armor",
+        "canonical": "update_armor",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "update_class",
+        "canonical": "update_class",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "update_database",
+        "canonical": "update_database",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "update_enemy",
+        "canonical": "update_enemy",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "update_event_command",
+        "canonical": "update_event_command",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "update_game_title",
+        "canonical": "update_game_title",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "update_item",
+        "canonical": "update_item",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "update_map",
+        "canonical": "update_map",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "update_map_event",
+        "canonical": "update_map_event",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "update_map_tile",
+        "canonical": "draw_map_tile",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": false,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": true,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "update_plugins_config",
+        "canonical": "update_plugins_config",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "update_skill",
+        "canonical": "update_skill",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "update_starting_position",
+        "canonical": "update_starting_position",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": true,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "update_state",
+        "canonical": "update_state",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "update_weapon",
+        "canonical": "update_weapon",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": false,
+          "mcp4_mcp_maker": true
+        }
+      },
+      {
+        "name": "write_data_file",
+        "canonical": "write_data_file",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      },
+      {
+        "name": "write_plugin_code",
+        "canonical": "write_plugin_code",
+        "inRegistry": true,
+        "sources": {
+          "integration_MCP": true,
+          "mcp1_hyphen_rpgmaker": false,
+          "mcp2_rpgmaker_extended": false,
+          "mcp3_base_reference": true,
+          "mcp4_mcp_maker": false
+        }
+      }
+    ],
+    "summary": {
+      "totalNamesObserved": 124,
+      "registryCanonicalCount": 106,
+      "missingFromRegistry": []
+    }
+  }
+}
