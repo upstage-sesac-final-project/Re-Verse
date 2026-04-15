@@ -38,7 +38,7 @@ export default function GenerationResult({ onRetry, onGoToEditor }) {
           style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}
         >
           <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>
-            완료된 단계 ({completedPhases.length}/9)
+            완료된 단계 ({completedPhases.length}/10)
           </p>
           <p className="text-xs" style={{ color: 'var(--text-primary)' }}>
             {completedPhases.join(' → ')}
