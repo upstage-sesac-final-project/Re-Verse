@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useSelector } from 'react-redux'
+import DinoMiniGame from './DinoMiniGame'
 import Tetris from '../common/Tetris'
 
 const PHASE_ORDER = [
@@ -76,10 +77,13 @@ export default function GenerationProgress() {
 
   const isDone = ['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(status)
   const isQueued = status === 'queued'
+  const isRunning = ['starting', 'queued', 'in_progress'].includes(status)
+  const showMiniGame = isRunning
 
   if (isQueued) {
     return (
       <div className="space-y-6">
+        {showMiniGame && <DinoMiniGame />}
         <div className="text-center py-6">
           <p className="text-lg font-bold mb-2" style={{ color: '#eab308' }}>대기열 {queuePosition}번째</p>
           <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
@@ -106,6 +110,7 @@ export default function GenerationProgress() {
 
   return (
     <div className="space-y-6">
+      {showMiniGame && <DinoMiniGame />}
       {/* 진행률 바 */}
       <div>
         <div className="flex justify-between text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>

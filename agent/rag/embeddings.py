@@ -7,16 +7,18 @@ class RPGEmbeddings:
     """Upstage 공식 라이브러리를 이용한 임베딩 클래스 (AgentConfig 통합)"""
 
     def __init__(self):
-        if not agent_config.LLM_API_KEY:
-            raise ValueError("LLM_API_KEY가 설정되어 있지 않습니다. .env 파일을 확인하세요.")
+        # UPSTAGE_API_KEY 우선, 없으면 LLM_API_KEY로 fallback (기존 단일 키 설정 호환)
+        api_key = agent_config.UPSTAGE_API_KEY or agent_config.LLM_API_KEY
+        if not api_key:
+            raise ValueError(
+                "UPSTAGE_API_KEY (또는 LLM_API_KEY)가 설정되어 있지 않습니다. .env 파일을 확인하세요."
+            )
 
         # 쿼리 전용 임베딩 모델
-        self.query_model = UpstageEmbeddings(
-            api_key=agent_config.LLM_API_KEY, model="solar-embedding-1-large-query"
-        )
+        self.query_model = UpstageEmbeddings(api_key=api_key, model="solar-embedding-1-large-query")
         # 문장 전용 임베딩 모델
         self.passage_model = UpstageEmbeddings(
-            api_key=agent_config.LLM_API_KEY, model="solar-embedding-1-large-passage"
+            api_key=api_key, model="solar-embedding-1-large-passage"
         )
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
