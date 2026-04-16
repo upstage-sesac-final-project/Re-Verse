@@ -279,9 +279,7 @@ def _plan_system_operation(
         array_op = value.get("array_op") if isinstance(value, dict) else None
         if array_op not in ("add", "remove"):
             array_op = "add"
-        action_type = (
-            "add_party_member" if array_op == "add" else "remove_party_member"
-        )
+        action_type = "add_party_member" if array_op == "add" else "remove_party_member"
         actor_name = None
         actor_id = None
         if isinstance(value, dict):

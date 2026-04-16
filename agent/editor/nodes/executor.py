@@ -2208,9 +2208,7 @@ async def _execute_one_structured_step(
         ):
             # party_action 으로 add/remove 결정. 기본값은 add (기존 동작 보존).
             party_action = (
-                target_info.get("party_action")
-                if isinstance(target_info, dict)
-                else None
+                target_info.get("party_action") if isinstance(target_info, dict) else None
             )
             if action == "remove_party_member":
                 mgr_action = "remove_party_member"

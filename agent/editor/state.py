@@ -32,7 +32,9 @@ def _merge_dict(left: dict, right: dict) -> dict:
 class AgentState(TypedDict, total=False):
     # ── 입력 ────────────────────────────────────────────────
     user_input: str  # 사용자 원본 입력 (따옴표·특수문자 포함 원문 그대로 보존)
-    resolved_input: str  # router 가 coref 해소한 입력 (없으면 빈 문자열). 원본은 user_input 에 남긴다
+    resolved_input: (
+        str  # router 가 coref 해소한 입력 (없으면 빈 문자열). 원본은 user_input 에 남긴다
+    )
     game_id: str  # 수정 대상 게임 ID (예: "game_001")
 
     # ── 1단계 Router ────────────────────────────────────────

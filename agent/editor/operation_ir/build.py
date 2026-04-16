@@ -64,8 +64,8 @@ def _build_party_ops(
             continue
         mapped_id = cls.get("mapped_id")
         if isinstance(mapped_id, str):
-            mapped_id = None if mapped_id == "NEW" else (
-                int(mapped_id) if mapped_id.isdigit() else None
+            mapped_id = (
+                None if mapped_id == "NEW" else (int(mapped_id) if mapped_id.isdigit() else None)
             )
         if mapped_id is None:
             mapped_id = extracted_ids.get(name)
@@ -274,9 +274,7 @@ def build_from_extractions(
             # "게임 화폐 단위를 크레딧으로"/"게임 타이틀을 리버스 월드로" 등
             sys_field = _detect_system_field(subject, prop)
             if sys_field and value_str:
-                logger.info(
-                    "[Step5] System.json 필드 우선 감지: %s = %s", sys_field, value_str
-                )
+                logger.info("[Step5] System.json 필드 우선 감지: %s = %s", sys_field, value_str)
                 ops.append(
                     {
                         "op": "update",
@@ -323,9 +321,7 @@ def build_from_extractions(
             # 상대값 처리 ("1.5배"/"절반"/"50%") — param/param_slot 만 대상
             resolved_value_str = value_str
             if kind in ("param", "param_slot") and sub_id is not None and sub_file:
-                abs_value = _resolve_relative_value(
-                    value_str, game_id, sub_file, sub_id, field
-                )
+                abs_value = _resolve_relative_value(value_str, game_id, sub_file, sub_id, field)
                 if abs_value is not None:
                     logger.info(
                         "[Step5] 상대값 변환: '%s' → %s (file=%s id=%s field=%s)",
