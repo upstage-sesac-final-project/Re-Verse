@@ -14,6 +14,7 @@ export default function Home() {
   const midRef = useRef(null)
   const midDot1Ref = useRef(null)
   const midDot2Ref = useRef(null)
+  const reRef = useRef(null)
   const verseRef = useRef(null)
   const brandRowRef = useRef(null)
   const taglineRef = useRef(null)
@@ -31,30 +32,22 @@ export default function Home() {
       const mid = midRef.current
       const dot1 = midDot1Ref.current
       const dot2 = midDot2Ref.current
+      const re = reRef.current
       const verse = verseRef.current
       const row = brandRowRef.current
       const tagline = taglineRef.current
 
-      if (!ply || !uni || !plyWrap || !uniWrap || !mid || !dot1 || !dot2 || !verse || !row) return
+      if (!ply || !uni || !plyWrap || !uniWrap || !mid || !dot1 || !dot2 || !re || !verse || !row) return
 
-      // 가운데: 처음은 하얀 점 1개(중앙) → 합쳐질 때 같은 크기 빨간 점 2개(콜론)
-      dot1.style.backgroundColor = 'rgba(255, 255, 255, 0.92)'
-      gsap.set(dot1, { xPercent: -50, yPercent: -50, left: '50%', top: '50%', x: 0, y: 0 })
-      gsap.set(dot2, {
-        opacity: 0,
-        scale: 0.85,
-        xPercent: -50,
-        yPercent: -50,
-        left: '50%',
-        top: '50%',
-        x: 0,
-        y: 0,
-      })
+      // 가운데 콜론은 시작부터 빨간 점 2개를 고정
+      dot1.style.backgroundColor = 'var(--accent)'
       dot2.style.backgroundColor = 'var(--accent)'
+      gsap.set(dot1, { opacity: 1, scale: 1, xPercent: -50, yPercent: -50, left: '50%', top: '50%', x: 0, y: '-0.14em' })
+      gsap.set(dot2, { opacity: 1, scale: 1, xPercent: -50, yPercent: -50, left: '50%', top: '50%', x: 0, y: '0.14em' })
 
       gsap.set([plyWrap, uniWrap], { width: 'auto', maxWidth: 'none', overflow: 'visible' })
       // from() + kill() 조합은 개발 모드에서 opacity:0에 고정될 수 있어 to()로 통일
-      gsap.set(row, { opacity: 0, y: 28, gap: '0.45rem' })
+      gsap.set(row, { opacity: 0, y: 28, gap: '0.12rem' })
       gsap.set([ply, uni], { opacity: 0, y: 10 })
       if (tagline) gsap.set(tagline, { opacity: 0, y: 12 })
 
@@ -68,52 +61,53 @@ export default function Home() {
         [ply, uni],
         {
           opacity: 0,
-          duration: 1.05,
+          x: (idx) => (idx === 0 ? 6 : -6),
+          duration: 1.35,
           stagger: 0.16,
           ease: 'sine.out',
         },
         '+=0.6'
       )
         .set([plyWrap, uniWrap], {
-          width: 0,
-          maxWidth: 0,
-          minWidth: 0,
+          width: (idx, target) => `${target.offsetWidth}px`,
+          maxWidth: (idx, target) => `${target.offsetWidth}px`,
+          minWidth: (idx, target) => `${target.offsetWidth}px`,
           overflow: 'hidden',
-          marginLeft: 0,
-          marginRight: 0,
-          paddingLeft: 0,
-          paddingRight: 0,
         })
-        // 겹쳐 있던 점이 위·아래로 갈라지며 둘 다 동일 빨강(콜론)
         .to(
-          dot1,
+          [plyWrap, uniWrap],
           {
-            backgroundColor: '#ff3b5c',
-            y: '-0.14em',
-            duration: 0.72,
+            width: 0,
+            maxWidth: 0,
+            minWidth: 0,
+            marginLeft: 0,
+            marginRight: 0,
+            paddingLeft: 0,
+            paddingRight: 0,
+            duration: 1.25,
             ease: 'sine.inOut',
           },
-          '-=0.38'
+          '<+0.14'
         )
-        .to(
-          dot2,
+        .fromTo(
+          re,
+          { x: '-0.12em' },
           {
-            opacity: 1,
-            scale: 1,
-            y: '0.14em',
-            duration: 0.72,
-            ease: 'sine.inOut',
+            x: 0,
+            duration: 1.25,
+            ease: 'power4.out',
           },
-          '-=0.62'
+          '<'
         )
-        .to(
-          row,
+        .fromTo(
+          verse,
+          { x: '0.12em' },
           {
-            gap: '0.12rem',
-            duration: 1,
-            ease: 'sine.inOut',
+            x: 0,
+            duration: 1.25,
+            ease: 'power4.out',
           },
-          '-=0.82'
+          '<'
         )
 
       if (tagline) {
@@ -166,11 +160,11 @@ export default function Home() {
           <div
             ref={brandRowRef}
             className="flex flex-nowrap items-baseline justify-center text-[clamp(1.35rem,5vw,3.75rem)] font-bold tracking-tight select-none px-1 max-w-[100vw] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-            style={{ color: 'var(--text-primary)', gap: '0.45rem' }}
+            style={{ color: 'var(--text-primary)', gap: '0.12rem' }}
             aria-label="Re:Verse 브랜드 — Reply와 Universe에서"
           >
             <span className="inline-flex items-baseline">
-              <span>Re</span>
+              <span ref={reRef}>Re</span>
               <span ref={plyWrapRef} className="inline-block align-baseline overflow-visible">
                 <span
                   ref={plyRef}
