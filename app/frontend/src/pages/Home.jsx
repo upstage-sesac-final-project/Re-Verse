@@ -159,7 +159,7 @@ export default function Home() {
         >
           <div
             ref={brandRowRef}
-            className="flex flex-nowrap items-baseline justify-center text-[clamp(1.35rem,5vw,3.75rem)] font-bold tracking-tight select-none px-1 max-w-[100vw] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="flex flex-nowrap items-baseline justify-center text-[clamp(1.35rem,5vw,3.75rem)] font-bold tracking-tight select-none px-2 max-w-full overflow-x-auto md:overflow-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             style={{ color: 'var(--text-primary)', gap: '0.12rem' }}
             aria-label="Re:Verse 브랜드 — Reply와 Universe에서"
           >
