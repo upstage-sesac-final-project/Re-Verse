@@ -22,6 +22,7 @@ services:
       - ./logs/backend:/app/logs
     restart: unless-stopped
     stop_grace_period: 30s  # shutdown hook이 S3 업로드할 시간 확보
+    pids_limit: 512
 
     # 로그 설정
     logging:
@@ -36,7 +37,6 @@ services:
         limits:
           cpus: '1.0'
           memory: 1G
-          pids_limit: 512
         reservations:
           cpus: '0.25'
           memory: 256M
