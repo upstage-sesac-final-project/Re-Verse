@@ -144,7 +144,7 @@ export default function Home() {
             className="text-xs transition-colors hover:text-white"
             style={{ color: 'var(--text-secondary)' }}
           >
-            문서
+            가이드
           </Link>
           {isAuthenticated ? (
             <Link to="/dashboard" className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>

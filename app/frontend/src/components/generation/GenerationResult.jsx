@@ -65,25 +65,6 @@ export default function GenerationResult({ onRetry, onGoToEditor }) {
         </div>
       )}
 
-      {/* 검증 경고 */}
-      {validationWarnings.length > 0 && (
-        <div
-          className="rounded-lg p-3"
-          style={{ background: 'rgba(255,214,10,0.08)', border: '1px solid #ffd60a' }}
-        >
-          <p className="text-xs font-semibold mb-2" style={{ color: '#ffd60a' }}>
-            경고 ({validationWarnings.length}건)
-          </p>
-          <ul className="space-y-1">
-            {validationWarnings.map((w, i) => (
-              <li key={i} className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                {w}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {/* 액션 버튼 */}
       <div className="flex gap-3">
         {isSuccess && (

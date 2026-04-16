@@ -22,6 +22,10 @@ class SystemManager(BaseManager):
             # 여기서는 그 의미를 "partyMembers에 actor 추가"로 해석한다.
             actor_name = (ti.get("actor_name") or kwargs.get("actor_name") or "").strip()
             return self._handle_add_party_member(actor_name)
+        if action == "remove_party_member":
+            actor_name = (ti.get("actor_name") or kwargs.get("actor_name") or "").strip()
+            actor_id = ti.get("actor_id")
+            return self._handle_remove_party_member(actor_name, actor_id)
         # 아래 네 액션은 MCP(System.json 툴)와 동일 의미 — MCP 비활성/실패 시 레거시로 수행
         if action == "update_game_title":
             title = ti.get("title") or ti.get("game_title")
@@ -111,6 +115,69 @@ class SystemManager(BaseManager):
             "actor_id": actor_id,
             "actor_name": actor_name,
             "message": f"액터 '{actor_name}'(id={actor_id})를 partyMembers에 추가",
+            "modified_files": ["System.json"],
+            "category": "system",
+        }
+
+    def _handle_remove_party_member(
+        self, actor_name: str, actor_id: int | None = None
+    ) -> dict[str, Any]:
+        """partyMembers 에서 지정 액터를 제거."""
+        system = self.load_json_data()
+        if not isinstance(system, dict):
+            return {
+                "success": False,
+                "error": "System.json 형식이 예상과 다릅니다.",
+                "category": "system",
+            }
+        party = system.get("partyMembers")
+        if not isinstance(party, list):
+            return {
+                "success": False,
+                "error": "System.partyMembers 형식 오류",
+                "category": "system",
+            }
+
+        # id 우선, 없으면 이름으로 조회
+        if actor_id is None and actor_name:
+            actors_path = self.data_path / "Actors.json"
+            if actors_path.exists():
+                with open(actors_path, encoding="utf-8") as f:
+                    actors = json.load(f)
+                if isinstance(actors, list):
+                    actor_id = self.find_by_name(actors, actor_name)
+
+        try:
+            actor_id_int = int(actor_id) if actor_id is not None else None
+        except (TypeError, ValueError):
+            actor_id_int = None
+
+        if actor_id_int is None:
+            return {
+                "success": False,
+                "error": f"액터 '{actor_name}' 를 찾지 못해 partyMembers 에서 제거할 수 없습니다.",
+                "category": "system",
+            }
+
+        if actor_id_int not in party:
+            return {
+                "success": True,
+                "action": "remove_party_member",
+                "skipped": True,
+                "actor_id": actor_id_int,
+                "message": f"액터 '{actor_name}'(id={actor_id_int}) 는 이미 partyMembers 에 없습니다.",
+                "modified_files": [],
+                "category": "system",
+            }
+
+        system["partyMembers"] = [aid for aid in party if aid != actor_id_int]
+        self.save_json_data(system)
+        return {
+            "success": True,
+            "action": "remove_party_member",
+            "actor_id": actor_id_int,
+            "actor_name": actor_name,
+            "message": f"액터 '{actor_name}'(id={actor_id_int}) 를 partyMembers 에서 제거했습니다.",
             "modified_files": ["System.json"],
             "category": "system",
         }
