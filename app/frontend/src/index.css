@@ -22,6 +22,10 @@
   --text-secondary:#8e8e93;
 }
 
+html {
+  font-size: 18px;
+}
+
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
