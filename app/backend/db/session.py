@@ -61,6 +61,9 @@ def get_engine() -> AsyncEngine | None:
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA busy_timeout=5000")
             cursor.execute("PRAGMA foreign_keys=ON")
+            # 기본값 1000페이지 → 100페이지로 낮춰 WAL을 자주 checkpoint
+            # 서버 비정상 종료 시 소실되는 미checkpoint 데이터를 최소화
+            cursor.execute("PRAGMA wal_autocheckpoint=100")
             cursor.close()
 
     logger.info("AsyncSQLAlchemy engine 초기화 완료")
