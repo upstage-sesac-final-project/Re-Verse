@@ -151,12 +151,12 @@ async def send_discord_token_alert(
 
     DISCORD_TOKEN_WEBHOOK_URL 이 비어 있으면 아무 것도 하지 않는다.
     Solar 등 가격표에 없는 모델은 OpenAICallbackHandler 기준 total_cost 가 0일 수 있다.
-    노이즈가 크면 아래 주석처럼 임계값을 두거나(total_cost 대신 prompt+completion 토큰 합 기준 권장),
-    send_discord_token_alert 내부에 조건을 추가하면 된다.
 
-    # 예: 비용이 0.01 USD 미만이면 생략 (OpenAI 계열 가격이 잡힐 때만 유효)
-    # if total_cost < 0.01:
-    #     return
+    임계값: settings.DISCORD_TOKEN_ALERT_MIN_TOTAL_TOKENS / DISCORD_TOKEN_ALERT_MIN_COST_USD
+    - 둘 다 0: 기존과 같이 (입력·출력 토큰 합 > 0)이면 전송.
+    - MIN_TOTAL_TOKENS만 > 0: 합계 토큰이 그 값 이상일 때만 전송.
+    - MIN_COST_USD만 > 0: total_cost가 그 값 이상일 때만 전송.
+    - 둘 다 > 0: (합계 토큰 >= MIN_TOTAL) 또는 (total_cost >= MIN_COST) 일 때 전송.
     """
     url = (settings.DISCORD_TOKEN_WEBHOOK_URL or "").strip()
     if not url:
@@ -164,6 +164,21 @@ async def send_discord_token_alert(
 
     if prompt_tokens == 0 and completion_tokens == 0:
         return
+
+    total_tokens = prompt_tokens + completion_tokens
+    min_tok = int(getattr(settings, "DISCORD_TOKEN_ALERT_MIN_TOTAL_TOKENS", 0) or 0)
+    min_cost = float(getattr(settings, "DISCORD_TOKEN_ALERT_MIN_COST_USD", 0.0) or 0.0)
+
+    if min_tok > 0 or min_cost > 0:
+        ok_tok = min_tok <= 0 or total_tokens >= min_tok
+        ok_cost = min_cost <= 0.0 or total_cost >= min_cost
+        if min_tok > 0 and min_cost > 0:
+            if not (ok_tok or ok_cost):
+                return
+        elif min_tok > 0 and not ok_tok:
+            return
+        elif min_cost > 0 and not ok_cost:
+            return
 
     ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 

@@ -70,9 +70,13 @@ class GameService:
 
         try:
             self._copy_base_game(game_id)
+            logger.debug("[GameService] 폴더 생성 완료, DB 커밋 시작 | game_id=%s", game_id)
             await project_repository.commit(db)
             await project_repository.refresh(project, db)
-        except Exception:
+        except BaseException as exc:
+            # CancelledError(BaseException 하위)도 포함 — 클라이언트 연결 끊김·요청 취소 시
+            # except Exception만 쓰면 CancelledError가 빠져나가 cleanup이 실행되지 않고
+            # 폴더만 남는 orphan이 발생한다
             logger.error(
                 "[GameService] 프로젝트 생성 실패 — 롤백 | user_id=%d, game_id=%s",
                 user_id,
@@ -81,10 +85,13 @@ class GameService:
             )
             await project_repository.rollback(db)
             self._cleanup_game_folder(game_id)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="프로젝트 생성 중 오류가 발생했습니다.",
-            )
+            if isinstance(exc, Exception):
+                # 일반 예외는 HTTPException으로 변환해 클라이언트에 500 반환
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="프로젝트 생성 중 오류가 발생했습니다.",
+                ) from exc
+            raise  # CancelledError 등 BaseException은 그대로 전파
         logger.info(
             "[GameService] 프로젝트 생성 완료 | user_id=%d, project_id=%d, game_id=%s",
             user_id,
@@ -156,10 +163,13 @@ class GameService:
 
         unregister_session(game_id)
         remove_game_lock(game_id)
+        logger.debug("[GameService] DB 삭제 완료, 폴더 삭제 시작 | game_id=%s", game_id)
         try:
             self._delete_game_folder(game_id)
         except Exception:
-            logger.warning("게임 폴더 삭제 실패 (orphan): game_id=%s", game_id)
+            logger.warning(
+                "[GameService] 게임 폴더 삭제 실패 (orphan) | game_id=%s", game_id, exc_info=True
+            )
 
     # ── 파일 시스템 헬퍼 ──────────────────────────────────
 
@@ -180,14 +190,19 @@ class GameService:
             self._s3_delete_game(game_id)
         else:
             target = Path(settings.STORAGE_PATH).resolve() / game_id
-            if target.exists():
-                shutil.rmtree(target)
+            if not target.exists():
+                logger.warning(
+                    "[GameService] 폴더 없음 — 이미 삭제됐거나 경로 불일치 | path=%s", target
+                )
+                return
+            shutil.rmtree(target)
+            logger.debug("[GameService] 폴더 삭제 완료 | game_id=%s", game_id)
 
     def _cleanup_game_folder(self, game_id: str) -> None:
         try:
             self._delete_game_folder(game_id)
         except Exception:
-            logger.warning("롤백 중 폴더 정리 실패: game_id=%s", game_id)
+            logger.warning("롤백 중 폴더 정리 실패 | game_id=%s", game_id, exc_info=True)
 
     def _s3_copy_base_game(self, game_id: str) -> None:
         client = boto3.client("s3", region_name=settings.AWS_REGION)

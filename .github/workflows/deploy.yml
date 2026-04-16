@@ -40,6 +40,9 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
+            # 호스트 로그 디렉터리를 SSH 사용자로 먼저 생성 (없을 때 Docker가 root 소유로 만들면 불편)
+            mkdir -p logs/backend
+
             echo "${{ secrets.ENV_FILE }}" > .env.production
 
             # BuildKit: Dockerfile의 RUN --mount=type=cache 등 캐시 마운트 사용
