@@ -16,7 +16,7 @@ from agent.core.config import agent_config
 logger = logging.getLogger(__name__)
 
 _llm_cache: dict[float, BaseChatModel] = {}
-_llm_semaphore = asyncio.Semaphore(2)  # 동시 LLM 호출 최대 2개 (메모리 절약)
+_llm_semaphore = asyncio.Semaphore(4)  # 동시 LLM 호출 최대 4개 (t3.small 기준)
 
 
 def get_llm(temperature: float | None = None) -> BaseChatModel:
@@ -33,8 +33,11 @@ def _build_llm(temperature: float) -> BaseChatModel:
         raise RuntimeError("LLM_API_KEY가 설정되지 않았습니다. 루트 .env 파일을 확인하세요.")
 
     # 라이브러리 호환성을 위해 환경 변수 명시적 설정
-    os.environ["UPSTAGE_API_KEY"] = agent_config.LLM_API_KEY
     os.environ["OPENAI_API_KEY"] = agent_config.LLM_API_KEY
+    # 과거: UPSTAGE_API_KEY 도 LLM_API_KEY 로 덮어썼으나, LLM provider 를 OpenAI 등으로
+    # 바꿀 때 임베딩 키(Upstage 유지) 를 깨뜨리므로 제거. 임베딩은 agent_config.UPSTAGE_API_KEY
+    # 를 쓰며, 미설정 시 LLM_API_KEY 로 fallback (agent/rag/embeddings.py 참고).
+    # os.environ["UPSTAGE_API_KEY"] = agent_config.LLM_API_KEY
 
     llm: BaseChatModel
 
@@ -87,14 +90,39 @@ async def invoke_llm(
     llm = get_llm(temperature)
     timeout = agent_config.LLM_TIMEOUT
 
+    _sem_t0 = asyncio.get_event_loop().time()
+    logger.info(
+        "[LLM] semaphore 대기 시작 (available=%d/%d)",
+        _llm_semaphore._value,  # type: ignore[attr-defined]
+        2,
+    )
     async with _llm_semaphore:
+        _sem_wait = asyncio.get_event_loop().time() - _sem_t0
+        logger.info("[LLM] semaphore 획득 (wait=%.2fs)", _sem_wait)
         try:
+            # 메시지 크기(프롬프트 총 길이) 측정 — 느린 호출 진단용
+            _prompt_chars = sum(len(str(getattr(m, "content", ""))) for m in messages)
+            logger.info("[LLM] ainvoke 호출 (prompt_chars=%d)", _prompt_chars)
+            _api_t0 = asyncio.get_event_loop().time()
+
             if structured_output is not None:
                 logger.info("구조화된 응답 생성 시작 (%s)", structured_output.__name__)
-                bound = llm.with_structured_output(
-                    structured_output, method="json_schema", strict=True
-                )
+                # provider별 structured_output 호출 방식:
+                # - OpenAI / Solar: json_schema + strict 가 가장 정확
+                # - Gemini (OpenAI 호환 엔드포인트): strict json_schema 미지원 →
+                #   function_calling 사용. 네이티브 google SDK 로 넘어갈 때까지는 호환 모드.
+                _model_lower = agent_config.LLM_MODEL.lower()
+                if "gemini" in _model_lower:
+                    bound = llm.with_structured_output(structured_output, method="function_calling")
+                else:
+                    bound = llm.with_structured_output(
+                        structured_output, method="json_schema", strict=True
+                    )
                 result = await asyncio.wait_for(bound.ainvoke(messages), timeout=timeout)
+                logger.info(
+                    "[LLM] ainvoke 응답 수신 (api=%.2fs, structured)",
+                    asyncio.get_event_loop().time() - _api_t0,
+                )
                 logger.info("구조화된 응답 수신 완료")
                 if result is None:
                     raise ValueError(
@@ -103,6 +131,10 @@ async def invoke_llm(
                 return cast(BaseModel, result)
 
             response = await asyncio.wait_for(llm.ainvoke(messages), timeout=timeout)
+            logger.info(
+                "[LLM] ainvoke 응답 수신 (api=%.2fs, plain)",
+                asyncio.get_event_loop().time() - _api_t0,
+            )
             return cast(str, response.content)
 
         except TimeoutError:
