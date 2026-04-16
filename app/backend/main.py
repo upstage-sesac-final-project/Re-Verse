@@ -56,6 +56,50 @@ class RequestIdASGIMiddleware:
         await self.app(scope, receive, send_wrapper)
 
 
+async def _cleanup_db_orphan_folders() -> None:
+    """DB에 game_id 레코드가 없는 game 폴더를 startup 시 삭제 (로컬/S3 공통).
+
+    S3 모드에서는 DB에 없는 폴더를 S3 업로드 없이 바로 삭제한다.
+    S3에 저장된 데이터는 delete_project 호출 시 S3에서도 삭제되므로,
+    DB 레코드가 없다면 해당 프로젝트는 이미 삭제된 것으로 간주한다.
+    """
+    from sqlalchemy import select
+
+    from app.backend.db.session import _async_session
+    from app.backend.models.game import Project
+
+    storage_path = Path(settings.STORAGE_PATH).resolve()
+    if not storage_path.is_dir():
+        return
+    if _async_session is None:
+        logger.debug("[Orphan] DB 세션 없음 — 건너뜀")
+        return
+
+    try:
+        async with _async_session() as session:
+            result = await session.execute(select(Project.game_id))
+            db_game_ids: set[str] = set(result.scalars().all())
+    except Exception:
+        logger.warning("[Orphan] DB 조회 실패 — 건너뜀", exc_info=True)
+        return
+
+    orphan_dirs = [
+        child
+        for child in storage_path.iterdir()
+        if child.is_dir() and child.name.startswith("game_") and child.name not in db_game_ids
+    ]
+    if not orphan_dirs:
+        return
+
+    logger.info("[Orphan] DB에 없는 game 폴더 %d개 발견, 정리 시작", len(orphan_dirs))
+    for orphan_dir in orphan_dirs:
+        try:
+            shutil.rmtree(orphan_dir)
+            logger.info("[Orphan] 삭제 완료 | %s", orphan_dir.name)
+        except Exception:
+            logger.warning("[Orphan] 삭제 실패 | %s", orphan_dir.name, exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -112,6 +156,9 @@ async def lifespan(app: FastAPI):
     # DB 테이블 생성 (checkfirst=True, 기존 데이터 보존)
     await init_db()
 
+    # DB에 없는 orphan game 폴더 정리 (로컬/S3 공통)
+    await _cleanup_db_orphan_folders()
+
     setup_langsmith()
 
     # 주기적 인메모리 상태 정리 (60초마다)
@@ -149,6 +196,19 @@ async def lifespan(app: FastAPI):
                 logger.info("Shutdown: S3 업로드 + 정리 완료 | %s", game_id)
             except Exception:
                 logger.error("Shutdown: S3 업로드 실패 | %s", game_id, exc_info=True)
+
+    # SQLite WAL checkpoint 보장: engine.dispose()로 연결을 정상 종료
+    # dispose() 없이 프로세스가 죽으면 WAL → main DB checkpoint가 실행되지 않아
+    # 재시작 시 커밋된 데이터가 소실될 수 있음
+    from app.backend.db.session import get_engine
+
+    engine = get_engine()
+    if engine is not None:
+        try:
+            await engine.dispose()
+            logger.info("DB engine disposed (WAL checkpoint 완료)")
+        except Exception:
+            logger.warning("DB engine dispose 실패", exc_info=True)
 
 
 app = FastAPI(
