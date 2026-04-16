@@ -7,6 +7,7 @@ agent 단독 테스트 시에도 직접 import하여 호출 가능.
 환경변수:
     LOG_LEVEL              : DEBUG | INFO | WARNING | ERROR (미설정 시 자동 결정)
     LOG_DIR                : 로그 파일 저장 경로 (기본: ./logs)
+    LOG_RETENTION_HOURS    : general·error 날짜(YYYY-MM-DD) 폴더 보존 시간(시간). 기본 72.
     LOG_LEVEL_SQLALCHEMY   : SQLAlchemy 로거 레벨 오버라이드 (기본: WARNING)
     LOG_LEVEL_HTTPX        : HTTPX 로거 레벨 오버라이드 (기본: WARNING)
 
@@ -299,6 +300,28 @@ class ErrorContextHandler(logging.Handler):
 # ---------------------------------------------------------------------------
 
 
+def _retention_hours_from_env() -> int:
+    """LOG_RETENTION_HOURS 정수 파싱. 잘못된 값이면 72."""
+    raw = (os.getenv("LOG_RETENTION_HOURS") or "72").strip()
+    try:
+        v = int(raw)
+        return max(1, min(v, 24 * 365 * 2))
+    except ValueError:
+        return 72
+
+
+def prune_stale_error_date_dirs(log_dir: str, retention_hours: int) -> None:
+    """error/{YYYY-MM-DD}/ 중 retention 이전 날짜 폴더 삭제. 기동 시 1회."""
+    base = Path(log_dir) / "error"
+    if not base.is_dir():
+        return
+    cutoff = datetime.now() - timedelta(hours=retention_hours)
+    cutoff_str = cutoff.strftime("%Y-%m-%d")
+    for date_dir in base.iterdir():
+        if date_dir.is_dir() and date_dir.name < cutoff_str:
+            shutil.rmtree(date_dir, ignore_errors=True)
+
+
 def setup_logging() -> None:
     """앱 시작 시 한 번 호출하여 전체 로깅을 초기화한다."""
 
@@ -309,6 +332,7 @@ def setup_logging() -> None:
     environment = os.getenv("ENVIRONMENT", "development")
     debug = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
     log_dir = os.getenv("LOG_DIR", "./logs")
+    retention_hours = _retention_hours_from_env()
 
     # 유효 레벨 결정: LOG_LEVEL 직접 설정 > DEBUG=true면 DEBUG > 그 외 INFO
     if log_level and hasattr(logging, log_level):
@@ -322,6 +346,7 @@ def setup_logging() -> None:
 
     # 로그 디렉토리 생성 (없으면 자동 생성)
     Path(log_dir).mkdir(parents=True, exist_ok=True)
+    prune_stale_error_date_dirs(log_dir, retention_hours)
 
     # 개발: human-readable 포맷 / 프로덕션: JSON 포맷
     console_formatter = "json" if is_production else "readable"
@@ -422,8 +447,8 @@ def setup_logging() -> None:
     user_label_filter = UserLabelFilter()
     suppress_uvicorn_dup = SuppressUvicornDuplicateAsgiExcFilter()
 
-    # 일반 로그 핸들러 (날짜/유저별 폴더, 72시간 보존)
-    general_handler = DailyUserFileHandler(base_dir=log_dir, retention_hours=72)
+    # 일반 로그 핸들러 (날짜/유저별 폴더, LOG_RETENTION_HOURS 보존)
+    general_handler = DailyUserFileHandler(base_dir=log_dir, retention_hours=retention_hours)
     general_handler.setFormatter(file_formatter)
     general_handler.addFilter(user_label_filter)
     general_handler.addFilter(suppress_uvicorn_dup)
@@ -457,8 +482,9 @@ def setup_logging() -> None:
 
     logger = logging.getLogger("shared.logging_config")
     logger.info(
-        "Logging initialized: level=%s, environment=%s, log_dir=%s",
+        "Logging initialized: level=%s, environment=%s, log_dir=%s, retention_hours=%s",
         effective_level,
         environment,
         log_dir,
+        retention_hours,
     )
