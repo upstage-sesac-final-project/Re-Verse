@@ -18,6 +18,8 @@ build/
 *.egg-info/
 .eggs/
 *.egg
+.env.production
+.env.development
 
 # mypy
 .mypy_cache/
