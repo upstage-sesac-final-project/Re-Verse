@@ -7,7 +7,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from agent.graph.nodes.executor import executor
+from agent.editor.nodes.executor import executor
 
 
 async def example_1_skill_creation():
@@ -113,7 +113,7 @@ async def example_4_backup_and_rollback():
 
     print("\n🎯 예제 4: 백업/롤백 시스템")
 
-    from agent.graph.nodes.executor import _get_data_path, execute_rollback
+    from agent.editor.nodes.executor import _get_data_path, execute_rollback
 
     # 테스트 백업 경로
     data_path = _get_data_path("game_001")

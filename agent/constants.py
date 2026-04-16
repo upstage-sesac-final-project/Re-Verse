@@ -12,7 +12,7 @@ from typing import Any
 # 카테고리 ↔ 파일 매핑
 # ──────────────────────────────────────────────
 
-# 사용: definition.py, game_index_resolve.py
+# 사용: definition.py, operation_ir/resolve.py, operation_ir/normalize.py
 CATEGORY_TO_FILE: dict[str, str] = {
     "actor": "Actors.json",
     "enemy": "Enemies.json",
@@ -54,7 +54,7 @@ CATEGORY_TO_ID_FIELD: dict[str, str] = {
     "element": "element_id",
 }
 
-# 사용: planner_v2/rule_engine.py
+# 사용: planner/rule_engine.py
 ALL_ENTITY_FILES: tuple[str, ...] = tuple(CATEGORY_TO_FILE.values())
 
 # ──────────────────────────────────────────────
@@ -89,7 +89,7 @@ KEYWORD_TO_CATEGORY: dict[str, str] = {
 # 배열 필드
 # ──────────────────────────────────────────────
 
-# 사용: definition.py, planner_v2/rule_engine.py
+# 사용: definition.py, planner/rule_engine.py
 ARRAY_FIELDS: frozenset[str] = frozenset(
     {
         "traits",
@@ -104,7 +104,7 @@ ARRAY_FIELDS: frozenset[str] = frozenset(
 # System.json 관련
 # ──────────────────────────────────────────────
 
-# 사용: planner_v2/rule_engine.py
+# 사용: planner/rule_engine.py
 SYSTEM_TYPE_ARRAYS: dict[str, str] = {
     "elements": "elements",
     "skillTypes": "skillTypes",
@@ -113,7 +113,7 @@ SYSTEM_TYPE_ARRAYS: dict[str, str] = {
     "equipTypes": "equipTypes",
 }
 
-# 사용: game_index_resolve.py
+# 사용: operation_ir/resolve.py
 KIND_TO_SYSTEM_KEY: dict[str, str] = {
     "element": "elements",
     "weapon_type": "weaponTypes",
@@ -122,13 +122,13 @@ KIND_TO_SYSTEM_KEY: dict[str, str] = {
     "equip_type": "equipTypes",
 }
 
-# 사용: planner_v2/rule_engine.py
+# 사용: planner/rule_engine.py
 SYSTEM_DEDICATED_FIELDS: dict[str, str] = {
     "gameTitle": "update_game_title",
     "game_title": "update_game_title",
 }
 
-# 사용: planner_v2/rule_engine.py
+# 사용: planner/rule_engine.py
 SYSTEM_TYPE_ARRAY_NAMES: frozenset[str] = frozenset(
     {
         "skillTypes",
@@ -143,7 +143,7 @@ SYSTEM_TYPE_ARRAY_NAMES: frozenset[str] = frozenset(
 # 검색 임계값 / 전역 설정
 # ──────────────────────────────────────────────
 
-# 사용: planner_v2/rule_engine.py
+# 사용: planner/rule_engine.py
 FUZZY_THRESHOLD: float = 0.6
 
 # 사용: validator/__init__.py
@@ -258,7 +258,7 @@ TRAIT_CODE_TO_HINT: dict[int, str] = {
 # trait/effect 의미→코드 매핑 (array_op 해석용)
 # ──────────────────────────────────────────────
 
-# 사용: planner_v2/array_op_resolver.py
+# 사용: planner/array_op_resolver.py
 MATCH_HINT_TO_TRAIT_CODE: dict[str, int] = {
     "속성 내성": 11,
     "원소 내성": 11,
@@ -303,7 +303,7 @@ MATCH_HINT_TO_TRAIT_CODE: dict[str, int] = {
     "파티 능력": 64,
 }
 
-# 사용: planner_v2/array_op_resolver.py
+# 사용: planner/array_op_resolver.py
 TRAIT_DATAID_SOURCE: dict[int, tuple[str | None, str]] = {
     11: ("system", "elements"),
     13: ("entity", "States.json"),
@@ -317,7 +317,7 @@ TRAIT_DATAID_SOURCE: dict[int, tuple[str | None, str]] = {
     52: ("system", "armorTypes"),
 }
 
-# 사용: planner_v2/array_op_resolver.py
+# 사용: planner/array_op_resolver.py
 MATCH_HINT_TO_EFFECT_CODE: dict[str, int] = {
     "HP 회복": 11,
     "HP회복": 11,
@@ -347,7 +347,7 @@ MATCH_HINT_TO_EFFECT_CODE: dict[str, int] = {
 # TODO: Step4.6 안정화 시 제거 가능
 # ──────────────────────────────────────────────
 
-# 사용: planner_v2/rule_engine.py
+# 사용: planner/rule_engine.py
 FIELD_REROUTE_FIXES: dict[str, dict[str, str | dict]] = {
     "damage.elementId": {
         "field": "traits",
@@ -360,7 +360,7 @@ FIELD_REROUTE_FIXES: dict[str, dict[str, str | dict]] = {
 }
 
 # ──────────────────────────────────────────────
-# 한국어 property → RPG Maker field 매핑 (definition Step 4.6)
+# 한국어 property → RPG Maker field 매핑
 # ──────────────────────────────────────────────
 
 # 사용: definition.py
@@ -392,6 +392,31 @@ PROPERTY_TO_FIELD: dict[str, tuple[str, str]] = {
     "가격": ("price", "param"),
     "경험치": ("exp", "param"),
     "골드": ("gold", "param"),
+    # 능력치 (params 배열 인덱스) — kind="param_slot", field="params[i]"
+    "최대 HP": ("params[0]", "param_slot"),
+    "최대HP": ("params[0]", "param_slot"),
+    "HP": ("params[0]", "param_slot"),
+    "체력": ("params[0]", "param_slot"),
+    "최대 MP": ("params[1]", "param_slot"),
+    "최대MP": ("params[1]", "param_slot"),
+    "MP": ("params[1]", "param_slot"),
+    "마나": ("params[1]", "param_slot"),
+    "마력": ("params[1]", "param_slot"),
+    "공격력": ("params[2]", "param_slot"),
+    "공격": ("params[2]", "param_slot"),
+    "방어력": ("params[3]", "param_slot"),
+    "방어": ("params[3]", "param_slot"),
+    "마법공격력": ("params[4]", "param_slot"),
+    "마공": ("params[4]", "param_slot"),
+    "마법공격": ("params[4]", "param_slot"),
+    "마법방어력": ("params[5]", "param_slot"),
+    "마법방어": ("params[5]", "param_slot"),
+    "마방": ("params[5]", "param_slot"),
+    "민첩": ("params[6]", "param_slot"),
+    "민첩성": ("params[6]", "param_slot"),
+    "스피드": ("params[6]", "param_slot"),
+    "운": ("params[7]", "param_slot"),
+    "행운": ("params[7]", "param_slot"),
     # 속성/특성 관련
     "속성": ("traits", "trait"),
     "공격속성": ("traits", "trait"),
@@ -402,6 +427,25 @@ PROPERTY_TO_FIELD: dict[str, tuple[str, str]] = {
     "행동패턴": ("actions", "skill"),
     "드롭": ("dropItems", "item"),
     "드롭아이템": ("dropItems", "item"),
+    # 경험치 곡선 (Classes.json expParams = [basis, extra, accA, accB])
+    "경험치 곡선": ("expParams", "exp_curve"),
+    "경험치곡선": ("expParams", "exp_curve"),
+    "레벨업 곡선": ("expParams", "exp_curve"),
+    "성장 곡선": ("expParams", "exp_curve"),
+}
+
+# 경험치 곡선 의미 프리셋 — Classes.expParams 매핑
+# MZ 기본: [30, 20, 30, 30]. basis ↑ → 다음 레벨까지 더 많은 XP 필요 (완만).
+EXP_CURVE_PRESETS: dict[str, list[int]] = {
+    "완만": [50, 15, 30, 30],
+    "느리게": [50, 15, 30, 30],
+    "느림": [50, 15, 30, 30],
+    "급격": [20, 30, 30, 30],
+    "가파르": [20, 30, 30, 30],
+    "빠르게": [20, 30, 30, 30],
+    "빠름": [20, 30, 30, 30],
+    "기본": [30, 20, 30, 30],
+    "표준": [30, 20, 30, 30],
 }
 
 # ──────────────────────────────────────────────

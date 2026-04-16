@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate, Link } from 'react-router-dom'
 import { logoutUser } from '../../store/userSlice'
 import BugReportModal from '../common/BugReportModal'
+import NoticeModal from '../common/NoticeModal'
 
 export default function Header() {
   const dispatch = useDispatch()
@@ -10,6 +11,19 @@ export default function Header() {
   const { isAuthenticated, user } = useSelector((s) => s.user)
   const currentProject = useSelector((s) => s.game.currentProject)
   const [bugOpen, setBugOpen] = useState(false)
+  const [noticeOpen, setNoticeOpen] = useState(false)
+  const [hasNew, setHasNew] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/v1/notices/latest-version')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.version && data.version !== localStorage.getItem('re-verse:seen-version')) {
+          setHasNew(true)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   async function handleLogout() {
     await dispatch(logoutUser())
@@ -41,6 +55,10 @@ export default function Header() {
             {user?.isAdmin && (
               <Link to="/admin" className="text-xs px-2 py-1 rounded-md font-medium" style={{ background: 'var(--accent)', color: '#fff' }}>관리자</Link>
             )}
+            <button onClick={() => setNoticeOpen(true)} className="re-nav-link text-xs px-2.5 py-1 relative" style={{ color: 'var(--text-secondary)' }}>
+              공지
+              {hasNew && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent)' }} />}
+            </button>
             <button onClick={() => setBugOpen(true)} className="re-nav-link text-xs px-2.5 py-1" style={{ color: 'var(--text-secondary)' }}>버그리포트</button>
             <Link to="/docs" className="re-nav-link text-xs px-2.5 py-1" style={{ color: 'var(--text-secondary)' }}>문서</Link>
             <Link to="/dashboard" className="re-nav-link text-xs px-2.5 py-1" style={{ color: 'var(--text-secondary)' }}>프로젝트</Link>
@@ -56,6 +74,7 @@ export default function Header() {
       </nav>
     </header>
     {bugOpen && <BugReportModal onClose={() => setBugOpen(false)} />}
+    {noticeOpen && <NoticeModal onClose={() => { setNoticeOpen(false); setHasNew(false) }} />}
     </>
   )
 }

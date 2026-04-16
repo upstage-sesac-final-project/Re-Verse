@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { useSelector } from 'react-redux'
+import DinoMiniGame from './DinoMiniGame'
+import Tetris from '../common/Tetris'
 
 const PHASE_ORDER = [
   { key: 'spec', label: 'A. 게임 기획' },
@@ -42,6 +45,44 @@ function PhaseList({ completedPhases, currentPhase }) {
   )
 }
 
+function GameOverlay({ children, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
+      <div className="relative flex flex-col items-center gap-3">
+        <button onClick={onClose}
+          className="absolute -top-2 -right-2 w-7 h-7 rounded-full flex items-center justify-center text-sm z-10"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+          ✕
+        </button>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function MiniGameButtons() {
+  const [open, setOpen] = useState(null) // null | 'tetris' | 'dino'
+  return (
+    <>
+      <div className="flex gap-2">
+        <button onClick={() => setOpen('dino')}
+          className="flex-1 py-2 text-xs rounded-lg transition-colors"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+          공룡 달리기
+        </button>
+        <button onClick={() => setOpen('tetris')}
+          className="flex-1 py-2 text-xs rounded-lg transition-colors"
+          style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+          테트리스
+        </button>
+      </div>
+      {open === 'tetris' && <GameOverlay onClose={() => setOpen(null)}><Tetris /></GameOverlay>}
+      {open === 'dino' && <GameOverlay onClose={() => setOpen(null)}><DinoMiniGame /></GameOverlay>}
+    </>
+  )
+}
+
 export default function GenerationProgress() {
   const { status, progress, message, completedPhases, currentPhase, queuePosition, queueWaitSeconds } =
     useSelector((s) => s.generation)
@@ -70,6 +111,8 @@ export default function GenerationProgress() {
           <p className="text-xs font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>노드 실행 현황</p>
           <PhaseList completedPhases={[]} currentPhase="" />
         </div>
+
+        <MiniGameButtons />
       </div>
     )
   }
@@ -105,9 +148,12 @@ export default function GenerationProgress() {
       </div>
 
       {!isDone && (
-        <p className="text-xs text-center" style={{ color: 'var(--text-secondary)' }}>
-          게임 생성에는 약 5~10분이 소요됩니다.
-        </p>
+        <>
+          <p className="text-xs text-center" style={{ color: 'var(--text-secondary)' }}>
+            게임 생성에는 약 5~10분이 소요됩니다.
+          </p>
+          <MiniGameButtons />
+        </>
       )}
     </div>
   )

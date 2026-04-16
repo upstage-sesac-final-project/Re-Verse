@@ -43,6 +43,11 @@ class AgentConfig(BaseSettings):
     LLM_MODEL: str = "solar-pro3"
     LLM_BASE_URL: str = "https://api.upstage.ai/v1"  # 비우면 공식 OpenAI
 
+    # ── 임베딩 (RAG 전용) ────────────────────────────────────
+    # LLM_API_KEY가 OpenAI 등 다른 provider로 바뀌어도 임베딩은 Upstage를 유지하기 위해 분리.
+    # 비어 있으면 LLM_API_KEY로 fallback (기존 단일 Upstage 설정과 호환).
+    UPSTAGE_API_KEY: str = ""
+
     # ── 공통 LLM 파라미터 ────────────────────────────────────
     LLM_MAX_TOKENS: int = 4096
     LLM_TEMPERATURE: float = 0.0  # 에이전트는 결정론적 출력이 기본
