@@ -274,6 +274,36 @@ def _plan_system_operation(
                 }
             ]
 
+    # 3.5) partyMembers — add/remove party member
+    if field == "partyMembers":
+        array_op = value.get("array_op") if isinstance(value, dict) else None
+        if array_op not in ("add", "remove"):
+            array_op = "add"
+        action_type = (
+            "add_party_member" if array_op == "add" else "remove_party_member"
+        )
+        actor_name = None
+        actor_id = None
+        if isinstance(value, dict):
+            actor_name = value.get("ref")
+            actor_id = value.get("resolved_id")
+        target_info: dict[str, Any] = {"party_action": array_op}
+        if actor_name:
+            target_info["actor_name"] = actor_name
+        if actor_id is not None:
+            target_info["actor_id"] = actor_id
+        return [
+            {
+                "step_id": step_offset,
+                "action_type": action_type,
+                "target_file": "System.json",
+                "target_info": target_info,
+                "depends_on": [],
+                "description": f"System.partyMembers {array_op} '{actor_name or '?'}'",
+                "_op_action": "update",
+            }
+        ]
+
     # 4) 그 외 → 범용 update_system_field
     return [
         {
@@ -792,6 +822,19 @@ def _build_updates_dict(
     if field == "dropItems":
         item_id = resolved_values.get("item_id")
         return {"_add_drop_item": {"item_id": item_id}}
+    # 능력치 슬롯 — field="params[N]" 은 params 배열의 인덱스 N 만 갱신
+    if field and field.startswith("params[") and field.endswith("]"):
+        try:
+            idx = int(field[len("params[") : -1])
+        except ValueError:
+            idx = -1
+        if 0 <= idx < 8:
+            new_value = value.get("new_value") if value else None
+            if isinstance(new_value, float) and new_value == int(new_value):
+                new_value = int(new_value)
+            if new_value is not None:
+                return {"_param_slot": {"index": idx, "value": new_value}}
+        return {}
     # generic — new_value 에 설정할 값이 명확히 들어 있음
     if field and value:
         new_value = value.get("new_value")

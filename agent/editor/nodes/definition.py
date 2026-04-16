@@ -461,6 +461,35 @@ async def definition(state: AgentState) -> dict:
     extractions = [ext.model_dump() for ext in response_1.extractions]
     logger.debug("[Definition] Step 1 완료 - 추출된 키워드 수: %d", len(extractions))
 
+    # Step 1 post-check: subject/value 가 현재 user_input 내부 substring 이어야 함.
+    # 이전 대화의 엔티티가 LLM hallucination 으로 넘어온 경우를 차단 (1-② 오염 방지).
+    def _norm(s: str) -> str:
+        return s.replace(" ", "").lower()
+
+    _ui_norm = _norm(user_input)
+    _cleaned: list[dict] = []
+    for ext in extractions:
+        subj = str(ext.get("subject") or "").strip()
+        if subj and _norm(subj) not in _ui_norm:
+            logger.warning(
+                "[Definition] Step 1 post-check: subject '%s' 가 현재 user_input 에 없음 → 추출 제거 (history 오염 의심)",
+                subj,
+            )
+            continue
+        val = ext.get("value")
+        if isinstance(val, str) and val.strip():
+            # 숫자·기호는 제외하고, 엔티티 이름류 value 만 검사
+            val_s = val.strip()
+            is_numeric = val_s.replace(".", "", 1).lstrip("-").isdigit()
+            if not is_numeric and _norm(val_s) not in _ui_norm:
+                logger.warning(
+                    "[Definition] Step 1 post-check: value '%s' 가 현재 user_input 에 없음 → value 비움",
+                    val_s,
+                )
+                ext["value"] = None
+        _cleaned.append(ext)
+    extractions = _cleaned
+
     # --- [2단계: 카테고리 분류] ---
     logger.info("[Definition] Step 2: 추출된 대상들 카테고리 분류 중...")
     messages_2 = build_step2_prompt(extractions, user_input=user_input)
@@ -601,6 +630,22 @@ async def definition(state: AgentState) -> dict:
             best = gi_results[0]
             similarity = SequenceMatcher(None, cls["name"].lower(), best.name.lower()).ratio()
 
+            # 짧은 이름(2자 이하)은 fuzzy 오매칭 위험이 커 exact 만 허용
+            short_name = len(cls["name"].strip()) <= 2
+            if short_name and cls["name"].lower() != best.name.lower():
+                cls["mapped_id"] = "NEW"
+                cls["reason"] += (
+                    f" (짧은 이름 guard: '{cls['name']}' 은 exact 매칭 외 fuzzy 차단, "
+                    f"best='{best.name}' 유사도 {similarity:.2f})"
+                )
+                logger.debug(
+                    "[Definition] Step 4 짧은 이름 guard: %s vs %s (%.2f) → NEW",
+                    cls["name"],
+                    best.name,
+                    similarity,
+                )
+                continue
+
             if is_create:
                 if similarity >= 0.9:
                     cls["mapped_id"] = best.id
@@ -720,6 +765,7 @@ async def definition(state: AgentState) -> dict:
         final_extracted_ids,
         game_id,
         ranked_map_candidates=ranked_map_candidates,
+        user_input=user_input,
     )
     if direct_ops:
         logger.info(
@@ -808,6 +854,68 @@ async def definition(state: AgentState) -> dict:
     resolved_modifications = list(final_response.modifications)
     resolved_params_sufficient = final_response.params_sufficient
     resolved_message_for_user = final_response.message_for_user
+
+    # Step 6 결정론 post-process: Step 1·2 결과 존중 강제
+    # 6-①: params.name 이 user_input 에 없으면 Step 1 subject 로 강제 덮어쓰기 (name hallucination 차단)
+    # 6-②: target 카테고리가 classifications 와 어긋나면 classifications 기준으로 교정
+    _ui_norm_for_step6 = user_input.replace(" ", "").lower()
+    _subjects_by_cat: dict[str, list[str]] = {}
+    for _cls in final_classifications:
+        _cat = str(_cls.get("category") or "").lower()
+        _nm = (_cls.get("name") or "").strip()
+        if _cat and _nm and not _cls.get("is_category_label"):
+            _subjects_by_cat.setdefault(_cat, []).append(_nm)
+
+    # classifications lookup by normalized name
+    _cls_by_norm_name: dict[str, dict] = {}
+    for _cls in final_classifications:
+        _nm = (_cls.get("name") or "").strip()
+        if _nm and not _cls.get("is_category_label"):
+            _cls_by_norm_name[_nm.replace(" ", "").lower()] = _cls
+
+    for mod in resolved_modifications:
+        params = mod.get("params") or {}
+        if not isinstance(params, dict):
+            continue
+        if isinstance(params.get("selector"), dict):
+            continue
+
+        # 6-② / 6-③: target 이 classifications 와 어긋나면 교정 (create 포함)
+        name = params.get("name")
+        if isinstance(name, str) and name.strip():
+            matched_cls = _cls_by_norm_name.get(name.replace(" ", "").lower())
+            if matched_cls:
+                correct_cat = _normalize_target_category(str(matched_cls.get("category") or ""))
+                current_cat = _normalize_target_category(str(mod.get("target") or ""))
+                if correct_cat and correct_cat != current_cat:
+                    logger.warning(
+                        "[Definition] Step 6 post-process: target 재라우팅 '%s' → '%s' (classifications 기준, name='%s')",
+                        current_cat,
+                        correct_cat,
+                        name,
+                    )
+                    mod["target"] = correct_cat
+
+        # 6-①: name 이 user_input 에 없으면 classifications 의 subject 로 강제 덮어쓰기
+        if not isinstance(name, str) or not name.strip():
+            continue
+        if name.replace(" ", "").lower() in _ui_norm_for_step6:
+            continue
+        target_cat = _normalize_target_category(str(mod.get("target") or ""))
+        candidates = _subjects_by_cat.get(target_cat) or []
+        if candidates:
+            logger.warning(
+                "[Definition] Step 6 post-process: hallucinated name '%s' → '%s' (classifications[%s])",
+                name,
+                candidates[0],
+                target_cat,
+            )
+            params["name"] = candidates[0]
+        else:
+            logger.warning(
+                "[Definition] Step 6 post-process: hallucinated name '%s' 감지했으나 classifications 에 대체 후보 없음",
+                name,
+            )
 
     should_retry_bulk_step5 = False
     retry_reason_parts: list[str] = []

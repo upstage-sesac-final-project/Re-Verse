@@ -101,7 +101,9 @@ async def router(state: AgentState) -> dict:
     result: dict = {
         "intent": intent,
         "confidence": output.confidence,
-        "user_input": resolved or user_input,  # 해소된 입력으로 덮어씀
+        # user_input 은 원본 그대로 유지 (따옴표·고유명사 보존).
+        # coref 해소본은 resolved_input 에 별도 저장 — downstream 에서 필요 시 참조.
+        "resolved_input": resolved,
         "ranked_map_candidates": ranked_candidates,  # 상태 전파
     }
 

@@ -105,10 +105,14 @@ async def validator(state: dict) -> dict:
         }
 
     # 3. Semantic judge (operation 단위)
+    # retry 로 누적된 changes_log 에서 step_id 기준 최신만 사용 (이전 실패 엔트리 제외)
+    from agent.editor.state import get_latest_per_step
+
+    latest_log = get_latest_per_step(changes_log)
     judge_failures: list[dict] = []
     for op_idx, op in enumerate(operation_tuples):
         op_step_ids = plan_meta.get(op_idx, plan_meta.get(str(op_idx), []))
-        op_results = [e for e in changes_log if e.get("step_id") in op_step_ids]
+        op_results = [e for e in latest_log if e.get("step_id") in op_step_ids]
 
         judgment = await judge_operation(
             user_input=user_input,

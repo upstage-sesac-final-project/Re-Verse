@@ -310,6 +310,25 @@ def _resolve_custom_updates(
             # 범용 배열 요소 조작
             _apply_array_op(crud, target_file, entity_id, val, resolved)
 
+        elif key == "_param_slot" and isinstance(val, dict):
+            # params 배열의 특정 인덱스만 갱신 (MaxHP, ATK 등 능력치 단일 슬롯)
+            idx = val.get("index")
+            new_v = val.get("value")
+            if isinstance(idx, int) and 0 <= idx < 8 and new_v is not None:
+                current = crud.get(target_file, entity_id=entity_id)
+                params_arr = [0] * 8
+                if current.get("success") and isinstance(current.get("data"), dict):
+                    existing = current["data"].get("params")
+                    if isinstance(existing, list):
+                        params_arr = list(existing)
+                while len(params_arr) < 8:
+                    params_arr.append(0)
+                try:
+                    params_arr[idx] = int(new_v)
+                except (TypeError, ValueError):
+                    params_arr[idx] = new_v
+                resolved["params"] = params_arr
+
         elif not key.startswith("_"):
             # 일반 필드는 그대로 통과
             resolved[key] = val

@@ -35,8 +35,8 @@ def apply_index_resolution(ops: list[dict], game_id: str) -> list[dict]:
 
     resolved: list[dict] = []
     for op in ops:
-        op = _resolve_subject(op, game_id)
         op = _resolve_value(op, game_id)
+        op = _resolve_subject(op, game_id)
         resolved.append(op)
 
     logger.info("[IndexResolve] %d ops resolved", len(resolved))
@@ -56,6 +56,20 @@ def _resolve_subject(op: dict, game_id: str) -> dict:
     file = op.get("file")
     action = (op.get("action") or op.get("op") or "").lower()
     is_create = action == "create"
+    value = op.get("value") or {}
+    value_kind = value.get("kind") if isinstance(value, dict) else None
+
+    # System.json 전용 op 는 subject 기반 파일 재라우팅 금지.
+    # 예: partyMembers(party_op) 는 subject 가 액터 이름이어도 file 을 Actors.json 으로 돌리지 않는다.
+    if file == "System.json":
+        if subject.get("id") is not None:
+            return op
+        if value_kind == "party_op" and isinstance(value, dict):
+            resolved = value.get("resolved_id")
+            if resolved is not None:
+                op = dict(op)
+                op["subject"] = {**subject, "id": resolved}
+        return op
 
     # 이미 id 가 있으면 그대로
     if subject.get("id") is not None:

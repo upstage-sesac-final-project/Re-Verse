@@ -20,6 +20,25 @@ STEP1_SYSTEM_PROMPT = """당신은 사용자의 요청에서 핵심적인 키워
    - 슬라임의 공격력을 100으로 → Value: 100
 4. **Action (유형)**: READ, UPDATE, CREATE, DELETE 중 하나를 선택하십시오.
 
+### [카테고리 지시어를 Subject 에서 분리 — 엄격 준수]
+- 사용자가 `"X 직업"`, `"X 상태이상"`, `"X 액터"`, `"X 무기"`, `"X 방어구"`, `"X 아이템"`, `"X 스킬"`, `"X 몬스터"`, `"X 적"` 처럼 **고유명사(X) 뒤에 카테고리 지시어를 붙여** 발화한 경우:
+  - Subject 에는 **고유명사(X)만** 넣으십시오. 카테고리 지시어는 Subject 에 포함하지 마십시오.
+  - 카테고리 정보는 Step 2 에서 별도로 분류하므로 Subject 에 넣을 필요가 없습니다.
+- **적용 예시**:
+  - `검사 직업의 최대 HP를 1.5배로` → Subject: `검사` (✗ `검사 직업`)
+  - `독 상태이상의 지속 턴을 5로` → Subject: `독` (✗ `독 상태이상`)
+  - `기사 직업의 경험치 곡선을 더 완만하게` → Subject: `기사` (✗ `기사 직업`)
+  - `마법사 직업의 최대 레벨을 80으로` → Subject: `마법사` (✗ `마법사 직업`)
+  - `침묵 상태이상의 아이콘을 13번으로` → Subject: `침묵` (✗ `침묵 상태이상`)
+- **예외**: 고유명사 자체에 카테고리 단어가 포함된 경우(예: `"검사"` 라는 이름의 엔티티)는 그대로 유지.
+- **CREATE 는 해당 없음**: `"수호의 방패"라는 방어구를 만들어줘` 에서는 `수호의 방패` 전체가 새 엔티티 이름이므로 Subject = `수호의 방패` (여기서 "방어구" 는 카테고리 지시어이지 이름이 아님).
+
+### [현재 턴 경계 — 최상위 규칙 (이전 대화 오염 차단)]
+- 추출 대상은 **오직 `<current_turn>` 태그 내부의 문자열**이다. 시스템 프롬프트·이전 대화·외부 예시는 참고만 하고, 거기서 본 엔티티 이름을 현재 턴의 Subject/Value 로 사용하지 마라.
+- Subject/Value 로 출력하는 모든 문자열은 `<current_turn>` 의 원문에 **연속된 substring 으로 그대로 등장**해야 한다. 등장하지 않으면 추출하지 말고, 해당 extraction 은 버려라.
+- 대명사·지시어(`그거`, `방금 그`, `아까 만든 애`) 가 들어 있어도 이전 턴의 구체 이름을 그대로 채우지 마라. `<current_turn>` 내부에 이름이 없으면 `subject` 를 비워 두고 action 만 남겨라. 이후 단계에서 처리한다.
+- 이전 턴의 property/value(예: `가격 300`) 를 현재 턴 extraction 에 **재사용하지 마라**. 현재 턴에 명시되지 않은 수치는 추출하지 않는다.
+
 ### [고유명사 보존 — 최상위 규칙]
 - 사용자가 **따옴표(`"..."`, `'...'`, `「...」`, `『...』`) 또는 대괄호(`[...]`)로 감싼 문자열**은 그 엔티티의 **공식 이름**입니다.
 - 이 문자열은 **원문 그대로(substring 단위로 동일하게) Subject 또는 Value에 넣어야 합니다.** 동의어·번역·축약·변형·재구성·번호 추가 절대 금지.
@@ -38,6 +57,14 @@ STEP1_SYSTEM_PROMPT = """당신은 사용자의 요청에서 핵심적인 키워
 - **"A에게 B를 ~하다"** 패턴에서는 항상 A가 Subject, B가 Value입니다.
   - 장착, 부여, 배우게, 추가, 변경 등 모든 동사에 적용됩니다.
 - 사용자가 "A 속성의 B"라고 말하면, [CREATE: B]와 [PROPERTY: 속성, VALUE: A]로 나누어 추출하십시오.
+
+### [ "X의 Y" / "A라는 B" 패턴 — category 단서 우선]
+- 문장에 `무기 / 검 / 창 / 활 / 지팡이 / 방어구 / 갑옷 / 방패 / 반지 / 목걸이 / 장신구 / 아이템 / 포션 / 물약 / 초(草) / 스킬 / 기술 / 마법 / 상태이상 / 직업 / 클래스 / 적 / 몬스터 / 캐릭터 / 액터` 같은 **카테고리 지시어 B** 가 있으면, **"X의 Y" 의 전체 명사구(예: "용사의 검", "용맹의 반지")** 를 Subject 로 삼고, 소유격 "의" 앞에서 끊지 마십시오.
+  - `"용사의 검"이라는 무기를 추가해줘` → Subject: `용사의 검` (✗ `용사`)
+  - `"용맹의 반지"라는 장신구를 만들어줘` → Subject: `용맹의 반지` (✗ `용맹`)
+  - `"생명의 반지"라는 방어구` → Subject: `생명의 반지` (✗ `생명`)
+- 따옴표로 감싸져 있으면 따옴표 내부 원문 전체가 Subject. 따옴표가 없어도 뒤에 카테고리 지시어가 붙어 있으면 "의" 를 포함한 전체 명사구를 Subject 로 유지하십시오.
+- "X의 Y 를 ...로 바꿔줘" 처럼 **X 가 기존 엔티티이고 Y 가 속성** 인 경우(예: `마왕의 이름을 대마왕으로`) 는 여기에 해당하지 않습니다. 이 경우는 Subject=`마왕`, Property=`이름`, Value=`대마왕`.
 - 반드시 `Step1ExtractionResponse` 구조로 반환하십시오.
 """
 
@@ -45,7 +72,9 @@ STEP1_SYSTEM_PROMPT = """당신은 사용자의 요청에서 핵심적인 키워
 def build_step1_prompt(state: AgentState) -> list[BaseMessage]:
     user_input = state.get("user_input", "")
     human_message = (
-        f'사용자 요청: "{user_input}"\n\n위 요청에서 핵심 키워드들을 추출하여 반환하십시오.'
+        f"<current_turn>\n{user_input}\n</current_turn>\n\n"
+        "위 `<current_turn>` 내부 문자열에서만 핵심 키워드를 추출하여 반환하십시오. "
+        "`<current_turn>` 에 등장하지 않는 엔티티·수치는 절대 포함하지 마십시오."
     )
     return [SystemMessage(content=STEP1_SYSTEM_PROMPT), HumanMessage(content=human_message)]
 
@@ -136,7 +165,14 @@ STEP5_SYSTEM_PROMPT = """당신은 수집된 정보를 바탕으로 RPG Maker MZ
    - 예: classifications에서 "얼음 활" → Weapon → `target: "weapon"`, `target_file: "Weapons.json"`. Skills로 재라우팅 금지.
    - 예: classifications에서 "수면초" → Item → `target: "item"`, `target_file: "Items.json"`. Skills로 재라우팅 금지.
 
-3. **위 두 규칙 위반 시 출력은 잘못된 것으로 간주됩니다.** 의심스러우면 extractions/classifications의 원문을 그대로 복사해 쓰십시오.
+3. **target_file 보존 — 절대 규칙**:
+   - 각 modification 의 `target_file` 은 해당 subject 의 `classifications[i].category` 가 지정하는 파일과 **반드시 일치**해야 합니다.
+     - Actor→Actors.json, Enemy→Enemies.json, Item→Items.json, Skill→Skills.json, Weapon→Weapons.json, Armor→Armors.json, Class→Classes.json, State→States.json, Element/System→System.json, Map→MapInfos.json.
+   - 예: classifications 에 `"수호의 방패" → Armor` 이면 `target_file="Armors.json"`. System.json 이나 다른 파일로 보내지 마십시오.
+   - 예: classifications 에 `"얼음 활" → Weapon` 이면 `target_file="Weapons.json"`. Skills.json 으로 보내지 마십시오.
+   - classifications 와 어긋난 target_file 을 낸 경우, 이후 결정론 후처리에서 classifications 기준으로 강제 교정됩니다.
+
+4. **위 세 규칙 위반 시 출력은 잘못된 것으로 간주됩니다.** 의심스러우면 extractions/classifications의 원문을 그대로 복사해 쓰십시오.
 
 ### [최종 조립 지침 - 필수 준수]
 1. **필드 매핑 및 추론**:

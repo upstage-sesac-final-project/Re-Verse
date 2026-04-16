@@ -1,7 +1,25 @@
 """AgentState — LangGraph 워크플로우의 공유 상태."""
 
 from operator import add
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
+
+
+def get_latest_per_step(changes_log: list[dict]) -> list[dict]:
+    """changes_log 에서 step_id 기준 가장 최신(뒤쪽) 엔트리만 추린다.
+
+    `changes_log` 는 Annotated[list, add] reducer 라 retry 시 이전 로그가 누적된다.
+    validator/judge 가 "같은 step 에 대한 최신 결과" 만 봐야 할 때 이 헬퍼를 사용한다.
+    step_id 가 없는 엔트리는 그대로 유지(순서 보존).
+    """
+    latest_by_sid: dict[Any, dict] = {}
+    no_sid: list[dict] = []
+    for entry in changes_log:
+        sid = entry.get("step_id") if isinstance(entry, dict) else None
+        if sid is None:
+            no_sid.append(entry)
+        else:
+            latest_by_sid[sid] = entry
+    return no_sid + list(latest_by_sid.values())
 
 
 def _merge_dict(left: dict, right: dict) -> dict:
@@ -13,7 +31,8 @@ def _merge_dict(left: dict, right: dict) -> dict:
 
 class AgentState(TypedDict, total=False):
     # ── 입력 ────────────────────────────────────────────────
-    user_input: str  # 사용자 원본 입력
+    user_input: str  # 사용자 원본 입력 (따옴표·특수문자 포함 원문 그대로 보존)
+    resolved_input: str  # router 가 coref 해소한 입력 (없으면 빈 문자열). 원본은 user_input 에 남긴다
     game_id: str  # 수정 대상 게임 ID (예: "game_001")
 
     # ── 1단계 Router ────────────────────────────────────────

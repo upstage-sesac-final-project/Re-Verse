@@ -34,7 +34,18 @@ def validate_operation_tuples(ops: list[dict], extractions: list[dict]) -> tuple
         if isinstance(sname, str) and sname.strip().lower() in ("", "none"):
             sname = None
 
-        subject_missing = sid in (None, "", "NEW") and not sname
+        # System.json field update 는 subject 없이도 정상 (gameTitle, currencyUnit 등)
+        is_system_field_op = op.get("file") == "System.json" and not subject
+        subject_fully_missing = (
+            sid in (None, "", "NEW") and not sname and not is_system_field_op
+        )
+        # 이름은 있지만 id 해소 실패 — resolve.py 를 거쳤는데도 id 가 None 이면 대상 미식별
+        subject_unresolved = (
+            sid in (None, "", "NEW")
+            and bool(sname)
+            and not is_system_field_op
+        )
+        subject_missing = subject_fully_missing or subject_unresolved
 
         # updates 페이로드 탐색 (update 계열만)
         updates_empty = False

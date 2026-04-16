@@ -2201,15 +2201,32 @@ async def _execute_one_structured_step(
                 "timestamp": ts,
             }
 
-        if target_file == "System.json" and action == "update":
-            logger.debug("[Executor] 레거시 분기: System.update (partyMembers)")
+        if target_file == "System.json" and action in (
+            "update",
+            "add_party_member",
+            "remove_party_member",
+        ):
+            # party_action 으로 add/remove 결정. 기본값은 add (기존 동작 보존).
+            party_action = (
+                target_info.get("party_action")
+                if isinstance(target_info, dict)
+                else None
+            )
+            if action == "remove_party_member":
+                mgr_action = "remove_party_member"
+            elif action == "add_party_member":
+                mgr_action = "add_party_member"
+            elif party_action == "remove":
+                mgr_action = "remove_party_member"
+            else:
+                mgr_action = "add_party_member"
+            logger.debug("[Executor] 레거시 분기: System.%s", mgr_action)
             mgr = SystemManager(data_path, f"struct_{sid}")
-            # MVP update는 `partyMembers`에 actor를 추가하는 케이스만 지원한다.
-            r = await mgr.execute("add_party_member", target_info=target_info)
+            r = await mgr.execute(mgr_action, target_info=target_info)
             step_results[sid] = {**r, "step_id": sid}
             return {
                 "step_id": sid,
-                "tool_name": "structured_system_update",
+                "tool_name": f"structured_system_{mgr_action}",
                 "success": bool(r.get("success")),
                 "stdout": r.get("message", ""),
                 "stderr": r.get("error") or "",

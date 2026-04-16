@@ -392,6 +392,31 @@ PROPERTY_TO_FIELD: dict[str, tuple[str, str]] = {
     "가격": ("price", "param"),
     "경험치": ("exp", "param"),
     "골드": ("gold", "param"),
+    # 능력치 (params 배열 인덱스) — kind="param_slot", field="params[i]"
+    "최대 HP": ("params[0]", "param_slot"),
+    "최대HP": ("params[0]", "param_slot"),
+    "HP": ("params[0]", "param_slot"),
+    "체력": ("params[0]", "param_slot"),
+    "최대 MP": ("params[1]", "param_slot"),
+    "최대MP": ("params[1]", "param_slot"),
+    "MP": ("params[1]", "param_slot"),
+    "마나": ("params[1]", "param_slot"),
+    "마력": ("params[1]", "param_slot"),
+    "공격력": ("params[2]", "param_slot"),
+    "공격": ("params[2]", "param_slot"),
+    "방어력": ("params[3]", "param_slot"),
+    "방어": ("params[3]", "param_slot"),
+    "마법공격력": ("params[4]", "param_slot"),
+    "마공": ("params[4]", "param_slot"),
+    "마법공격": ("params[4]", "param_slot"),
+    "마법방어력": ("params[5]", "param_slot"),
+    "마법방어": ("params[5]", "param_slot"),
+    "마방": ("params[5]", "param_slot"),
+    "민첩": ("params[6]", "param_slot"),
+    "민첩성": ("params[6]", "param_slot"),
+    "스피드": ("params[6]", "param_slot"),
+    "운": ("params[7]", "param_slot"),
+    "행운": ("params[7]", "param_slot"),
     # 속성/특성 관련
     "속성": ("traits", "trait"),
     "공격속성": ("traits", "trait"),
@@ -402,6 +427,25 @@ PROPERTY_TO_FIELD: dict[str, tuple[str, str]] = {
     "행동패턴": ("actions", "skill"),
     "드롭": ("dropItems", "item"),
     "드롭아이템": ("dropItems", "item"),
+    # 경험치 곡선 (Classes.json expParams = [basis, extra, accA, accB])
+    "경험치 곡선": ("expParams", "exp_curve"),
+    "경험치곡선": ("expParams", "exp_curve"),
+    "레벨업 곡선": ("expParams", "exp_curve"),
+    "성장 곡선": ("expParams", "exp_curve"),
+}
+
+# 경험치 곡선 의미 프리셋 — Classes.expParams 매핑
+# MZ 기본: [30, 20, 30, 30]. basis ↑ → 다음 레벨까지 더 많은 XP 필요 (완만).
+EXP_CURVE_PRESETS: dict[str, list[int]] = {
+    "완만": [50, 15, 30, 30],
+    "느리게": [50, 15, 30, 30],
+    "느림": [50, 15, 30, 30],
+    "급격": [20, 30, 30, 30],
+    "가파르": [20, 30, 30, 30],
+    "빠르게": [20, 30, 30, 30],
+    "빠름": [20, 30, 30, 30],
+    "기본": [30, 20, 30, 30],
+    "표준": [30, 20, 30, 30],
 }
 
 # ──────────────────────────────────────────────
