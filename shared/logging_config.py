@@ -48,7 +48,7 @@ class JsonFormatter(logging.Formatter):
     """프로덕션용 단일 라인 JSON 포매터.
 
     출력 예시:
-        {"timestamp":"2026-04-02T01:02:21.038+00:00","level":"INFO","logger":"agent.graph.nodes.planner","user":"genie_1","message":"..."}
+        {"timestamp":"2026-04-02T01:02:21.038+00:00","level":"INFO","logger":"agent.editor.nodes.planner","user":"genie_1","message":"..."}
     """
 
     def format(self, record: logging.LogRecord) -> str:

@@ -178,7 +178,7 @@ class LLMService:
         self, message: str, game_id: str, conversation_history: list[dict] | None = None
     ) -> dict[str, Any]:
         """LangGraph 워크플로우 호출 (Synthesizer 포함)."""
-        from agent.graph.workflow import graph
+        from agent.editor.workflow import graph
 
         initial_state: dict[str, Any] = {
             "user_input": message,
@@ -196,7 +196,7 @@ class LLMService:
             prompt_tokens=cb.prompt_tokens,
             completion_tokens=cb.completion_tokens,
             total_cost=cb.total_cost,
-            agent_node="Chat Agent (agent.graph.workflow)",
+            agent_node="Chat Agent (agent.editor.workflow)",
         )
 
         modified = final_state.get("modified_game_state", {})

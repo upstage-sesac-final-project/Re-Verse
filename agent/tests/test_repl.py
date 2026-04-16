@@ -13,7 +13,7 @@ from typing import Any
 
 
 async def run(game_id: str = "game_001") -> None:
-    from agent.graph.workflow import graph
+    from agent.editor.workflow import graph
 
     conversation_history: list[dict] = []
 
