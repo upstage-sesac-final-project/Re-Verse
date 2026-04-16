@@ -1,5 +1,8 @@
 # Re-Verse CD: main 브랜치 push 시 EC2 백엔드 자동 배포
 # 프론트엔드는 Vercel GitHub 연동으로 별도 자동 배포
+#
+# 필요 시크릿: EC2_HOST, EC2_USERNAME, EC2_SSH_KEY, ENV_FILE (.env.production 전체)
+# ENV_FILE은 여러 줄·특수문자가 있어도 GitHub Secrets로 저장하면 됨(아래 echo 한 줄로 씀).
 
 name: Deploy to EC2
 
@@ -8,24 +11,32 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: deploy-ec2-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
   deploy:
     name: EC2 백엔드 배포
     runs-on: ubuntu-latest
     steps:
       - name: EC2 접속 후 최신 코드 배포
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           command_timeout: 30m
           script: |
-            set -e
+            set -euo pipefail
             if [ ! -d "Re-Verse" ]; then
               git clone https://github.com/upstage-sesac-final-project/Re-Verse.git
             fi
             cd Re-Verse
+            git config --global --add safe.directory "$(pwd)" 2>/dev/null || true
             git fetch origin main
             git reset --hard origin/main
 
@@ -34,7 +45,28 @@ jobs:
             # BuildKit: Dockerfile의 RUN --mount=type=cache 등 캐시 마운트 사용
             export DOCKER_BUILDKIT=1
             export COMPOSE_DOCKER_CLI_BUILD=1
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --remove-orphans
+
+            echo "=== docker compose ps ==="
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+
+            # 컨테이너 기동 직후 헬스(최대 ~30초 재시도)
+            ok=0
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              if curl -fsS --max-time 5 http://127.0.0.1:8000/health >/dev/null; then
+                ok=1
+                echo "health check OK (attempt $i)"
+                break
+              fi
+              echo "health check waiting... ($i/10)"
+              sleep 3
+            done
+            if [ "$ok" -ne 1 ]; then
+              echo "health check FAILED — backend logs (tail):" >&2
+              docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=120 backend || true
+              exit 1
+            fi
+
             # 미사용 이미지 정리 (24시간 지난 항목 위주)
             docker image prune -af --filter "until=24h"
             # BuildKit 캐시를 24시간 기준으로 정리하되, 총 1GB는 유지

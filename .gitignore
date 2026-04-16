@@ -19,6 +19,7 @@ build/
 .eggs/
 *.egg
 .env.production
+.env.development
 
 # mypy
 .mypy_cache/
