@@ -14,8 +14,12 @@ services:
       - APP_ENV=production
       - ENVIRONMENT=production
       - DEBUG=false
+      # 파일 로그 — 아래 volumes 와 맞춤 (shared/logging_config 의 LOG_DIR)
+      - LOG_DIR=/app/logs
       # STORAGE_BACKEND, DATABASE_URL, S3_* 는 EC2의 .env.production(또는 GitHub ENV_FILE)에서 주입 권장
-    volumes: []  # 프로덕션에서는 볼륨 마운트 제거 (override)
+    # 호스트 EC2: <레포>/logs/backend → 컨테이너 /app/logs (재배포 후에도 파일 로그 유지)
+    volumes:
+      - ./logs/backend:/app/logs
     restart: unless-stopped
     stop_grace_period: 30s  # shutdown hook이 S3 업로드할 시간 확보
 
@@ -31,6 +35,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+    # 단일 호스트 docker compose 에서는 deploy.resources 가 무시되는 경우가 많음 → 아래 사용
+    cpus: "1.0"
+    mem_limit: 1g
+    pids_limit: 512
 
   # nginx reverse proxy (선택사항 - HTTPS/도메인 설정 시)
   nginx:

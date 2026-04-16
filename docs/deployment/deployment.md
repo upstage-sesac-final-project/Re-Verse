@@ -108,6 +108,18 @@ curl http://localhost:8000/health
 # 예상 응답: {"status":"healthy","message":"Re:Verse Backend is running"}
 ```
 
+### EC2 백엔드 파일 로그 (호스트 디스크)
+
+`docker-compose.prod.yml`에서 **`./logs/backend` → 컨테이너 `/app/logs`** 로 마운트합니다. `shared/logging_config`의 `general/`, `error/` 트리는 **EC2의 `Re-Verse/logs/backend/`** 에 남고, 컨테이너를 재생성해도 유지됩니다.
+
+```bash
+cd ~/Re-Verse
+ls -la logs/backend/general/
+tail -f "logs/backend/general/$(date +%Y-%m-%d)/anonymous/general.log"
+```
+
+`docker compose logs backend`는 컨테이너 stdout 위주이며, 상세 파일 로그는 위 호스트 경로를 사용합니다. 보존은 환경 변수 **`LOG_RETENTION_HOURS`**(기본 72시간). GitHub Actions 배포 스크립트는 **`mkdir -p logs/backend`** 로 디렉터리를 SSH 사용자 권한으로 미리 만듭니다.
+
 ### EC2 보안 그룹 설정
 - **인바운드 규칙 추가**: 포트 8000 (HTTP) 전체 허용 (0.0.0.0/0)
 - **아웃바운드 규칙**: 전체 허용 (기본값)
