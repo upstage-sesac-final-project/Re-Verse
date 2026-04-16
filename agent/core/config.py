@@ -43,6 +43,10 @@ class AgentConfig(BaseSettings):
     LLM_MODEL: str = "solar-pro3"
     LLM_BASE_URL: str = "https://api.upstage.ai/v1"  # 비우면 공식 OpenAI
 
+    # ── Vertex AI (GCP) ──────────────────────────────────────
+    GCP_PROJECT_ID: str = ""  # 필수: Vertex AI 사용 시
+    GCP_LOCATION: str = "us-central1"  # 서울 리전 asia-northeast3 (또는 us-central1)
+
     # ── 임베딩 (RAG 전용) ────────────────────────────────────
     # LLM_API_KEY가 OpenAI 등 다른 provider로 바뀌어도 임베딩은 Upstage를 유지하기 위해 분리.
     # 비어 있으면 LLM_API_KEY로 fallback (기존 단일 Upstage 설정과 호환).

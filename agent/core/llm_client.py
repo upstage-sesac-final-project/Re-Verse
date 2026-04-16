@@ -7,6 +7,7 @@ from typing import Any, cast
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_google_vertexai import ChatVertexAI
 from langchain_openai import ChatOpenAI
 from langchain_upstage import ChatUpstage
 from pydantic import BaseModel, SecretStr
@@ -29,20 +30,41 @@ def get_llm(temperature: float | None = None) -> BaseChatModel:
 
 def _build_llm(temperature: float) -> BaseChatModel:
     """주어진 temperature로 LLM 인스턴스를 생성한다."""
-    if not agent_config.LLM_API_KEY:
+    _model_lower = agent_config.LLM_MODEL.lower()
+    is_gemini = "gemini" in _model_lower
+
+    if not agent_config.LLM_API_KEY and not is_gemini:
         raise RuntimeError("LLM_API_KEY가 설정되지 않았습니다. 루트 .env 파일을 확인하세요.")
 
     # 라이브러리 호환성을 위해 환경 변수 명시적 설정
-    os.environ["OPENAI_API_KEY"] = agent_config.LLM_API_KEY
-    # 과거: UPSTAGE_API_KEY 도 LLM_API_KEY 로 덮어썼으나, LLM provider 를 OpenAI 등으로
-    # 바꿀 때 임베딩 키(Upstage 유지) 를 깨뜨리므로 제거. 임베딩은 agent_config.UPSTAGE_API_KEY
-    # 를 쓰며, 미설정 시 LLM_API_KEY 로 fallback (agent/rag/embeddings.py 참고).
-    # os.environ["UPSTAGE_API_KEY"] = agent_config.LLM_API_KEY
+    # Gemini 등 일부 API에서 중복 인증 에러가 발생하므로, 기존 환경 변수가 있다면 모두 제거합니다.
+    os.environ.pop("OPENAI_API_KEY", None)
+    os.environ.pop("GOOGLE_API_KEY", None)
 
     llm: BaseChatModel
 
-    # Upstage Solar 모델인 경우 전용 클래스 사용 (function_calling 호환성 최적화)
-    if "solar" in agent_config.LLM_MODEL.lower():
+    # 1. Google Vertex AI (Gemini 모델)
+    if is_gemini:
+        if not agent_config.GCP_PROJECT_ID:
+            logger.warning(
+                "GCP_PROJECT_ID가 설정되지 않았습니다. Vertex AI 호출이 실패할 수 있습니다."
+            )
+
+        llm = ChatVertexAI(
+            model_name=agent_config.LLM_MODEL,
+            project=agent_config.GCP_PROJECT_ID,
+            location=agent_config.GCP_LOCATION,
+            temperature=temperature,
+            max_output_tokens=agent_config.LLM_MAX_TOKENS,
+        )
+        logger.info(
+            "Vertex AI 초기화: model=%s project=%s location=%s",
+            agent_config.LLM_MODEL,
+            agent_config.GCP_PROJECT_ID,
+            agent_config.GCP_LOCATION,
+        )
+    # 2. Upstage Solar 모델
+    elif "solar" in _model_lower:
         llm = ChatUpstage(
             api_key=SecretStr(agent_config.LLM_API_KEY),
             model=agent_config.LLM_MODEL,
