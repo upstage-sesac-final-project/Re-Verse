@@ -543,6 +543,6 @@ jobs:
 - `app/backend/db/session.py`, `db/base.py` — RDS 연결
 - `app/backend/main.py` — CORS, `/health/db`, `/health/s3`, storage 디렉터리 생성
 - `app/backend/services/llm_service.py` — S3 모드 시 동기화 훅
-- `agent/graph/nodes/executor.py` — `_get_data_path` 가 `STORAGE_PATH` 기준으로 통일
+- `agent/editor/nodes/executor.py` — `_get_data_path` 가 `STORAGE_PATH` 기준으로 통일
 - `vercel.json` — API 도메인 `https://api.re-verse.ai.kr`
 - `.env.example` — 변수 템플릿

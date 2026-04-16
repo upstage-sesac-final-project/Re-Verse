@@ -81,7 +81,6 @@ omit = [
     "agent/tests/*",
     "app/backend/tests/*",
     "*/check_*.py",
-    "*/integration_*_test.py",
 ]
 
 [tool.coverage.report]

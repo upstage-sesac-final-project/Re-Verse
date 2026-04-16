@@ -23,6 +23,12 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s  # shutdown hook이 S3 업로드할 시간 확보
 
+    # 단일 호스트 `docker compose up`에서는 deploy.resources가 적용되지 않음(Swarm 전용).
+    # EC2 일반 Compose 실행에 맞춰 아래 제한을 사용합니다.
+    cpus: "1.0"
+    mem_limit: 1g
+    pids_limit: 512
+
     # 로그 설정
     logging:
       driver: "json-file"
