@@ -15,7 +15,7 @@ const SPARAM = ['타겟율', '방어효과', '회복효과', '약학', 'MP소비
 const EFFECT_CODES = { 11: 'HP회복', 12: 'MP회복', 13: 'TP획득', 21: '상태부여', 22: '상태해제', 31: '버프', 32: '디버프', 33: '버프해제', 34: '디버프해제', 41: '특수', 42: '성장', 43: '스킬습득', 44: '커먼이벤트' }
 
 const DATA_FILES = ['Actors.json', 'Classes.json', 'Skills.json', 'Items.json', 'Weapons.json', 'Armors.json', 'Enemies.json', 'States.json', 'System.json']
-const FILE_LABEL = { 'Actors.json': '액터', 'Classes.json': '직업', 'Skills.json': '스킬', 'Items.json': '아이템', 'Weapons.json': '무기', 'Armors.json': '방어구', 'Enemies.json': '적', 'States.json': '스테이트', 'System.json': '시스템' }
+const FILE_LABEL = { 'Actors.json': '액터', 'Classes.json': '직업', 'Skills.json': '스킬', 'Items.json': '아이템', 'Weapons.json': '무기', 'Armors.json': '방어구', 'Enemies.json': '적', 'States.json': '상태', 'System.json': '시스템' }
 const REF_FILES = ['Weapons.json', 'Armors.json', 'Items.json', 'Skills.json', 'Classes.json', 'States.json']
 
 // ── 유틸 ─────────────────────────────────────────────────────────

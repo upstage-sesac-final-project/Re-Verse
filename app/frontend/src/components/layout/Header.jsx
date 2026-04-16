@@ -49,26 +49,40 @@ export default function Header() {
         )}
       </div>
 
-      <nav className="flex items-center gap-1">
+      <nav className="flex items-center gap-1.5">
         {isAuthenticated ? (
           <>
             {user?.isAdmin && (
-              <Link to="/admin" className="text-xs px-2 py-1 rounded-md font-medium" style={{ background: 'var(--accent)', color: '#fff' }}>관리자</Link>
+              <Link to="/admin" className="text-xs px-2.5 py-1.5 rounded-md font-medium" style={{ background: 'var(--accent)', color: '#fff' }}>관리자</Link>
             )}
-            <button onClick={() => setNoticeOpen(true)} className="re-nav-link text-xs px-2.5 py-1 relative" style={{ color: 'var(--text-secondary)' }}>
+            <button onClick={() => setNoticeOpen(true)} className="re-nav-link text-xs px-2.5 py-1.5 rounded-md relative"
+              style={{ color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.04)' }}>
               공지
               {hasNew && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent)' }} />}
             </button>
-            <button onClick={() => setBugOpen(true)} className="re-nav-link text-xs px-2.5 py-1" style={{ color: 'var(--text-secondary)' }}>버그리포트</button>
-            <Link to="/docs" className="re-nav-link text-xs px-2.5 py-1" style={{ color: 'var(--text-secondary)' }}>문서</Link>
-            <Link to="/dashboard" className="re-nav-link text-xs px-2.5 py-1" style={{ color: 'var(--text-secondary)' }}>프로젝트</Link>
-            <button onClick={handleLogout} className="re-nav-link text-xs px-2.5 py-1" style={{ color: 'var(--text-secondary)' }}>로그아웃</button>
+            <button onClick={() => setBugOpen(true)} className="re-nav-link text-xs px-2.5 py-1.5 rounded-md"
+              style={{ color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.04)' }}>버그리포트</button>
+            <Link to="/docs" className="re-nav-link text-xs px-2.5 py-1.5 rounded-md"
+              style={{ color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.04)' }}>가이드</Link>
+            <Link to="/dashboard" className="re-nav-link text-xs px-2.5 py-1.5 rounded-md"
+              style={{ color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.04)' }}>프로젝트</Link>
+            <div className="flex items-center gap-1.5 ml-1 pl-2" style={{ borderLeft: '1px solid var(--border)' }}>
+              <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold"
+                style={{ background: 'var(--accent)', color: '#fff' }}>
+                {(user?.username || '?')[0].toUpperCase()}
+              </div>
+              <span className="text-xs" style={{ color: 'var(--text-primary)' }}>{user?.username}</span>
+            </div>
+            <button onClick={handleLogout} className="re-nav-link text-xs px-2.5 py-1.5 rounded-md"
+              style={{ color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.04)' }}>로그아웃</button>
           </>
         ) : (
           <>
-            <Link to="/docs" className="re-nav-link text-xs px-2.5 py-1" style={{ color: 'var(--text-secondary)' }}>문서</Link>
-            <Link to="/login" className="re-nav-link text-xs px-2.5 py-1" style={{ color: 'var(--text-secondary)' }}>로그인</Link>
-            <Link to="/register" className="text-xs px-2.5 py-1 rounded-md font-medium" style={{ background: 'var(--accent)', color: '#fff' }}>시작하기</Link>
+            <Link to="/docs" className="re-nav-link text-xs px-2.5 py-1.5 rounded-md"
+              style={{ color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.04)' }}>가이드</Link>
+            <Link to="/login" className="re-nav-link text-xs px-2.5 py-1.5 rounded-md"
+              style={{ color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.04)' }}>로그인</Link>
+            <Link to="/register" className="text-xs px-3 py-1.5 rounded-md font-medium" style={{ background: 'var(--accent)', color: '#fff' }}>시작하기</Link>
           </>
         )}
       </nav>

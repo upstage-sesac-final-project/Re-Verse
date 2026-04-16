@@ -49,6 +49,7 @@ export default function Dashboard() {
   ).current
 
   useEffect(() => {
+    dispatch(setCurrentProject(null))
     dispatch(fetchProjects())
   }, [dispatch])
 

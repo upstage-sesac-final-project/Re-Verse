@@ -8,13 +8,8 @@ export default function PromptInput({ onSubmit, disabled, value, onChange }) {
   useEffect(() => {
     const el = textareaRef.current
     if (!el) return
-    if (!value) {
-      el.style.height = '40px'
-      return
-    }
-    el.style.height = 'auto'
+    el.style.height = '40px'
     el.style.height = Math.min(el.scrollHeight, 150) + 'px'
-    if (document.activeElement !== el) el.focus()
   }, [value])
 
   function handleChange(e) {
@@ -50,13 +45,13 @@ export default function PromptInput({ onSubmit, disabled, value, onChange }) {
           </svg>
         </button>
       </div>
-      {value.length > 0 && (
-        <div className="text-right mt-1">
+      <div style={{ height: 16 }} className="flex items-center justify-end">
+        {value.length > 0 && (
           <span className="text-[10px] tabular-nums" style={{ color: value.length >= MAX_LENGTH ? 'var(--accent)' : 'var(--text-secondary)' }}>
             {value.length}/{MAX_LENGTH}
           </span>
-        </div>
-      )}
+        )}
+      </div>
     </form>
   )
 }
