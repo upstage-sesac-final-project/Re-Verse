@@ -6,6 +6,7 @@ canonical: docs/The_world/game_ending_design.md
 """
 
 import logging
+import random
 import re
 
 from agent.generation.compilers.dsl_models import (
@@ -39,6 +40,10 @@ _DIRECTION_CODE: dict[str, int] = {
     "right": 6,
     "up": 8,
 }
+
+# 보물상자 애니메이션 ID (RPG Maker MZ 기본 에셋)
+_CHEST_OPEN_ANIMATION_ID = 48  # 상자 열릴 때
+_CHEST_CLOSE_ANIMATION_ID = 52  # 상자 사라질 때
 
 # trigger → RPG Maker MZ trigger 코드
 _TRIGGER_CODE: dict[str, int] = {
@@ -189,6 +194,9 @@ class EventCompiler:
                 _trigger_code(event.trigger),
                 character_name=event.character_name,
                 character_index=event.character_index,
+                move_type=1,
+                move_speed=random.randint(2, 4),
+                move_frequency=4,
             )
         )
 
@@ -206,6 +214,9 @@ class EventCompiler:
                     _trigger_code(event.trigger),
                     character_name=event.character_name,
                     character_index=event.character_index,
+                    move_type=1,
+                    move_speed=random.randint(2, 4),
+                    move_frequency=4,
                 )
             )
 
@@ -248,6 +259,7 @@ class EventCompiler:
                 trigger,
                 character_name=event.character_name,
                 character_index=event.character_index,
+                direction_fix=True,
             )
             # 페이지 2 (조건 ON): 실제 이동
             page2 = _make_page(
@@ -256,6 +268,7 @@ class EventCompiler:
                 trigger,
                 character_name=event.character_name,
                 character_index=event.character_index,
+                direction_fix=True,
             )
             return _make_event(event.name, event.x, event.y, [page1, page2])
 
@@ -265,6 +278,7 @@ class EventCompiler:
             trigger,
             character_name=event.character_name,
             character_index=event.character_index,
+            direction_fix=True,
         )
         return _make_event(event.name, event.x, event.y, [page])
 
@@ -274,10 +288,25 @@ class EventCompiler:
         item_id = self.resolve_item_id(event.item, event.item_type)
         chest_cmds = self._build_chest_commands(event, item_id)
 
+        # 획득 후 상자 사라짐 페이지 (chest_switch ON 시 투명 빈 페이지)
+        disappeared_page = None
+        if event.one_time and event.chest_switch:
+            chest_sw_id = self.resolve_switch_id(event.chest_switch)
+            disappeared_page = _make_page(
+                [{"code": 0, "indent": 0, "parameters": []}],
+                _make_switch_condition(chest_sw_id),
+                trigger=0,
+                character_name="",
+                character_index=0,
+                through=True,
+                priority=0,
+            )
+
         if event.condition_switch:
-            # 조건부 chest: 2페이지 구성
+            # 조건부 chest: 2페이지 구성 (+ 소멸 페이지)
             # 페이지 1 (조건 OFF): 투명 빈 페이지 — chest가 보이지 않음
             # 페이지 2 (조건 ON): chest 등장 및 아이템 획득
+            # 페이지 3 (chest_switch ON): 획득 후 완전 소멸
             cond_sw_id = self.resolve_switch_id(event.condition_switch)
             page1 = _make_page(
                 [{"code": 0, "indent": 0, "parameters": []}],
@@ -294,8 +323,12 @@ class EventCompiler:
                 trigger=0,  # action_button
                 character_name=event.character_name,
                 character_index=event.character_index,
+                direction_fix=True,
             )
-            return _make_event(event.name, event.x, event.y, [page1, page2])
+            pages = [page1, page2]
+            if disappeared_page:
+                pages.append(disappeared_page)
+            return _make_event(event.name, event.x, event.y, pages)
 
         page = _make_page(
             chest_cmds,
@@ -303,8 +336,12 @@ class EventCompiler:
             _trigger_code("action_button"),
             character_name=event.character_name,
             character_index=event.character_index,
+            direction_fix=True,
         )
-        return _make_event(event.name, event.x, event.y, [page])
+        pages = [page]
+        if disappeared_page:
+            pages.append(disappeared_page)
+        return _make_event(event.name, event.x, event.y, pages)
 
     def _build_chest_commands(self, event: ChestEvent, item_id: int) -> list[dict]:
         """chest 아이템 획득 커맨드 시퀀스 생성 (조건부/비조건부 공통)."""
@@ -317,6 +354,10 @@ class EventCompiler:
             sw_id = self.resolve_switch_id(event.chest_switch)
             cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 1]})
             indent = 1
+            # 상자 열림 애니메이션 (wait=True: 애니메이션 완료 후 대화 시작)
+            cmds.append(
+                {"code": 212, "indent": indent, "parameters": [-1, _CHEST_OPEN_ANIMATION_ID, True]}
+            )
 
         if event.dialogue_before:
             cmds.append({"code": 101, "indent": indent, "parameters": ["", 0, 0, 2, ""]})
@@ -344,6 +385,14 @@ class EventCompiler:
 
         if event.one_time and event.chest_switch:
             sw_id = self.switch_table.switches[event.chest_switch]
+            # 상자 사라짐 애니메이션 (wait=False: 스위치 ON과 동시에 재생)
+            cmds.append(
+                {
+                    "code": 212,
+                    "indent": indent,
+                    "parameters": [-1, _CHEST_CLOSE_ANIMATION_ID, False],
+                }
+            )
             cmds.append({"code": 121, "indent": indent, "parameters": [sw_id, sw_id, 0]})
             cmds.append({"code": 412, "indent": 0, "parameters": []})  # End If
 
@@ -366,6 +415,10 @@ class EventCompiler:
         # one_time: chest_switch OFF일 때만 실행
         cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 1]})
         indent = 1
+        # 상자 열림 애니메이션 (wait=True: 애니메이션 완료 후 대화 시작)
+        cmds.append(
+            {"code": 212, "indent": indent, "parameters": [-1, _CHEST_OPEN_ANIMATION_ID, True]}
+        )
 
         if dialogue_before:
             cmds.append({"code": 101, "indent": indent, "parameters": ["", 0, 0, 2, ""]})
@@ -387,6 +440,10 @@ class EventCompiler:
             cmds.append({"code": 101, "indent": indent, "parameters": ["", 0, 0, 2, ""]})
             cmds.append({"code": 401, "indent": indent, "parameters": [dialogue_after]})
 
+        # 상자 사라짐 애니메이션 (wait=False: 스위치 ON과 동시에 재생)
+        cmds.append(
+            {"code": 212, "indent": indent, "parameters": [-1, _CHEST_CLOSE_ANIMATION_ID, False]}
+        )
         cmds.append({"code": 121, "indent": indent, "parameters": [sw_id, sw_id, 0]})
         cmds.append({"code": 412, "indent": 0, "parameters": []})  # End If
         cmds.append({"code": 0, "indent": 0, "parameters": []})
@@ -466,7 +523,24 @@ class EventCompiler:
             trigger=0,  # action_button: 막힐 때 자동 발동
             character_name=event.character_name,
             character_index=event.character_index,
+            move_type=1,
+            move_speed=random.randint(3, 5),
+            move_frequency=5,
         )
+
+        if event.one_time and event.battle_switch:
+            battle_sw_id = self.resolve_switch_id(event.battle_switch)
+            disappeared_page = _make_page(
+                [{"code": 0, "indent": 0, "parameters": []}],
+                _make_switch_condition(battle_sw_id),
+                trigger=0,
+                character_name="",
+                character_index=0,
+                through=True,
+                priority=0,
+            )
+            return _make_event(event.name, event.x, event.y, [page, disappeared_page])
+
         return _make_event(event.name, event.x, event.y, [page])
 
     # ── Shop ─────────────────────────────────────────────────────────────────
@@ -504,6 +578,9 @@ class EventCompiler:
             _trigger_code(event.trigger),
             character_name=event.character_name,
             character_index=event.character_index,
+            move_type=1,
+            move_speed=random.randint(2, 4),
+            move_frequency=4,
         )
         return _make_event(event.name, event.x, event.y, [page])
 
@@ -592,6 +669,9 @@ class EventCompiler:
                     trigger=0,  # action_button
                     character_name=event.keeper_character_name,
                     character_index=event.keeper_character_index,
+                    move_type=1,
+                    move_speed=random.randint(2, 4),
+                    move_frequency=4,
                 )
             )
 
@@ -619,6 +699,7 @@ class EventCompiler:
                 trigger=1,  # player_touch
                 character_name=event.gate_character_name,
                 character_index=event.gate_character_index,
+                direction_fix=True,
             )
         )
 
@@ -654,6 +735,7 @@ class EventCompiler:
                 trigger=0,  # action_button
                 character_name=event.quest_character_name,
                 character_index=event.quest_character_index,
+                move_type=1,
             )
         else:  # battle
             if not event.troop:
@@ -677,6 +759,8 @@ class EventCompiler:
                     trigger=0,
                     character_name=event.quest_character_name,
                     character_index=event.quest_character_index,
+                    move_type=1,
+                    move_speed=random.randint(2, 4),
                 )
                 # Page 2: quest_switch ON 시 열리는 상자 (battle 이벤트가 quest_switch를 ON해야 함)
                 item_id = self.resolve_item_id(event.item, event.item_type)
@@ -694,8 +778,19 @@ class EventCompiler:
                     trigger=0,
                     character_name=event.chest_character_name,
                     character_index=event.chest_character_index,
+                    direction_fix=True,
                 )
-                return _make_event(event.name, event.x, event.y, [page1, page2])
+                chest_sw_id = self.resolve_switch_id(event.chest_switch)
+                page3 = _make_page(
+                    [{"code": 0, "indent": 0, "parameters": []}],
+                    _make_switch_condition(chest_sw_id),
+                    trigger=0,
+                    character_name="",
+                    character_index=0,
+                    through=True,
+                    priority=0,
+                )
+                return _make_event(event.name, event.x, event.y, [page1, page2, page3])
             troop_id = self.resolve_troop_id(event.troop)
             can_lose = event.lose_condition != "game_over"
 
@@ -730,6 +825,8 @@ class EventCompiler:
                 character_index=event.battle_character_index,
                 through=False,
                 priority=1,
+                move_type=1,
+                move_speed=random.randint(3, 5),
             )
 
         # ── Page 2: 보물상자 ─────────────────────────────────────────────────
@@ -749,9 +846,21 @@ class EventCompiler:
             trigger=0,  # action_button
             character_name=event.chest_character_name,
             character_index=event.chest_character_index,
+            direction_fix=True,
         )
 
-        return _make_event(event.name, event.x, event.y, [page1, page2])
+        chest_sw_id = self.resolve_switch_id(event.chest_switch)
+        page3 = _make_page(
+            [{"code": 0, "indent": 0, "parameters": []}],
+            _make_switch_condition(chest_sw_id),
+            trigger=0,
+            character_name="",
+            character_index=0,
+            through=True,
+            priority=0,
+        )
+
+        return _make_event(event.name, event.x, event.y, [page1, page2, page3])
 
 
 # ── 공통 헬퍼 ────────────────────────────────────────────────────────────────
@@ -808,7 +917,11 @@ def _wrap_text(text: str, max_chars: int = 22) -> list[str]:
         # 3단계: 남은 current가 초과면 글자 수 강제 분할
         while len(current) > max_chars:
             result.append(current[:max_chars])
-            current = current[max_chars:]
+            current = (
+                current[current.find(" ", max_chars) + 1 :]
+                if " " in current[max_chars:]
+                else current[max_chars:]
+            )
         if current:
             result.append(current)
 
@@ -882,13 +995,16 @@ def _make_page(
     cmds: list[dict],
     conditions: dict,
     trigger: int,
-    direction_fix: bool = True,
+    direction_fix: bool = False,
     priority: int = 1,
     walk_anime: bool = True,
     step_anime: bool = False,
     character_name: str = "",
     character_index: int = 0,
     through: bool = False,
+    move_type: int = 0,
+    move_speed: int = 3,
+    move_frequency: int = 3,
 ) -> dict:
     return {
         "conditions": conditions,
@@ -901,15 +1017,15 @@ def _make_page(
             "tileId": 0,
         },
         "list": cmds,
-        "moveFrequency": 3,
+        "moveFrequency": move_frequency,
         "moveRoute": {
             "list": [{"code": 0, "parameters": []}],
             "repeat": True,
             "skippable": False,
             "wait": False,
         },
-        "moveSpeed": 3,
-        "moveType": 0,
+        "moveSpeed": move_speed,
+        "moveType": move_type,
         "priorityType": priority,
         "stepAnime": step_anime,
         "through": through,
