@@ -108,20 +108,6 @@ RPG Maker MZ는 강력하지만, 에디터를 처음 다루는 사람에게는 �
 | 로컬 | `.env.development` (`.env.development.example` 복사) |
 | EC2 프로덕션 | `.env.production` — GitHub Actions 배포 시 **`ENV_FILE` 시크릿 전체**가 서버의 `.env.production`으로 **덮어쓰기**됩니다 |
 
-**자주 만지는 키**
-
-| 키 | 역할 |
-|----|------|
-| `JWT_SECRET_KEY` | 필수 — 비어 있으면 서버 기동 실패 |
-| `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL` | 사용 중인 LLM 벤더 (예: Solar, OpenAI 호환 엔드포인트) |
-| `DATABASE_URL` | PostgreSQL URL. **비어 있으면** DB 엔진 미생성, `/health/db` 등은 스킵 |
-| `STORAGE_BACKEND` | `local` 또는 `s3` |
-| `AWS_REGION`, `S3_BUCKET_NAME`, `S3_PREFIX` | S3 모드일 때 객체 경로 (`games/{game_id}/...` 등) |
-| `DISCORD_*` | 예외 알림, 토큰/비용 알림, 버그 리포트 웹훅 (선택) |
-| `DISCORD_TOKEN_ALERT_MIN_TOTAL_TOKENS` 등 | 토큰 알림 빈도 조절 |
-| `LOG_DIR`, `LOG_RETENTION_HOURS` | 프로덕션에서 파일 로그 위치·날짜 폴더 보존 시간 |
-
-전체 예시는 `.env.production.example`을 참고하세요.
 
 ---
 
@@ -212,16 +198,35 @@ tail -f "logs/backend/general/$(date +%Y-%m-%d)/anonymous/general.log"
 
 ---
 
-## 📚 문서 모음
-
-- [`docs/index.md`](docs/index.md) — 전체 목차
-- [`docs/project/setup.md`](docs/project/setup.md) — 상세 셋업
-- [`docs/deployment/deployment.md`](docs/deployment/deployment.md) — EC2·Vercel·Mixed Content
-- [`docs/rpgmaker/rpgmaker_structure.md`](docs/rpgmaker/rpgmaker_structure.md) — MZ 데이터 구조
-- [`docs/nodes/validator/test_run.md`](docs/nodes/validator/test_run.md) — Validator 실행
-
----
-
 ## 📄 라이선스
 
 팀·조직 정책에 따릅니다.
+
+---
+
+## ⚠️ 이용 목적 안내
+
+이 프로젝트는 **상업적 이용을 목적으로 하지 않으며**, **교육·학습·연구**를 위한 참고 자료로 제공되는 것을 전제로 합니다.
+실제 서비스 운영, 재배포, 또는 제3자에게의 유상 제공 등은 각자의 판단과 책임 하에 진행해 주시기 바랍니다.
+RPG Maker MZ 등 **원 저작물·상표·에셋**에 대한 권리는 각 권리자에게 있으며, 본 저장소의 설명은 기술 이해를 돕기 위한 것입니다.
+
+---
+
+## 📚 참고 문서
+
+- [`docs/index.md`](docs/index.md) — 문서 전체 목차
+- [`docs/editor.md`](docs/editor.md) — 에디터(증분 편집) 에이전트 워크플로
+- [`docs/generator.md`](docs/generator.md) — 생성 파이프라인
+- [`docs/backend/api.md`](docs/backend/api.md) — API 개요
+- [`docs/backend/storage.md`](docs/backend/storage.md) — 게임 파일 저장
+- [`docs/backend/logging.md`](docs/backend/logging.md) — 로깅
+- [`docs/deployment/deployment.md`](docs/deployment/deployment.md) — 배포(Vercel·EC2 등)
+- [`docs/deployment/ec2-host-monitor.md`](docs/deployment/ec2-host-monitor.md) — EC2 호스트 모니터링
+- [`docs/rpgmaker/structure.md`](docs/rpgmaker/structure.md) — RPG Maker 데이터 구조
+- [`docs/rpgmaker/tile_rendering.md`](docs/rpgmaker/tile_rendering.md) — 타일 렌더링
+- [`docs/rpgmaker/image_metadata.md`](docs/rpgmaker/image_metadata.md) — 이미지 메타데이터
+- [`docs/todo/map_crud.md`](docs/todo/map_crud.md) — 맵 CRUD 관련 메모
+- [`docs/todo/todolist-editor.md`](docs/todo/todolist-editor.md) — 에디터 할 일
+- [`docs/tests.md`](docs/tests.md) — 테스트 관련
+
+추가로 [`docs/project/concurrency_issues.md`](docs/project/concurrency_issues.md), [`docs/frontend/game_data_viewer_improvement.md`](docs/frontend/game_data_viewer_improvement.md) 등은 `docs/` 하위에서 확인할 수 있습니다.
