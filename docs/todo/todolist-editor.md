@@ -35,7 +35,7 @@
 - **현상**: Plan의 `target_info.id`는 정확히 채워져 있는데 MCP 호출 단계에서 id가 누락됨. 로그: `update_weapon: Error: Weapon undefined not found`, `update_armor: Error: Armor undefined not found`, `update_class: Error: Class undefined not found`, `update_enemy: Error: Enemy undefined not found`
 - **재현**: `장검 가격 300`, `마법사 직업 maxLevel 80`, `마왕 이름 대마왕`, `까마귀 공격력 80` 등 id 기반 update 요청 거의 전부
 - **원인 추정**: executor의 MCP 바인딩 레이어가 `target_info.id` → MCP 파라미터 매핑 시 키 이름 불일치 (예: `id` vs `weaponId`/`armorId`) 또는 `target_info`에서 id를 꺼내지 않고 top-level에서 찾아 `undefined` 전달
-- **위치**: `agent/graph/nodes/executor.py` MCP dispatcher, `agent/mcp_toolbox.py`
+- **위치**: `agent/editor/nodes/executor.py` MCP dispatcher, `agent/mcp_toolbox.py`
 - **수정 방향**:
   1. executor → MCP 파라미터 빌더에 target_file별 id 필드 매핑 테이블 추가 (`Weapons.json → weaponId`, `Armors.json → armorId` 등)
   2. id 누락 시 MCP 호출 전에 guard로 FAIL 처리해 `undefined` 전달 원천 차단
@@ -46,7 +46,7 @@
 - **경로**: v2 (structured)
 - **현상**: `케이시의 최대 레벨을 70으로` 실행 시 로그에 `[struct_0] 지원하지 않는 필드 무시: maxLevel` 경고. 이번 배치에선 다른 update도 같이 있어 성공으로 끝났으나, `maxLevel` 단독 요청이면 빈 updates가 돼 silent no-op로 빠질 가능성
 - **원인**: `_executor_structured()` 계열 Actors.update 핸들러가 허용 필드 화이트리스트를 좁게 잡고 있고, 리스트 밖 필드를 에러가 아닌 "무시"로 처리
-- **위치**: `agent/graph/nodes/executor.py` structured Actors.update 분기
+- **위치**: `agent/editor/nodes/executor.py` structured Actors.update 분기
 - **수정 방향**:
   1. 화이트리스트에 `maxLevel`, `initialLevel`, `nickname`, `profile`, `note` 등 schema 상 허용 필드를 모두 포함
   2. 미지원 필드는 drop 대신 step FAIL로 승격해 사용자에게 드러나게 함
@@ -56,7 +56,7 @@
 - **경로**: v2 (structured)
 - **현상**: `도적 직업의 최대 레벨을 90으로` → `실패한 스텝들: ['step_0:structured_classes_update']`로 종료. MCP 경로에선 `update_class: Class undefined not found`로 가려져 있던 문제 — MCP 끄면 executor_v2 Classes 핸들러 자체가 FAIL 반환
 - **원인 추정**: Classes.update structured handler 구현 누락 또는 `target_info.id`/`updates` 파싱 버그
-- **위치**: `agent/graph/nodes/executor.py` `_execute_one_structured_step` Classes 분기
+- **위치**: `agent/editor/nodes/executor.py` `_execute_one_structured_step` Classes 분기
 - **수정 방향**: handler 구현 완성 (Classes update 필드별 적용, 특히 `maxLevel`, `expParams`, `learnings` 등). MCP 제거 전 필수 수정
 
 ### [executor_v2/create] Armor 생성 시 trait `value` 대신 `value1` 키 사용
@@ -64,15 +64,30 @@
 - **경로**: v2 (structured create)
 - **현상**: `"수정 갑옷" 방어구를 추가해줘` → `traits[18]`가 `{code: 61, dataId: 0, value1: 0.0}`로 저장. pydantic 실패: `value Field required`, `value1 Extra inputs are not permitted`
 - **원인**: executor_v2 Armor create 경로의 trait 템플릿/프로파일러 산출물이 `value1` 키를 씀. schema는 `value` 단일 키를 요구
-- **위치**: `agent/graph/nodes/executor.py` Armor create dispatch, 관련 프로파일러 출력 포맷
+- **위치**: `agent/editor/nodes/executor.py` Armor create dispatch, 관련 프로파일러 출력 포맷
 - **수정 방향**: trait 빌더에서 `value1` → `value`로 키 통일. 역사적 호환용이면 저장 시점에 정규화
+
+### [mapgen/sample_selector] 카탈로그-디스크 동기화 깨짐 — 존재하지 않는 sample map 선정
+- **우선순위**: P0
+- **경로**: definition Step 4.6 (맵 추가 분기) → executor_v2 map handler
+- **현상**: `"새로운 맵 묘비 만들어줘"` → Step 4.6의 `sample_selector` 가 `Map046.json` 을 best match (score=5.500) 로 선정 → executor 가 `storage/games/base_game/samplemaps/Map046.json` 읽으려 하나 **파일 없음** → `[map] sample map not found` → `UNSUPPORTED_STRUCTURED_STEP` 으로 실패. validator retry 도 같은 이유 실패
+- **원인**: sample selector가 참조하는 카탈로그/인덱스(랭킹 대상 메타데이터) 와 실제 디스크 `samplemaps/` 폴더가 동기화되지 않음. 인덱스에는 Map046 이 등재돼 있으나 파일은 누락
+- **위치**:
+  - 호출: `agent/editor/nodes/definition.py` Step 4.6 맵 분기 (`[Step4.6] 맵 추가 요청 감지`)
+  - 인덱스: `agent/generation/mapgen/sample_selector/` (selector + filter + ranker)
+  - 디스크: `storage/games/base_game/samplemaps/`
+- **수정 방향**:
+  1. sample selector 기동 시 디스크 실재 파일과 카탈로그 교집합으로 후보 풀 좁히기 (없는 파일은 ranking 대상에서 제외)
+  2. 또는 executor map handler 에서 file-not-found 시 후순위 후보로 자동 retry
+  3. base_game/samplemaps 자체를 정비 — 인덱스에 등재된 모든 맵이 실제 존재하도록 보장
+- **추가 잔존 이슈 (재현 시 추가 진단 필요)**: 이 실패 case 에서도 사용자 측에 "묘비가 2개 생김" 보고됨. executor 실패에도 MapInfos.json 에 항목 일부 쓰기가 일어났을 가능성. validator schema 검증 대상 아닌 파일이라 silent persistence 우려
 
 ### [executor_v2/create] State 생성 시 `stepsToRemove=0`으로 schema 위반
 - **우선순위**: P1
 - **경로**: v2 (structured create)
 - **현상**: `"천둥의 화살" 스킬을 추가해줘` (카테고리가 States로 오라우팅된 이슈와 별개로) 생성 시 `stepsToRemove=0` 저장 → schema `>=1` 위반
 - **원인**: executor_v2 State create의 기본값 테이블이 schema 도메인을 반영하지 않음 (Armor `etypeId=1`과 같은 계열 문제)
-- **위치**: `agent/graph/nodes/executor.py` State create 기본값, 또는 프로파일러 State 템플릿
+- **위치**: `agent/editor/nodes/executor.py` State create 기본값, 또는 프로파일러 State 템플릿
 - **수정 방향**: 카테고리별 schema 도메인 제약을 기본값에 반영. pydantic schema에서 자동 추출 권장
 
 ### [definition/Step5] Step 5가 Step 1·2 결과를 무시하고 name/category를 재작성 — hallucination·오라우팅 근본 원인
@@ -148,11 +163,22 @@
 - **현상**: 배치 테스트에서 `장검의 가격을 300으로 바꿔줘` → subject='미스릴 갑옷 방어구' (직전 턴 주제)로 오추출, 다음 턴 `물약의 설명을...` → subject='장검' price 300 (또 직전 턴 주제)로 오추출. 입력 문장과 무관하게 **이전 턴의 subject + 현재 턴의 field/value**가 섞인 operation이 만들어짐
 - **원인 추정**: Definition Step 1이 conversation_history를 프롬프트에 넣으면서 현재 `user_input`과 history 간 경계를 명확히 구분하지 못함. LLM이 history 속 엔티티를 현재 입력의 subject로 착각
 - **재현**: 연속된 수정 요청 2턴 이상, 주제(대상)가 턴마다 다를 때
-- **위치**: `agent/graph/nodes/definition.py` Step 1, `agent/prompts/definition_*` 프롬프트
+- **위치**: `agent/editor/nodes/definition.py` Step 1, `agent/editor/prompts/definition_*` 프롬프트
 - **수정 방향**:
   1. Step 1 프롬프트에서 current turn과 history를 명확한 구분자/역할로 분리하고 "subject는 현재 turn에서만 추출" 가이드 추가
   2. history는 coreference 해소가 필요한 경우에만 참조하도록 conditional 주입 (대명사/생략 감지 시에만)
   3. Step 1 출력 후 현재 `user_input`에 subject 토큰이 등장하는지 post-check 추가 — 없으면 재추출
+
+### [profiler] 엔티티 맥락(직업/역할) 반영 부족 — 품질 이슈
+- **우선순위**: P2
+- **경로**: 공통 (profiler → v2 create)
+- **현상**: `"리드라는 액터 추가해줘. 직업은 힐러"` → actor 생성은 성공하지만, profiler가 채운 traits/params/equips가 힐러 맥락과 무관함. judge가 `match=False, confidence=0.60, reason="힐러 직업과 관련된 능력치·스킬이 전혀 반영되지 않았으며, 공격 속도 보정 등 부적절한 trait가 포함"` 로 지적
+- **원인**: profiler user prompt에 이름만 전달되고, **classId/직업명/역할** 같은 맥락이 프롬프트에 명시적으로 녹아 있지 않거나 LLM이 무시함. 결과적으로 모든 신규 actor가 비슷한 일반값으로 채워짐
+- **위치**: `agent/editor/prompts/profiler_prompt.py` (user prompt 빌더), `agent/editor/nodes/profiler.py` (step 전달)
+- **수정 방향**:
+  1. profiler user prompt 에 `classId` 해소된 직업명(예: "힐러"), 사용자 원문 의도("…직업은 힐러")를 명시적으로 포함
+  2. 카테고리별 전형(healer/tank/dps) 기본 trait 템플릿을 schema/constants 로 두고 LLM은 이를 참고·조정만 하게 가이드
+  3. 테스트: judge 기준 confidence >= 0.8 으로 통과하는지 회귀 검증 (`힐러/탱커/마법사` 각 시나리오)
 
 ### [profiler] 카테고리별 기본값 테이블 오류 — Armor `etypeId=1`
 - **우선순위**: P1
@@ -193,7 +219,7 @@
 - **우선순위**: P1
 - **현상**: `"용사의 검"이라는 무기를 추가해줘` → subject='용사'로 추출되어 `Actors.json.create`로 plan됨. 리드의 `nickname='용사'`와 매칭되며 기존 리드 전체 필드를 복제한 신규 Actor 생성까지 진행됨
 - **원인**: Definition Step 1에서 "용사의 검"에서 `subject`를 "용사"로 끊음 ("의" 소유격 앞까지). category 분류(Step 2)도 문장 내 "무기" 단서를 압도하지 못함. Step 4의 RAG/SequenceMatcher가 "용사" → 리드.nickname으로 fuzzy 매칭해 Actors로 굳어짐
-- **위치**: `agent/graph/nodes/definition.py` Step 1 / Step 2 프롬프트, `agent/prompts/definition_*`
+- **위치**: `agent/editor/nodes/definition.py` Step 1 / Step 2 프롬프트, `agent/editor/prompts/definition_*`
 - **수정 방향**:
   1. Step 1 프롬프트에 "A의 B" 패턴에서 category 단서(무기/방어구/아이템/스킬 등)가 문장에 있으면 B를 subject로 우선 선택하도록 가이드
   2. Step 2 category 분류가 문장 내 카테고리 키워드("무기", "방어구" 등)를 signal로 받도록 입력 확장
@@ -227,7 +253,7 @@
 - **우선순위**: P2
 - **경로**: 공통
 - **현상**: `changes_log: Annotated[list, add]` reducer로 retry 시 이전 로그가 누적됨. validator/judge가 step_id별 최신 로그만 봐야 하는데 명시적인 헬퍼가 없음
-- **위치**: `agent/graph/state.py`, `agent/graph/nodes/validator/`
+- **위치**: `agent/editor/state.py`, `agent/editor/nodes/validator/`
 - **수정 방향**: `step_id`별 마지막 로그만 추출하는 헬퍼 함수 (`get_latest_per_step`) 명시적 도입. validator/judge에서 일관되게 사용
 
 ---
@@ -273,7 +299,7 @@
 - **우선순위**: P1
 - **현상**: "방금 만든 애 직업을 무술가로 바꿔줘" → router의 resolved_input이 원본 그대로 넘어옴 → definition이 entity 못 찾음 → planner가 error step 생성 → executor UNSUPPORTED
 - **원인**: router prompt가 "방금", "직전", "그", "이것" 같은 대명사/시간 표현을 conversation_history와 매칭하지 못함
-- **위치**: `agent/prompts/router_prompt.py` (coref resolution 가이드), `agent/graph/nodes/router.py`
+- **위치**: `agent/editor/prompts/router_prompt.py` (coref resolution 가이드), `agent/editor/nodes/router.py`
 - **수정 방향**:
   1. router prompt에 "방금/직전/그" 표현 처리 가이드 강화. 직전 턴의 생성/수정 대상을 resolved_input에 명시적으로 치환
   2. definition Step 1 prompt에도 conversation_history 기반 보정 추가
@@ -330,14 +356,14 @@
 - **우선순위**: P2
 - **경로**: 공통 (v1·v2 분리 선행)
 - **현상**: `executor.py`가 2,944줄 단일 파일. MCP 인터셉트 + 레거시 매니저 + 구조화 분기 + 스냅샷 + 로그 정규화가 한 파일에 공존
-- **위치**: `agent/graph/nodes/executor.py`
+- **위치**: `agent/editor/nodes/executor.py`
 - **수정 방향**: refactor_plan.md의 executor/ 패키지 구조로 분할 (`structured.py`, `mcp.py`, `legacy_handlers.py`, `dispatch.py`, `handlers/`, `utils/`)
 - **선행 조건**: executor 담당자와 협의 필요
 
 ### [definition] step 구조 간소화
 - **우선순위**: P2
 - **현상**: 12 step (소수점 7개) — 가독성/추적 어려움
-- **위치**: `agent/graph/nodes/definition.py`
+- **위치**: `agent/editor/nodes/definition.py`
 - **수정 방향**: 5 step 구조로 통합 (Step 1+2 LLM 통합, 보정 단계 통합 등)
 - **상세**: `definition_simplify.md` 참고
 

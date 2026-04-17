@@ -1,0 +1,8 @@
+# 주기적으로 GitHub Actions 액션 버전을 점검해 보안·호환 패치를 PR로 받습니다.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5

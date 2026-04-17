@@ -1,3 +1,5 @@
+"""Generation 파이프라인 기반 컴포넌트 통합 테스트 — game_designer / asset_planner / progress 연계 검증."""
+
 import asyncio
 
 import pytest

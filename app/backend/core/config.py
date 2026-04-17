@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     DISCORD_WEBHOOK_URL: str = ""
     # 비어 있으면 LLM 토큰/비용 요약을 Discord 로 보내지 않음 (에러 알림과 채널 분리 권장)
     DISCORD_TOKEN_WEBHOOK_URL: str = ""
+    # 토큰/비용 Discord 알림 임계값 (0 = 해당 조건 미사용). 둘 다 0이면 기존처럼 토큰만 있으면 전송.
+    # 둘 다 0보다 크면: (합계 토큰 >= MIN_TOTAL) 또는 (비용 >= MIN_COST) 일 때만 전송.
+    DISCORD_TOKEN_ALERT_MIN_TOTAL_TOKENS: int = 0
+    DISCORD_TOKEN_ALERT_MIN_COST_USD: float = 0.0
 
     @model_validator(mode="after")
     def _fill_discord_webhook_from_environ(self):
