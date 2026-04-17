@@ -1,0 +1,8 @@
+{
+  "source": ["aws.ec2"],
+  "detail-type": ["EC2 Instance State-change Notification"],
+  "detail": {
+    "state": ["stopping", "stopped", "terminated", "running"],
+    "instance-id": ["i-REPLACE_WITH_YOUR_INSTANCE_ID"]
+  }
+}
