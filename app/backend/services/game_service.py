@@ -5,7 +5,9 @@ Executor는 이 서비스를 호출하지 않는다.
 """
 
 import asyncio
+import json
 import logging
+import secrets
 import shutil
 import uuid
 from pathlib import Path
@@ -184,6 +186,53 @@ class GameService:
                 raise FileNotFoundError(f"base_game/data 경로 없음: {src}")
             shutil.copytree(src, dst)
             ensure_rpgmaker_mz_project_shell(Path(settings.STORAGE_PATH).resolve() / game_id)
+        # base_game 의 고정 gameId(72894844) 를 프로젝트 고유값으로 덮어쓰기 —
+        # 같은 origin 에서 RPG Maker MZ 가 localStorage 키(`rmmzsave.<gameId>.*`)를
+        # gameId 로만 격리하므로, 프로젝트별로 반드시 달라야 세이브가 섞이지 않는다.
+        self._randomize_system_game_id(game_id)
+
+    def _randomize_system_game_id(self, game_id: str) -> None:
+        """복사된 System.json 의 advanced.gameId 를 프로젝트 고유 32-bit 양수로 갱신."""
+        new_game_id = secrets.randbelow(2**31 - 1) + 1  # 1..2^31-1
+        if settings.STORAGE_BACKEND == "s3":
+            self._s3_randomize_system_game_id(game_id, new_game_id)
+            return
+        system_path = Path(settings.STORAGE_PATH).resolve() / game_id / "data" / "System.json"
+        if not system_path.exists():
+            logger.warning(
+                "[GameService] System.json 없음 — gameId 갱신 생략 | path=%s", system_path
+            )
+            return
+        data = json.loads(system_path.read_text(encoding="utf-8"))
+        data.setdefault("advanced", {})["gameId"] = new_game_id
+        system_path.write_text(
+            json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
+        )
+        logger.debug("[GameService] System.gameId 갱신 | game_id=%s, new=%d", game_id, new_game_id)
+
+    def _s3_randomize_system_game_id(self, game_id: str, new_game_id: int) -> None:
+        client = boto3.client("s3", region_name=settings.AWS_REGION)
+        bucket = settings.S3_BUCKET_NAME
+        prefix = settings.S3_PREFIX.strip("/")
+        key = f"{prefix}/{game_id}/data/System.json"
+        try:
+            obj = client.get_object(Bucket=bucket, Key=key)
+        except ClientError as e:
+            logger.warning(
+                "[GameService] S3 System.json 조회 실패 — gameId 갱신 생략 | key=%s: %s", key, e
+            )
+            return
+        data = json.loads(obj["Body"].read().decode("utf-8"))
+        data.setdefault("advanced", {})["gameId"] = new_game_id
+        client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+            ContentType="application/json",
+        )
+        logger.debug(
+            "[GameService] S3 System.gameId 갱신 | game_id=%s, new=%d", game_id, new_game_id
+        )
 
     def _delete_game_folder(self, game_id: str) -> None:
         if settings.STORAGE_BACKEND == "s3":
