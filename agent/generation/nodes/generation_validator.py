@@ -2,7 +2,7 @@
 
 검증 함수 구성:
   error(11): R_NULL, R1, array_lengths, R16, R17, R18, R19, R23, R26, R27, R28
-  warning(4): balance, R20, R22, R24
+  warning(5): balance, R20, R22, R24, R29
   직접 호출(1): R25 (map reachability)
 auto-repair 우선 적용 후 남은 오류만 retry 라우팅.
 canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §4.I
@@ -867,6 +867,175 @@ def _auto_repair_coordinate_conflicts(
     return compiled_events
 
 
+# ── 관절점(Articulation Point) 탐지 + auto-repair ────────────────────────────
+
+
+def _find_articulation_points(walkable: set[tuple[int, int]]) -> set[tuple[int, int]]:
+    """tile_checker.find_articulation_points 위임 (단일 구현 유지)."""
+    from agent.generation.mapgen.tile_checker import find_articulation_points
+
+    return find_articulation_points(walkable)
+
+
+def _is_blocking_event(event: dict) -> bool:
+    """이벤트가 통로를 차단하는 페이지를 가지는지 확인.
+
+    두 가지 차단 유형:
+    1. 물리적 차단: through=False + priorityType=1 → 플레이어 이동 자체를 막음
+    2. 강제 워프: 페이지 커맨드에 code 201 존재 → 통로에 있으면 player_touch 시 강제 이동 발생
+       (through/characterName 무관 — 스프라이트 없는 투명 워프도 해당)
+    """
+    for page in event.get("pages", []):
+        # 강제 워프: 스프라이트 여부·통과 여부와 무관하게 code 201은 항상 차단으로 간주
+        if any(cmd.get("code") == 201 for cmd in page.get("list", [])):
+            return True
+        # 물리적 차단: characterName 없이도 through=False + priorityType=1이면 이동 불가
+        if not page.get("through", False) and page.get("priorityType", 1) == 1:
+            return True
+    return False
+
+
+def _check_chokepoint_events(
+    compiled_events: dict[int, list[dict]],
+    map_specs: list[MapSpec],
+    map_tiles: dict[int, list[int]],
+) -> list[str]:
+    """병목 지점(통로 차단 위치)에 이벤트가 배치됐는지 검증 (R29)."""
+    errors: list[str] = []
+    try:
+        from agent.generation.mapgen.tile_checker import get_bottleneck_coords
+        from agent.generation.nodes.integrator import load_base_tilesets
+
+        tilesets = load_base_tilesets()
+    except Exception as e:
+        logger.warning("_check_chokepoint_events: tile 인프라 로드 실패 → R29 스킵 (%s)", e)
+        return errors
+
+    spec_by_id = {s.map_id: s for s in map_specs}
+
+    for map_id, events in compiled_events.items():
+        spec = spec_by_id.get(map_id)
+        tile_data = map_tiles.get(map_id)
+        if not spec or not tile_data:
+            continue
+
+        # 완화된 기준으로 병목 지점(AP + 1칸 복도) 탐지
+        bottlenecks = get_bottleneck_coords(
+            tile_data,
+            spec.width,
+            spec.height,
+            spec.tileset_id,
+            tilesets,
+            spec.spawn_point[0],
+            spec.spawn_point[1],
+        )
+
+        for event in events:
+            if event is None:
+                continue
+            pos = (event.get("x", 0), event.get("y", 0))
+            if pos in bottlenecks and _is_blocking_event(event):
+                errors.append(
+                    f"[R29] Map{map_id} 이벤트 '{event.get('name', '?')}' "
+                    f"({pos[0]},{pos[1]}): 병목 지점(통로 차단 위치) 배치"
+                )
+
+    return errors
+
+
+def _auto_repair_chokepoint_events(
+    compiled_events: dict[int, list[dict]],
+    final_project: dict,
+    map_specs: list[MapSpec],
+    map_tiles: dict[int, list[int]],
+) -> dict[int, list[dict]]:
+    """R29: 병목 지점에 배치된 이벤트를 가장 가까운 비-병목 walkable 좌표로 재배치."""
+    try:
+        from agent.generation.mapgen.tile_checker import get_bottleneck_coords, get_reachable_coords
+        from agent.generation.nodes.integrator import load_base_tilesets
+
+        tilesets = load_base_tilesets()
+    except Exception as e:
+        logger.warning("auto_repair R29: tile 인프라 로드 실패 → 재배치 불가 (%s)", e)
+        return compiled_events
+
+    spec_by_id = {s.map_id: s for s in map_specs}
+
+    for map_id, events in compiled_events.items():
+        spec = spec_by_id.get(map_id)
+        tile_data = map_tiles.get(map_id)
+        if not spec or not tile_data:
+            continue
+
+        # 1. 안전하게 도달 가능한(is_walkable) 좌표들
+        reachable = set(
+            get_reachable_coords(
+                tile_data,
+                spec.spawn_point[0],
+                spec.spawn_point[1],
+                spec.width,
+                spec.height,
+                spec.tileset_id,
+                tilesets,
+                avoid_damage=True,
+            )
+        )
+
+        # 2. 완화된 기준의 병목 지점 탐지
+        bottlenecks = get_bottleneck_coords(
+            tile_data,
+            spec.width,
+            spec.height,
+            spec.tileset_id,
+            tilesets,
+            spec.spawn_point[0],
+            spec.spawn_point[1],
+        )
+        non_bottleneck = reachable - bottlenecks
+
+        if not non_bottleneck:
+            logger.warning("auto_repair R29: Map%d 비-병목 walkable 좌표 없음 → 스킵", map_id)
+            continue
+
+        occupied = {(e.get("x", 0), e.get("y", 0)) for e in events if e}
+
+        for ev in events:
+            if ev is None:
+                continue
+            pos = (ev.get("x", 0), ev.get("y", 0))
+            if pos not in bottlenecks or not _is_blocking_event(ev):
+                continue
+
+            candidates = sorted(
+                (c for c in non_bottleneck if c not in occupied),
+                key=lambda c: abs(c[0] - pos[0]) + abs(c[1] - pos[1]),
+            )
+            if not candidates:
+                continue
+
+            new_pos = candidates[0]
+            logger.warning(
+                "auto_repair R29: Map%d 이벤트 '%s' (%d,%d) → (%d,%d) [병목 지점 → 안전 지점]",
+                map_id,
+                ev.get("name", "?"),
+                pos[0],
+                pos[1],
+                new_pos[0],
+                new_pos[1],
+            )
+            ev["x"], ev["y"] = new_pos
+            occupied.discard(pos)
+            occupied.add(new_pos)
+
+            map_key = f"Map{map_id:03d}.json"
+            for je in final_project.get(map_key, {}).get("events", []):
+                if je and je.get("id") == ev.get("id"):
+                    je["x"], je["y"] = new_pos
+                    break
+
+    return compiled_events
+
+
 def _auto_repair_null_at_index_0(final_project: dict) -> dict:
     """R_NULL: 배열 파일 index-0을 null로 자동 교정.
 
@@ -1270,7 +1439,7 @@ async def generation_validator(state: GenerationState) -> dict:
 
     검증 흐름:
       1. error 검증 실행
-      2. auto-repair 적용 (R16 / R18 / R28 / R19 / R_NULL / R1 / R25 / R23 / R22)
+      2. auto-repair 적용 (R16 / R18 / R28 / R19 / R_NULL / R1 / R25 / R23 / R22 / R29)
       3. repair 후 재검증 → 남은 오류만 retry 라우팅
     """
     gen_id = state["generation_id"]
@@ -1396,6 +1565,18 @@ async def generation_validator(state: GenerationState) -> dict:
             )
             repaired_tags.add("R22")
 
+    # R29: 관절점(통로 차단 위치) 배치 → 비-관절점 walkable 좌표로 재배치
+    # R22와 동일 패턴 — check 결과와 무관하게 항상 repair 시도
+    if compiled_events and map_specs and map_tiles:
+        _r29_chokepoints = _check_chokepoint_events(compiled_events, map_specs, map_tiles)
+        if _r29_chokepoints:
+            compiled_events = _auto_repair_chokepoint_events(
+                compiled_events, final_project, map_specs, map_tiles
+            )
+            repaired_tags.add("R29")
+            for msg in _r29_chokepoints:
+                warnings.append(msg)
+
     # repair가 하나라도 있으면 state 업데이트
     if repaired_tags or _r25_repaired:
         extra_state["compiled_events"] = compiled_events
@@ -1504,7 +1685,7 @@ async def generation_validator(state: GenerationState) -> dict:
 def route_after_validation(state: GenerationState) -> str:
     """validator 이후 라우팅 결정.
 
-    auto-repair 대상(R16 / R17 / R18 / R19 / R_NULL / R1 / R22 / R23 / R25 / R28)은
+    auto-repair 대상(R16 / R17 / R18 / R19 / R_NULL / R1 / R22 / R23 / R25 / R28 / R29)은
     generation_validator 내에서 인-플레이스 수정 후 재검증을 거침.
     여기서는 repair 후에도 남은 오류만 retry 라우팅.
     """
