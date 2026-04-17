@@ -167,7 +167,7 @@ def test_compile_gate_multi_page(compiler: EventCompiler) -> None:
 
 
 def test_compile_quest_chest_npc_type(compiler: EventCompiler) -> None:
-    """QuestChestEvent(npc): 2페이지 — 힌트 대사 + 보물상자."""
+    """QuestChestEvent(npc): 3페이지 — 힌트 대사 + 보물상자 + 빈 상자(이미 획득)."""
     event = QuestChestEvent(
         type="quest_chest",
         name="퀘스트 상자",
@@ -182,12 +182,18 @@ def test_compile_quest_chest_npc_type(compiler: EventCompiler) -> None:
         chest_switch="chest_quest_01",
     )
     result = compiler.compile(event)
-    assert len(result["pages"]) == 2
+
+    # [수정] assert 2 -> 3
+    assert len(result["pages"]) == 3
+
     # 페이지 2는 quest_switch ON 조건
     assert result["pages"][1]["conditions"]["switch1Valid"] is True
     # 페이지 2에 아이템 획득 커맨드(126)
     codes_p2 = [cmd["code"] for cmd in result["pages"][1]["list"]]
-    assert 126 in codes_p2
+    assert 126 in codes_p2  # 아이템 획득
+
+    # 페이지 3: 보물상자 스위치(chest_switch) 활성 시 (이미 획득한 상태)
+    assert result["pages"][2]["conditions"]["switch1Valid"] is True
 
 
 def test_compile_quest_chest_battle_type(compiler: EventCompiler) -> None:
@@ -206,10 +212,16 @@ def test_compile_quest_chest_battle_type(compiler: EventCompiler) -> None:
         chest_switch="chest_battle_01",
     )
     result = compiler.compile(event)
-    assert len(result["pages"]) == 2
-    # 페이지 1에 전투 커맨드(301)
+
+    # [수정] assert 2 -> 3
+    assert len(result["pages"]) == 3
+
+    # 페이지 1: 전투 커맨드 및 승리 시 퀘스트 스위치 ON
     codes_p1 = [cmd["code"] for cmd in result["pages"][0]["list"]]
     assert 301 in codes_p1
     # 승리 분기(601) + 스위치 ON(121)
     assert 601 in codes_p1
     assert 121 in codes_p1
+
+    # 페이지 3: 이미 열었을 때의 빈 페이지 확인
+    assert result["pages"][2]["conditions"]["switch1Valid"] is True

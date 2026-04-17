@@ -41,6 +41,10 @@ _DIRECTION_CODE: dict[str, int] = {
     "up": 8,
 }
 
+# 보물상자 애니메이션 ID (RPG Maker MZ 기본 에셋)
+_CHEST_OPEN_ANIMATION_ID = 48  # 상자 열릴 때
+_CHEST_CLOSE_ANIMATION_ID = 52  # 상자 사라질 때
+
 # trigger → RPG Maker MZ trigger 코드
 _TRIGGER_CODE: dict[str, int] = {
     "action_button": 0,
@@ -284,10 +288,25 @@ class EventCompiler:
         item_id = self.resolve_item_id(event.item, event.item_type)
         chest_cmds = self._build_chest_commands(event, item_id)
 
+        # 획득 후 상자 사라짐 페이지 (chest_switch ON 시 투명 빈 페이지)
+        disappeared_page = None
+        if event.one_time and event.chest_switch:
+            chest_sw_id = self.resolve_switch_id(event.chest_switch)
+            disappeared_page = _make_page(
+                [{"code": 0, "indent": 0, "parameters": []}],
+                _make_switch_condition(chest_sw_id),
+                trigger=0,
+                character_name="",
+                character_index=0,
+                through=True,
+                priority=0,
+            )
+
         if event.condition_switch:
-            # 조건부 chest: 2페이지 구성
+            # 조건부 chest: 2페이지 구성 (+ 소멸 페이지)
             # 페이지 1 (조건 OFF): 투명 빈 페이지 — chest가 보이지 않음
             # 페이지 2 (조건 ON): chest 등장 및 아이템 획득
+            # 페이지 3 (chest_switch ON): 획득 후 완전 소멸
             cond_sw_id = self.resolve_switch_id(event.condition_switch)
             page1 = _make_page(
                 [{"code": 0, "indent": 0, "parameters": []}],
@@ -306,7 +325,10 @@ class EventCompiler:
                 character_index=event.character_index,
                 direction_fix=True,
             )
-            return _make_event(event.name, event.x, event.y, [page1, page2])
+            pages = [page1, page2]
+            if disappeared_page:
+                pages.append(disappeared_page)
+            return _make_event(event.name, event.x, event.y, pages)
 
         page = _make_page(
             chest_cmds,
@@ -316,7 +338,10 @@ class EventCompiler:
             character_index=event.character_index,
             direction_fix=True,
         )
-        return _make_event(event.name, event.x, event.y, [page])
+        pages = [page]
+        if disappeared_page:
+            pages.append(disappeared_page)
+        return _make_event(event.name, event.x, event.y, pages)
 
     def _build_chest_commands(self, event: ChestEvent, item_id: int) -> list[dict]:
         """chest 아이템 획득 커맨드 시퀀스 생성 (조건부/비조건부 공통)."""
@@ -329,6 +354,10 @@ class EventCompiler:
             sw_id = self.resolve_switch_id(event.chest_switch)
             cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 1]})
             indent = 1
+            # 상자 열림 애니메이션 (wait=True: 애니메이션 완료 후 대화 시작)
+            cmds.append(
+                {"code": 212, "indent": indent, "parameters": [-1, _CHEST_OPEN_ANIMATION_ID, True]}
+            )
 
         if event.dialogue_before:
             cmds.append({"code": 101, "indent": indent, "parameters": ["", 0, 0, 2, ""]})
@@ -356,6 +385,14 @@ class EventCompiler:
 
         if event.one_time and event.chest_switch:
             sw_id = self.switch_table.switches[event.chest_switch]
+            # 상자 사라짐 애니메이션 (wait=False: 스위치 ON과 동시에 재생)
+            cmds.append(
+                {
+                    "code": 212,
+                    "indent": indent,
+                    "parameters": [-1, _CHEST_CLOSE_ANIMATION_ID, False],
+                }
+            )
             cmds.append({"code": 121, "indent": indent, "parameters": [sw_id, sw_id, 0]})
             cmds.append({"code": 412, "indent": 0, "parameters": []})  # End If
 
@@ -378,6 +415,10 @@ class EventCompiler:
         # one_time: chest_switch OFF일 때만 실행
         cmds.append({"code": 111, "indent": 0, "parameters": [0, sw_id, 1]})
         indent = 1
+        # 상자 열림 애니메이션 (wait=True: 애니메이션 완료 후 대화 시작)
+        cmds.append(
+            {"code": 212, "indent": indent, "parameters": [-1, _CHEST_OPEN_ANIMATION_ID, True]}
+        )
 
         if dialogue_before:
             cmds.append({"code": 101, "indent": indent, "parameters": ["", 0, 0, 2, ""]})
@@ -399,6 +440,10 @@ class EventCompiler:
             cmds.append({"code": 101, "indent": indent, "parameters": ["", 0, 0, 2, ""]})
             cmds.append({"code": 401, "indent": indent, "parameters": [dialogue_after]})
 
+        # 상자 사라짐 애니메이션 (wait=False: 스위치 ON과 동시에 재생)
+        cmds.append(
+            {"code": 212, "indent": indent, "parameters": [-1, _CHEST_CLOSE_ANIMATION_ID, False]}
+        )
         cmds.append({"code": 121, "indent": indent, "parameters": [sw_id, sw_id, 0]})
         cmds.append({"code": 412, "indent": 0, "parameters": []})  # End If
         cmds.append({"code": 0, "indent": 0, "parameters": []})
@@ -721,7 +766,17 @@ class EventCompiler:
                     character_index=event.chest_character_index,
                     direction_fix=True,
                 )
-                return _make_event(event.name, event.x, event.y, [page1, page2])
+                chest_sw_id = self.resolve_switch_id(event.chest_switch)
+                page3 = _make_page(
+                    [{"code": 0, "indent": 0, "parameters": []}],
+                    _make_switch_condition(chest_sw_id),
+                    trigger=0,
+                    character_name="",
+                    character_index=0,
+                    through=True,
+                    priority=0,
+                )
+                return _make_event(event.name, event.x, event.y, [page1, page2, page3])
             troop_id = self.resolve_troop_id(event.troop)
             can_lose = event.lose_condition != "game_over"
 
@@ -780,7 +835,18 @@ class EventCompiler:
             direction_fix=True,
         )
 
-        return _make_event(event.name, event.x, event.y, [page1, page2])
+        chest_sw_id = self.resolve_switch_id(event.chest_switch)
+        page3 = _make_page(
+            [{"code": 0, "indent": 0, "parameters": []}],
+            _make_switch_condition(chest_sw_id),
+            trigger=0,
+            character_name="",
+            character_index=0,
+            through=True,
+            priority=0,
+        )
+
+        return _make_event(event.name, event.x, event.y, [page1, page2, page3])
 
 
 # ── 공통 헬퍼 ────────────────────────────────────────────────────────────────
