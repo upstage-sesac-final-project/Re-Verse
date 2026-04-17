@@ -527,6 +527,20 @@ class EventCompiler:
             move_speed=random.randint(3, 5),
             move_frequency=5,
         )
+
+        if event.one_time and event.battle_switch:
+            battle_sw_id = self.resolve_switch_id(event.battle_switch)
+            disappeared_page = _make_page(
+                [{"code": 0, "indent": 0, "parameters": []}],
+                _make_switch_condition(battle_sw_id),
+                trigger=0,
+                character_name="",
+                character_index=0,
+                through=True,
+                priority=0,
+            )
+            return _make_event(event.name, event.x, event.y, [page, disappeared_page])
+
         return _make_event(event.name, event.x, event.y, [page])
 
     # ── Shop ─────────────────────────────────────────────────────────────────
