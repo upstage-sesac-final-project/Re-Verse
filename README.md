@@ -222,6 +222,7 @@ RPG Maker MZ 등 **원 저작물·상표·에셋**에 대한 권리는 각 권�
 - [`docs/backend/logging.md`](docs/backend/logging.md) — 로깅
 - [`docs/deployment/deployment.md`](docs/deployment/deployment.md) — 배포(Vercel·EC2 등)
 - [`docs/deployment/ec2-host-monitor.md`](docs/deployment/ec2-host-monitor.md) — EC2 호스트 모니터링
+- [`docs/deployment/ec2-state-discord-alert.md`](docs/deployment/ec2-state-discord-alert.md) — EC2 중지/종료 상태 Discord 알림
 - [`docs/rpgmaker/structure.md`](docs/rpgmaker/structure.md) — RPG Maker 데이터 구조
 - [`docs/rpgmaker/tile_rendering.md`](docs/rpgmaker/tile_rendering.md) — 타일 렌더링
 - [`docs/rpgmaker/image_metadata.md`](docs/rpgmaker/image_metadata.md) — 이미지 메타데이터
