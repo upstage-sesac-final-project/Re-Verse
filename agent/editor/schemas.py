@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class EntityMapping(BaseModel):
@@ -96,3 +96,12 @@ class FinalDefinitionResponse(BaseModel):
     message_for_user: str | None = Field(
         None, description="정보가 부족하거나 사용자에게 전달할 메시지"
     )
+
+    @model_validator(mode="after")
+    def enforce_consistency(self) -> "FinalDefinitionResponse":
+        """modifications가 비어있는데 params_sufficient=True인 모순 방지."""
+        if not self.modifications and self.params_sufficient:
+            self.params_sufficient = False
+            if not self.message_for_user:
+                self.message_for_user = "요청을 수정 명세로 변환하지 못했습니다. 어떤 내용을 바꾸고 싶은지 다시 알려주세요."
+        return self

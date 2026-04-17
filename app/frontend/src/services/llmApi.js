@@ -51,5 +51,6 @@ export async function sendPrompt(message, projectId) {
     intent: data.intent,
     affected_files: data.affected_files,
     changes_log: data.changes_log ?? [],
+    reload_required: data.reload_required ?? false,
   }
 }

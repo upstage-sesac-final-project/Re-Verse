@@ -95,27 +95,102 @@ def is_walkable(
             if not found_base:
                 return False
     else:
-        # tilesets가 None이거나 인덱스가 유효하지 않은 경우 (로그 출력)
-        if not tilesets:
-            logger.warning(
-                "is_walkable(x=%d, y=%d): tilesets 데이터가 None입니다! (폴백 로직 수행)", x, y
-            )
-        else:
-            logger.warning(
-                "is_walkable(x=%d, y=%d): tileset_id(%d)가 범위를 벗어났습니다 (len=%d).",
-                x,
-                y,
-                tileset_id,
-                len(tilesets),
-            )
+        # 3. 폴백 (알고리즘 생성 맵용)
+        val_l5 = get_tile(data, x, y, width, height, 5)
+        return val_l5 == 0
 
-    # 3. 폴백 (알고리즘 생성 맵용)
-    val_l5 = get_tile(data, x, y, width, height, 5)
-    return val_l5 == 0
+    return True
 
-    # 3. 폴백 (알고리즘 생성 맵용)
-    val_l5 = get_tile(data, x, y, width, height, 5)
-    return val_l5 == 0
+
+def is_potential_path(
+    data: list[int],
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    tileset_id: int,
+    tilesets: list | None = None,
+) -> bool:
+    """관절점 탐지 그래프 구성을 위한 완화된 통행 판정.
+
+    4방향 중 일부가 막혀 있더라도(절벽 길, 다리 등), 4방향이 모두 막힌 경우(0x0F)가
+    아니라면 '길'의 일부로 간주하여 그래프 노드에 포함시킵니다.
+    """
+    if not (0 <= x < width and 0 <= y < height):
+        return False
+
+    region_id = get_tile(data, x, y, width, height, 5)
+    if region_id == 1:
+        return False
+
+    if tilesets and 0 <= tileset_id < len(tilesets):
+        ts = tilesets[tileset_id]
+        if ts and "flags" in ts:
+            flags = ts["flags"]
+            found_base = False
+            for layer in [3, 2, 1, 0]:
+                tile_id = get_tile(data, x, y, width, height, layer)
+                if tile_id == 0:
+                    continue
+                if tile_id < len(flags):
+                    f = flags[tile_id]
+                    if f & FLAG_STAR:
+                        continue
+                    if layer <= 1:
+                        found_base = True
+                    if (f & 0x0F) == 0x0F:  # 4방향 모두 막힘
+                        return False
+                    return True
+            if not found_base:
+                return False
+    return True
+
+
+def get_bottleneck_coords(
+    data: list[int],
+    width: int,
+    height: int,
+    tileset_id: int,
+    tilesets: list | None,
+    spawn_x: int,
+    spawn_y: int,
+) -> set[tuple[int, int]]:
+    """관절점과 1칸 너비 통로를 결합하여 병목 지점(차단성 이벤트 배치 금지 구역)을 반환합니다."""
+    # 1. 완화된 기준으로 도달 가능한 모든 '잠재적 경로' 수집
+    reachable_potential = set()
+    visited = {(spawn_x, spawn_y)}
+    queue = deque([(spawn_x, spawn_y)])
+
+    while queue:
+        x, y = queue.popleft()
+        reachable_potential.add((x, y))
+        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < width and 0 <= ny < height and (nx, ny) not in visited:
+                if is_potential_path(data, nx, ny, width, height, tileset_id, tilesets):
+                    visited.add((nx, ny))
+                    queue.append((nx, ny))
+
+    # 2. 관절점 탐지
+    ap_set = find_articulation_points(reachable_potential)
+
+    # 3. 1칸 너비 통로(Corridor) 탐지 추가
+    bottlenecks = set(ap_set)
+    for x, y in reachable_potential:
+        # 4방향 중 잠재적 경로인 이웃 수 체크
+        nbrs = []
+        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+            nx, ny = x + dx, y + dy
+            if (nx, ny) in reachable_potential:
+                nbrs.append((nx, ny))
+
+        if len(nbrs) == 2:
+            (x1, y1), (x2, y2) = nbrs
+            # 일직선 통로 (상하 또는 좌우)인 경우 병목으로 간주
+            if abs(x1 - x2) + abs(y1 - y2) > 1:
+                bottlenecks.add((x, y))
+
+    return bottlenecks
 
 
 def find_nearest_safe_coord(
@@ -190,16 +265,7 @@ def filter_non_corridor_coords(
     tileset_id: int,
     tilesets: list | None = None,
 ) -> list[tuple[int, int]]:
-    """좌표 목록에서 좁은 통로(corridor) 타일을 제거하여 반환합니다.
-
-    좁은 통로 판별 기준:
-    - 4방향 보행 가능한 이웃 타일이 정확히 2개이고
-    - 그 2개가 서로 인접하지 않은 경우 (예: 북+남, 동+서, 북+동 등 직접 연결 불가)
-
-    이러한 타일에 이벤트를 배치하면 플레이어의 이동 경로가 차단될 수 있습니다.
-
-    비-통로 좌표가 전체의 20% 미만이면 원본 목록을 반환합니다 (던전 등 통로가 많은 맵 고려).
-    """
+    """좌표 목록에서 좁은 통로(corridor) 타일을 제거하여 반환합니다."""
     coords_set = set(coords)
 
     def walkable_neighbors(x: int, y: int) -> list[tuple[int, int]]:
@@ -230,6 +296,56 @@ def filter_non_corridor_coords(
         return list(coords)
 
     return non_corridor
+
+
+def find_articulation_points(walkable: set[tuple[int, int]]) -> set[tuple[int, int]]:
+    """walkable 타일 그래프에서 관절점(articulation point) 집합 반환."""
+    if len(walkable) < 3:
+        return set()
+
+    DIRS = ((0, 1), (0, -1), (1, 0), (-1, 0))
+
+    def neighbors(pos: tuple[int, int]) -> list[tuple[int, int]]:
+        x, y = pos
+        return [(x + dx, y + dy) for dx, dy in DIRS if (x + dx, y + dy) in walkable]
+
+    start = next(iter(walkable))
+    disc: dict[tuple[int, int], int] = {}
+    low: dict[tuple[int, int], int] = {}
+    parent: dict[tuple[int, int], tuple[int, int] | None] = {start: None}
+    ap: set[tuple[int, int]] = set()
+    timer = [0]
+    root_children = [0]
+
+    disc[start] = low[start] = timer[0]
+    timer[0] += 1
+    stack: list = [(start, iter(neighbors(start)))]
+
+    while stack:
+        u, it = stack[-1]
+        try:
+            v = next(it)
+            if v not in disc:
+                parent[v] = u
+                if u == start:
+                    root_children[0] += 1
+                disc[v] = low[v] = timer[0]
+                timer[0] += 1
+                stack.append((v, iter(neighbors(v))))
+            elif v != parent.get(u):
+                low[u] = min(low[u], disc[v])
+        except StopIteration:
+            stack.pop()
+            if stack:
+                p = stack[-1][0]
+                low[p] = min(low[p], low[u])
+                if parent[p] is not None and low[u] >= disc[p]:
+                    ap.add(p)
+
+    if root_children[0] > 1:
+        ap.add(start)
+
+    return ap
 
 
 def get_reachable_coords(
@@ -283,11 +399,7 @@ def are_exits_reachable(
     exit_coords: set[tuple[int, int]],
     event_positions: set[tuple[int, int]],
 ) -> bool:
-    """이벤트 배치 후에도 스폰 → 모든 출구 타일이 도달 가능한지 BFS로 검증합니다.
-
-    event_positions에 있는 타일은 이벤트가 점유해 통행 불가로 간주합니다.
-    출구 타일이 없으면 항상 True를 반환합니다.
-    """
+    """이벤트 배치 후에도 스폰 → 모든 출구 타일이 도달 가능한지 BFS로 검증합니다."""
     if not exit_coords:
         return True
 
@@ -306,7 +418,7 @@ def are_exits_reachable(
             if nb in visited or nb in event_positions:
                 continue
             if 0 <= nx < width and 0 <= ny < height:
-                if is_walkable(data, nx, ny, width, height, tileset_id, tilesets):
+                if is_potential_path(data, nx, ny, width, height, tileset_id, tilesets):
                     visited.add(nb)
                     queue.append(nb)
 
