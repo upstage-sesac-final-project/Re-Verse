@@ -6,6 +6,7 @@ canonical: docs/The_world/game_ending_design.md
 """
 
 import logging
+import random
 import re
 
 from agent.generation.compilers.dsl_models import (
@@ -190,6 +191,8 @@ class EventCompiler:
                 character_name=event.character_name,
                 character_index=event.character_index,
                 move_type=1,
+                move_speed=random.randint(2, 4),
+                move_frequency=4,
             )
         )
 
@@ -208,6 +211,8 @@ class EventCompiler:
                     character_name=event.character_name,
                     character_index=event.character_index,
                     move_type=1,
+                    move_speed=random.randint(2, 4),
+                    move_frequency=4,
                 )
             )
 
@@ -474,6 +479,8 @@ class EventCompiler:
             character_name=event.character_name,
             character_index=event.character_index,
             move_type=1,
+            move_speed=random.randint(3, 5),
+            move_frequency=5,
         )
         return _make_event(event.name, event.x, event.y, [page])
 
@@ -513,6 +520,8 @@ class EventCompiler:
             character_name=event.character_name,
             character_index=event.character_index,
             move_type=1,
+            move_speed=random.randint(2, 4),
+            move_frequency=4,
         )
         return _make_event(event.name, event.x, event.y, [page])
 
@@ -602,6 +611,8 @@ class EventCompiler:
                     character_name=event.keeper_character_name,
                     character_index=event.keeper_character_index,
                     move_type=1,
+                    move_speed=random.randint(2, 4),
+                    move_frequency=4,
                 )
             )
 
@@ -690,6 +701,7 @@ class EventCompiler:
                     character_name=event.quest_character_name,
                     character_index=event.quest_character_index,
                     move_type=1,
+                    move_speed=random.randint(2, 4),
                 )
                 # Page 2: quest_switch ON 시 열리는 상자 (battle 이벤트가 quest_switch를 ON해야 함)
                 item_id = self.resolve_item_id(event.item, event.item_type)
@@ -745,6 +757,7 @@ class EventCompiler:
                 through=False,
                 priority=1,
                 move_type=1,
+                move_speed=random.randint(3, 5),
             )
 
         # ── Page 2: 보물상자 ─────────────────────────────────────────────────
@@ -824,7 +837,11 @@ def _wrap_text(text: str, max_chars: int = 22) -> list[str]:
         # 3단계: 남은 current가 초과면 글자 수 강제 분할
         while len(current) > max_chars:
             result.append(current[:max_chars])
-            current = current[max_chars:]
+            current = (
+                current[current.find(" ", max_chars) + 1 :]
+                if " " in current[max_chars:]
+                else current[max_chars:]
+            )
         if current:
             result.append(current)
 
