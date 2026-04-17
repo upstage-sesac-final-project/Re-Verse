@@ -225,6 +225,10 @@ STEP5_SYSTEM_PROMPT = """당신은 수집된 정보를 바탕으로 RPG Maker MZ
    - `property`를 실제 RPG Maker 필드명으로 바꾸는 작업은 당신의 책임입니다.
    - 예: "초기 레벨" -> `initialLevel`, "닉네임" -> `nickname`
    - 코드가 후처리로 필드명을 바꿔주지 않는다고 가정하고 정확한 canonical field를 직접 작성하십시오.
+10. **params_sufficient와 modifications의 일관성 — 절대 규칙**:
+   - `modifications`가 비어있으면(`[]`) `params_sufficient`는 반드시 `false`여야 합니다. 이 두 값이 모순되는 응답(`modifications=[]` + `params_sufficient=true`)은 시스템 오류를 유발하므로 절대 허용되지 않습니다.
+   - `params_sufficient=true`로 응답하려면 `modifications`에 반드시 하나 이상의 항목이 있어야 합니다.
+   - 요청을 수정 명세로 변환할 수 없다면, `modifications=[]` + `params_sufficient=false` + `message_for_user`(사용자 안내 메시지)를 반환하십시오.
 """
 
 
