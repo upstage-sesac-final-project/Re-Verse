@@ -68,16 +68,26 @@ RPG Maker MZ는 강력하지만, 에디터를 처음 다루는 사람에게는 �
     → (프론트에서) 게임 실행 또는 다음 지시
 ```
 
-에이전트 쪽 **노드 순서**는 대략 다음과 같이 이해하면 됩니다.
+에이전트는 두 갈래로 나뉩니다.
 
-`router` → `definition` → `planner` → `executor` → `validator` → `synthesizer`
+**1) Editor (증분 편집, `agent/editor/`)** — 채팅 한 턴마다 도는 LangGraph.
+`router` → (`reader` | `definition` → `planner` → [`profiler`] → `executor` → `validator` → `synthesizer`)
 
-- **Router:** 무엇을 할지 분기
-- **Planner / Executor:** 무엇을 어떤 파일에 어떻게 적용할지
-- **Validator:** 스키마·일관성 검사 (`validation_results` 형태로 반환)
-- **Synthesizer:** 사용자에게 돌려줄 자연어 응답 정리
+- **Router:** intent 분류 — 조회/편집/잡담/범위 외 분기
+- **Reader:** 단순 조회는 여기서 응답하고 종료
+- **Definition:** 자연어 → operation IR (subject/property/value/action 추출, GameIndex 매핑)
+- **Planner:** rule-engine 기반 execution plan 생성 (LLM 0회)
+- **Profiler:** create step 의 빈 필드를 의미적으로 채움 (LLM)
+- **Executor:** executor_v2 dispatch — Actors/Classes/Items/Weapons/Armors/Skills/Enemies/States/System/Map### CRUD
+- **Validator:** schema 검증 + semantic judge + partial retry (backedge 없음)
+- **Synthesizer:** 사용자에게 돌려줄 자연어 응답
 
-자세한 노드 동작은 `docs/`와 `agent/editor/` 소스를 함께 보면 좋습니다.
+**2) Generator (게임 컴파일, `agent/generation/`)** — 신규 프로젝트 1회 풀 빌드.
+`game_designer` → `asset_planner` → `asset_generator` → (`map_designer` → `tile_generator` | `sample_map_selector`) → `story_planner` → `event_planner` → `event_compiler` → `integrator` → `validator` → `responder`
+
+- `phase_limit` 으로 assets/maps/full 단계 제어, `map_source` 로 알고리즘/샘플 선택
+
+자세한 노드 동작은 `docs/`와 `agent/editor/`, `agent/generation/` 소스를 함께 보면 좋습니다.
 
 ---
 
@@ -231,3 +241,14 @@ RPG Maker MZ 등 **원 저작물·상표·에셋**에 대한 권리는 각 권�
 - [`docs/tests.md`](docs/tests.md) — 테스트 관련
 
 추가로 [`docs/project/concurrency_issues.md`](docs/project/concurrency_issues.md), [`docs/frontend/game_data_viewer_improvement.md`](docs/frontend/game_data_viewer_improvement.md) 등은 `docs/` 하위에서 확인할 수 있습니다.
+
+---
+
+## 🔌 MCP 참고
+
+본 프로젝트의 RPG Maker MZ 데이터 조작 인터페이스(MCP 툴) 설계 시 참고한 선행 오픈소스입니다. 현재 런타임은 Path E(MCP 비활성, executor_v2 직접 dispatch) 로 운영 중이며, 아래 레포들의 도구 설계와 핸들러 시그니처를 참고했습니다.
+
+- [k4zuki0539/-rpgmaker-mz-mcp](https://github.com/k4zuki0539/-rpgmaker-mz-mcp)
+- [devmagary/MCP-Maker](https://github.com/devmagary/MCP-Maker)
+- [rein1225/RPGMakerMZ_MCP](https://github.com/rein1225/RPGMakerMZ_MCP)
+- shunsukehayashi/rpgmaker-mz-mcp (링크 미공개)
