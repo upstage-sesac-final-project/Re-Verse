@@ -101,6 +101,9 @@ async def event_planner(state: GenerationState) -> dict:
         # 이 맵 screenplay에 없는 quest_chest 제거 (LLM이 다른 맵 아이템 생성하는 것 방지)
         result = _filter_extra_quest_chests(result, screenplay, spec.map_id)
 
+        # 상점(shop) 이벤트 1개 필수 보장
+        result = _ensure_single_shop(result, id_table, screenplay, spec)
+
         # ── 공유 used_coords 구성 ──────────────────────────────────────────
         # Layer 1 이벤트 좌표 + entry_tiles(플레이어 도착 지점) + exit_tiles(게이트 배치 예정)
         # → _ensure_acquisition_events / _validate_move_event_coords에서 중복 배치 방지
@@ -1215,6 +1218,56 @@ def _strip_llm_move_events(events: list, map_id: int) -> list:
     if removed:
         logger.info("Map%d LLM 이동 이벤트 %d개 제거 (코드 대체)", map_id, removed)
     return stripped
+
+
+def _ensure_single_shop(
+    events: list, id_table: IdTable, map_story: MapScreenplay | None, spec: MapSpec
+) -> list:
+    """모든 맵에 상점(shop) 이벤트가 정확히 1개만 존재하도록 보장.
+    없으면 기본 상점을 강제로 추가하고, 2개 이상이면 첫 번째만 남김.
+    """
+    from agent.generation.compilers.dsl_models import ShopEvent, ShopItem
+
+    shops = [e for e in events if getattr(e, "type", "") == "shop"]
+    if len(shops) == 1:
+        return events
+
+    result = [e for e in events if getattr(e, "type", "") != "shop"]
+
+    if len(shops) > 1:
+        logger.warning("Map%d 상점 이벤트가 %d개 존재함 → 1개만 유지", spec.map_id, len(shops))
+        result.append(shops[0])
+        return result
+
+    # 상점이 없는 경우 생성
+    logger.warning("Map%d 상점 이벤트 누락됨 → 기본 상점 강제 추가", spec.map_id)
+
+    # map_story에서 상점 NPC 이름 추출 시도
+    shop_name = "시장 상인"
+    if map_story and map_story.npcs:
+        # role이나 name에 상점 관련 키워드가 있으면 그 이름을 우선 사용
+        for npc in map_story.npcs:
+            if any(kw in npc.role for kw in ["상", "점", "도구", "시장"]):
+                shop_name = npc.name
+                break
+
+    # 기본 아이템 1개 (id_table에서 가져오기)
+    first_item = next(iter(id_table.items.keys())) if id_table.items else "회복 포션"
+
+    shop_event = ShopEvent(
+        type="shop",
+        name=shop_name,
+        x=spec.width // 2,  # 맵의 중심 근처. 이후 _remove_isolated_events에서 보정됨
+        y=spec.height // 2,
+        trigger="action_button",
+        dialogue="물건을 살펴보시겠습니까?",
+        items=[ShopItem(item=first_item, item_type="item")],
+        purchase_only=False,
+        character_name="People1",
+        character_index=4,
+    )
+    result.append(shop_event)
+    return result
 
 
 def _filter_extra_quest_chests(

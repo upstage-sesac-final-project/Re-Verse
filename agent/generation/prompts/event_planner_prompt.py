@@ -157,7 +157,7 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
 ### shop (상점)
 - x: {정수}
   y: {정수}
-  name: {상점 NPC 이름}  # 예: "무기상인", "도구점주인"
+  name: {상점 NPC 이름}  # 예: "무기상인", "도구점주인", "시장상인", "잡화상"
   type: shop
   trigger: action_button  # 고정 — 변경 금지
   dialogue: "상점 인사 대사"
@@ -167,6 +167,11 @@ SF_Monster (SF 빌런): 0=흰정장마피아, 1=선글라스바이커, 2=검은�
   character_name: People1  # 상점 NPC 스프라이트 — index로 외형 선택
   character_index: 0       # 추천: People4/4=쾌활상인·여관주인, People4/0=학자형상점주인,
   # People2/6=모험가상인, People2/7=발명가상인, People1/4=중년상인남
+
+**shop 생성 규칙:**
+- 모든 맵에 반드시 1개의 상점(shop) 이벤트를 생성해야 합니다 (필수).
+- 맵에 "시장"이나 "상점" 관련 랜드마크가 없더라도, 적절한 위치에 상점 NPC를 배치하세요.
+- 이름은 맵 분위기에 맞춰 "시장 상인", "떠돌이 상인", "비밀 상점" 등으로 지으세요.
 
 ### gate (NPC 문지기 → 워프 전환, 맵 이동 조건 게이트)
 - x: {정수}
@@ -349,9 +354,9 @@ events:
 # ── 맵 타입별 허용 이벤트 섹션 ──────────────────────────────────────────────
 _ALLOWED_SECTIONS: dict[str, frozenset[str]] = {
     "town": frozenset({"npc", "transfer", "chest", "shop", "gate", "quest_chest"}),
-    "dungeon": frozenset({"npc", "transfer", "chest", "battle", "gate", "quest_chest"}),
-    "boss": frozenset({"npc", "battle", "ending", "quest_chest"}),
-    "field": frozenset({"npc", "transfer", "chest", "battle", "gate", "quest_chest"}),
+    "dungeon": frozenset({"npc", "transfer", "chest", "battle", "shop", "gate", "quest_chest"}),
+    "boss": frozenset({"npc", "battle", "shop", "ending", "quest_chest"}),
+    "field": frozenset({"npc", "transfer", "chest", "battle", "shop", "gate", "quest_chest"}),
 }
 _ALLOWED_SECTIONS_DEFAULT = frozenset(
     {"npc", "transfer", "chest", "battle", "shop", "gate", "quest_chest", "ending"}
@@ -670,8 +675,8 @@ def _describe_required_events(
             "- [체크리스트 1] NPC → npc 타입 이벤트로 1:1 생성 (대사·set_switch 그대로)\n"
             "- [체크리스트 2] 아이템 → quest_chest 타입으로 1:1 생성 (chest_switch 그대로)\n"
             "  quest_type: npc (NPC 대화 → 보물상자 등장)\n"
-            "- 상점 이벤트 (상점 랜드마크 있으면 선택)\n"
-            "⚠️ 체크리스트에 없는 NPC/아이템 이벤트 추가 생성 금지\n"
+            "- 상점 이벤트 (type: shop) 반드시 1개 생성 (필수, 2개 이상 금지)\n"
+            "⚠️ 체크리스트에 없는 NPC/아이템 이벤트 추가 생성 금지 (단, 상점은 예외로 1개 필수 생성)\n"
             "⚠️ gate/transfer/battle/ending 이벤트 직접 생성 금지\n"
             "   — 이동 이벤트는 코드가 자동 생성하므로 YAML에 포함하지 마세요"
         )
@@ -683,7 +688,8 @@ def _describe_required_events(
             "  quest_type: battle 권장 (전투 승리 → 보물상자 등장)\n"
             "  ⚠️ 이 이벤트 없으면 게이트 스위치 ON 불가 → 탈출 영구 불가\n"
             "- 전투 이벤트 1~2개 추가 가능 (battle 타입, one_time=true)\n"
-            "⚠️ 체크리스트에 없는 NPC/아이템 이벤트 추가 생성 금지\n"
+            "- 상점 이벤트 (type: shop) 반드시 1개 생성 (필수, 2개 이상 금지)\n"
+            "⚠️ 체크리스트에 없는 NPC/아이템 이벤트 추가 생성 금지 (단, 상점은 예외로 1개 필수 생성)\n"
             "⚠️ gate/transfer/ending 이벤트 직접 생성 금지\n"
             "   — 이동 이벤트는 코드가 자동 생성하므로 YAML에 포함하지 마세요"
         )
@@ -700,6 +706,7 @@ def _describe_required_events(
             f"- [체크리스트 4] 보스 전투 (type: battle, troop: {troop_key}, "
             f"lose_condition: game_over, battle_switch: {boss_name}_defeated)\n"
             f"- 엔딩 이벤트 (type: ending, condition_switch: {boss_name}_defeated, action: title)\n"
+            "- 상점 이벤트 (type: shop) 반드시 1개 생성 (필수, 2개 이상 금지)\n"
             "⚠️ gate/transfer 이벤트 직접 생성 금지 — 이동 이벤트는 코드가 자동 생성\n"
             "⚠️ battle과 ending의 x, y 좌표는 반드시 달라야 함"
         )

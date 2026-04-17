@@ -181,7 +181,7 @@ class EventCompiler:
 
         # 페이지 1: 기본 대화
         page1_cmds = _build_dialogue_commands(
-            event.face_image, event.face_index, event.name, event.dialogue
+            event.character_name, event.character_index, event.name, event.dialogue
         )
         if event.set_switch:
             sw_id = self.resolve_switch_id(event.set_switch)
@@ -204,7 +204,7 @@ class EventCompiler:
         if event.condition_switch and event.alt_dialogue:
             cond_sw_id = self.resolve_switch_id(event.condition_switch)
             page2_cmds = _build_dialogue_commands(
-                event.face_image, event.face_index, event.name, event.alt_dialogue
+                event.character_name, event.character_index, event.name, event.alt_dialogue
             )
             page2_cmds.append({"code": 0, "indent": 0, "parameters": []})
             pages.append(
@@ -248,7 +248,9 @@ class EventCompiler:
             # 페이지 1 (조건 OFF): blocked_message 출력 또는 빈 이벤트
             cond_sw_id = self.resolve_switch_id(event.condition_switch)
             if event.blocked_message:
-                blocked_cmds = _build_dialogue_commands("", 0, "", [event.blocked_message])
+                blocked_cmds = _build_dialogue_commands(
+                    event.character_name, event.character_index, event.name, [event.blocked_message]
+                )
                 blocked_cmds.append({"code": 0, "indent": 0, "parameters": []})
             else:
                 blocked_cmds = [{"code": 0, "indent": 0, "parameters": []}]
@@ -552,8 +554,11 @@ class EventCompiler:
         cmds: list[dict] = []
 
         if event.dialogue:
-            cmds.append({"code": 101, "indent": 0, "parameters": ["", 0, 0, 2, event.name]})
-            cmds.append({"code": 401, "indent": 0, "parameters": [event.dialogue]})
+            cmds.extend(
+                _build_dialogue_commands(
+                    event.character_name, event.character_index, event.name, [event.dialogue]
+                )
+            )
 
         first = event.items[0]
         goods_type = _ITEM_TYPE_TO_GOODS_CODE.get(first.item_type, 0)
@@ -659,7 +664,9 @@ class EventCompiler:
                 conditions["switch2Id"] = cond_sw_ids[1]
                 conditions["switch2Valid"] = True
 
-            cmds = _build_dialogue_commands("", 0, event.name, [dialogue])
+            cmds = _build_dialogue_commands(
+                event.keeper_character_name, event.keeper_character_index, event.name, [dialogue]
+            )
             cmds.append({"code": 0, "indent": 0, "parameters": []})
 
             pages.append(
@@ -725,7 +732,10 @@ class EventCompiler:
             # Page 1: 힌트 대사만 출력 — quest_switch는 별도 NpcEvent가 ON시켜야 chest 등장
             # (여기서 스스로 ON하면 NPC 대화 즉시 chest로 변신 → 너무 쉬운 획득)
             npc_cmds = _build_dialogue_commands(
-                "", 0, event.name, event.quest_dialogue or ["먼저 퀘스트를 받아야 합니다."]
+                event.quest_character_name,
+                event.quest_character_index,
+                event.name,
+                event.quest_dialogue or ["먼저 퀘스트를 받아야 합니다."],
             )
             npc_cmds.append({"code": 0, "indent": 0, "parameters": []})
 
