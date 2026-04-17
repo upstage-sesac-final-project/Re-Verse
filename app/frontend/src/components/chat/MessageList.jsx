@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react'
+import { useSelector } from 'react-redux'
 import ReactMarkdown from 'react-markdown'
 import ChangesBadge from './ChangesBadge'
 
 export default function MessageList({ messages, onRetry }) {
   const bottomRef = useRef(null)
+  const { user } = useSelector((s) => s.user)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -35,7 +37,7 @@ export default function MessageList({ messages, onRetry }) {
               fontSize: '9px',
             }}
           >
-            {msg.role === 'user' ? '' : 'R'}
+            {msg.role === 'user' ? (user?.username || '?')[0].toUpperCase() : 'R'}
           </div>
           <div
             className="max-w-[80%] px-3 py-2 rounded-lg text-sm"

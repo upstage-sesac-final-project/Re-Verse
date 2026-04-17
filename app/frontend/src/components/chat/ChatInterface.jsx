@@ -65,7 +65,7 @@ export default function ChatInterface({ projectId, onGameUpdate, isCollapsed, on
     try {
       const response = await sendPrompt(text, projectId)
       setMessages((prev) => [...prev, { id: id + 1, ...response }])
-      onGameUpdate?.()
+      if (response.reload_required) onGameUpdate?.()
     } catch (err) {
       setMessages((prev) => [
         ...prev,
