@@ -189,6 +189,7 @@ class EventCompiler:
                 _trigger_code(event.trigger),
                 character_name=event.character_name,
                 character_index=event.character_index,
+                move_type=1,
             )
         )
 
@@ -206,6 +207,7 @@ class EventCompiler:
                     _trigger_code(event.trigger),
                     character_name=event.character_name,
                     character_index=event.character_index,
+                    move_type=1,
                 )
             )
 
@@ -248,6 +250,7 @@ class EventCompiler:
                 trigger,
                 character_name=event.character_name,
                 character_index=event.character_index,
+                direction_fix=True,
             )
             # 페이지 2 (조건 ON): 실제 이동
             page2 = _make_page(
@@ -256,6 +259,7 @@ class EventCompiler:
                 trigger,
                 character_name=event.character_name,
                 character_index=event.character_index,
+                direction_fix=True,
             )
             return _make_event(event.name, event.x, event.y, [page1, page2])
 
@@ -265,6 +269,7 @@ class EventCompiler:
             trigger,
             character_name=event.character_name,
             character_index=event.character_index,
+            direction_fix=True,
         )
         return _make_event(event.name, event.x, event.y, [page])
 
@@ -294,6 +299,7 @@ class EventCompiler:
                 trigger=0,  # action_button
                 character_name=event.character_name,
                 character_index=event.character_index,
+                direction_fix=True,
             )
             return _make_event(event.name, event.x, event.y, [page1, page2])
 
@@ -303,6 +309,7 @@ class EventCompiler:
             _trigger_code("action_button"),
             character_name=event.character_name,
             character_index=event.character_index,
+            direction_fix=True,
         )
         return _make_event(event.name, event.x, event.y, [page])
 
@@ -466,6 +473,7 @@ class EventCompiler:
             trigger=0,  # action_button: 막힐 때 자동 발동
             character_name=event.character_name,
             character_index=event.character_index,
+            move_type=1,
         )
         return _make_event(event.name, event.x, event.y, [page])
 
@@ -504,6 +512,7 @@ class EventCompiler:
             _trigger_code(event.trigger),
             character_name=event.character_name,
             character_index=event.character_index,
+            move_type=1,
         )
         return _make_event(event.name, event.x, event.y, [page])
 
@@ -592,6 +601,7 @@ class EventCompiler:
                     trigger=0,  # action_button
                     character_name=event.keeper_character_name,
                     character_index=event.keeper_character_index,
+                    move_type=1,
                 )
             )
 
@@ -619,6 +629,7 @@ class EventCompiler:
                 trigger=1,  # player_touch
                 character_name=event.gate_character_name,
                 character_index=event.gate_character_index,
+                direction_fix=True,
             )
         )
 
@@ -654,6 +665,7 @@ class EventCompiler:
                 trigger=0,  # action_button
                 character_name=event.quest_character_name,
                 character_index=event.quest_character_index,
+                move_type=1,
             )
         else:  # battle
             if not event.troop:
@@ -677,6 +689,7 @@ class EventCompiler:
                     trigger=0,
                     character_name=event.quest_character_name,
                     character_index=event.quest_character_index,
+                    move_type=1,
                 )
                 # Page 2: quest_switch ON 시 열리는 상자 (battle 이벤트가 quest_switch를 ON해야 함)
                 item_id = self.resolve_item_id(event.item, event.item_type)
@@ -694,6 +707,7 @@ class EventCompiler:
                     trigger=0,
                     character_name=event.chest_character_name,
                     character_index=event.chest_character_index,
+                    direction_fix=True,
                 )
                 return _make_event(event.name, event.x, event.y, [page1, page2])
             troop_id = self.resolve_troop_id(event.troop)
@@ -730,6 +744,7 @@ class EventCompiler:
                 character_index=event.battle_character_index,
                 through=False,
                 priority=1,
+                move_type=1,
             )
 
         # ── Page 2: 보물상자 ─────────────────────────────────────────────────
@@ -749,6 +764,7 @@ class EventCompiler:
             trigger=0,  # action_button
             character_name=event.chest_character_name,
             character_index=event.chest_character_index,
+            direction_fix=True,
         )
 
         return _make_event(event.name, event.x, event.y, [page1, page2])
@@ -882,13 +898,16 @@ def _make_page(
     cmds: list[dict],
     conditions: dict,
     trigger: int,
-    direction_fix: bool = True,
+    direction_fix: bool = False,
     priority: int = 1,
     walk_anime: bool = True,
     step_anime: bool = False,
     character_name: str = "",
     character_index: int = 0,
     through: bool = False,
+    move_type: int = 0,
+    move_speed: int = 3,
+    move_frequency: int = 3,
 ) -> dict:
     return {
         "conditions": conditions,
@@ -901,15 +920,15 @@ def _make_page(
             "tileId": 0,
         },
         "list": cmds,
-        "moveFrequency": 3,
+        "moveFrequency": move_frequency,
         "moveRoute": {
             "list": [{"code": 0, "parameters": []}],
             "repeat": True,
             "skippable": False,
             "wait": False,
         },
-        "moveSpeed": 3,
-        "moveType": 0,
+        "moveSpeed": move_speed,
+        "moveType": move_type,
         "priorityType": priority,
         "stepAnime": step_anime,
         "through": through,
