@@ -262,6 +262,9 @@ async def start_generation(
     if not project or project.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
 
+    project.description = req.prompt
+    await db.commit()
+
     generation_id = f"gen_{uuid4().hex[:8]}"
     _generation_owners[generation_id] = current_user.id
     _project_generations[req.project_id] = generation_id

@@ -42,6 +42,8 @@ export default function Dashboard() {
   const [genModal, setGenModal] = useState(null)
   const [genProjectId, setGenProjectId] = useState(null)
 
+  const [descModal, setDescModal] = useState(null)
+
   const wsRef = useRef(null)
   const pollingRef = useRef(null)
   const WS_BASE = useRef(
@@ -123,12 +125,13 @@ export default function Dashboard() {
     if (!genProjectId || gen.projectId !== genProjectId) return
     if (['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(gen.status)) {
       setGenModal('result')
+      dispatch(fetchProjects())
     }
     // queued → in_progress 전환 시 모달이 열려있으면 progress로 변경
     if (gen.status === 'in_progress' && genModal === 'progress') {
       // 이미 progress 모달이므로 자동으로 진행률 바로 전환됨 (GenerationProgress가 status 읽음)
     }
-  }, [gen.status, gen.projectId, genProjectId, genModal])
+  }, [gen.status, gen.projectId, genProjectId, genModal, dispatch])
 
   async function handleCreate(e) {
     e.preventDefault()
@@ -288,9 +291,6 @@ export default function Dashboard() {
                   onClick={generating ? () => { setGenProjectId(project.id); setGenModal('progress') } : undefined}>
                   <div className="flex-1 mb-3">
                     <h3 className="font-medium text-sm mb-0.5" style={{ color: 'var(--text-primary)' }}>{project.name}</h3>
-                    {project.description && (
-                      <p className="text-xs line-clamp-2 mb-1" style={{ color: 'var(--text-secondary)' }}>{project.description}</p>
-                    )}
                     <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{relativeTime(project.updated_at)}</p>
                   </div>
 
@@ -333,12 +333,20 @@ export default function Dashboard() {
                       style={{ background: 'var(--accent)', color: '#fff' }}>
                       게임 편집
                     </button>
-                    <button onClick={() => openGenForm(project.id)}
-                      disabled={isGenerating}
-                      className="re-btn-secondary flex-1 py-1.5 text-xs rounded-md font-medium disabled:opacity-30"
-                      style={{ background: 'var(--border)', color: 'var(--text-primary)' }}>
-                      {generating ? '생성 중...' : 'AI 생성'}
-                    </button>
+                    {project.description ? (
+                      <button onClick={() => setDescModal(project)}
+                        className="re-btn-secondary flex-1 py-1.5 text-xs rounded-md font-medium"
+                        style={{ background: 'var(--border)', color: 'var(--text-primary)' }}>
+                        상세보기
+                      </button>
+                    ) : (
+                      <button onClick={() => openGenForm(project.id)}
+                        disabled={isGenerating}
+                        className="re-btn-secondary flex-1 py-1.5 text-xs rounded-md font-medium disabled:opacity-30"
+                        style={{ background: 'var(--border)', color: 'var(--text-primary)' }}>
+                        {generating ? '생성 중...' : 'AI 생성'}
+                      </button>
+                    )}
                     <button onClick={() => setDeleteTarget(project)}
                       disabled={isGenerating}
                       className="py-1.5 px-2 text-xs rounded-md transition-colors hover:bg-red-500/10 disabled:opacity-30"
@@ -360,6 +368,27 @@ export default function Dashboard() {
           </div>
         )}
       </main>
+
+      {/* 상세보기 모달 */}
+      {descModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: 'rgba(0,0,0,0.6)' }}>
+          <div className="rounded-xl w-full max-w-lg mx-4" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{descModal.name}</h3>
+              <button onClick={() => setDescModal(null)}
+                className="w-7 h-7 flex items-center justify-center rounded transition-opacity hover:opacity-70"
+                style={{ color: 'var(--text-secondary)' }}>
+                ✕
+              </button>
+            </div>
+            <div className="p-5">
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+                {descModal.description}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 삭제 확인 모달 */}
       {deleteTarget && (
