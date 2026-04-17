@@ -7,6 +7,7 @@ canonical: docs/The_world/IMPLEMENTATION_GUIDE.md §4.H
 
 import json
 import logging
+import secrets
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -536,7 +537,9 @@ def build_system_json_phase2(
         "tileSize": 48,
         "titleCommandWindow": {"background": 0, "offsetX": 0, "offsetY": 0},
         "advanced": {
-            "gameId": 72894844,
+            # 프로젝트별 고유 gameId — 같은 origin 에서 localStorage(`rmmzsave.<gameId>.*`)
+            # 가 섞이지 않도록 1..2^31-1 범위의 난수로 생성.
+            "gameId": secrets.randbelow(2**31 - 1) + 1,
             "screenWidth": 816,
             "screenHeight": 624,
             "uiAreaWidth": 816,
