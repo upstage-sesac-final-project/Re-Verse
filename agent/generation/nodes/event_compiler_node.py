@@ -25,6 +25,7 @@ async def event_compiler_node(state: GenerationState) -> dict:
     id_table: IdTable = state["id_table"]  # type: ignore[assignment]
     switch_table: SwitchTable = state["switch_table"]  # type: ignore[assignment]
     map_tiles: dict[int, list[int]] = state.get("map_tiles") or {}
+    connection_info = state.get("connection_info") or {}
 
     # 맵별 도달 가능 좌표 집합을 미리 구성 (중복 해결 시 안전한 위치 탐색에 사용)
     from agent.generation.mapgen.tile_checker import get_reachable_coords
@@ -69,6 +70,27 @@ async def event_compiler_node(state: GenerationState) -> dict:
 
         reachable_set = reachable_by_map.get(map_id, set())
         used_positions: set[tuple[int, int]] = set()
+
+        # 플레이어 시작 지점 및 주변 8칸 예약 (끼임 및 즉시 트리거 방지)
+        # 모든 진입점(entry_tiles)에 대해 적용하여 어떤 경로로 오든 끼이지 않게 함
+        conn = connection_info.get(map_id)
+        if conn and conn.entry_tiles:
+            for entry in conn.entry_tiles:
+                ex, ey = entry["x"], entry["y"]
+                for dx in [-1, 0, 1]:
+                    for dy in [-1, 0, 1]:
+                        rx, ry = ex + dx, ey + dy
+                        if 0 <= rx < spec.width and 0 <= ry < spec.height:
+                            used_positions.add((rx, ry))
+        else:
+            # fallback: spec.spawn_point 기준
+            sx, sy = spec.spawn_point
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    rx, ry = sx + dx, sy + dy
+                    if 0 <= rx < spec.width and 0 <= ry < spec.height:
+                        used_positions.add((rx, ry))
+
         for dsl_event in dsl_list:
             try:
                 event_dict = compiler.compile(dsl_event)
