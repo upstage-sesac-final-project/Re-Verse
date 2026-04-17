@@ -300,9 +300,10 @@ async def serve_game_file(game_id: str, path: str):
         )
         return RedirectResponse(url=s3_url, status_code=302)
     # 3) base_game 공유 에셋 (img, js, css, audio 등 — data/ 제외)
+    #    Cache-Control: max-age=3600 → iframe 재생성 시 304 재검증 없이 캐시에서 직접 로드
     base_file = Path(settings.BASE_GAME_PATH).resolve() / path
     if base_file.is_file():
-        return FileResponse(str(base_file))
+        return FileResponse(str(base_file), headers={"Cache-Control": "public, max-age=3600"})
     # 4) S3 redirect fallback (EC2에 base_game 없을 때)
     if settings.STORAGE_BACKEND == "s3":
         s3_prefix = settings.S3_PREFIX.strip("/")
