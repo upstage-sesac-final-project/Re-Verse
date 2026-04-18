@@ -1714,8 +1714,12 @@ async def generate_actors(
         ActorListOutput,
         await invoke_llm(messages, structured_output=ActorListOutput, temperature=_TEMPERATURE),
     )
+    valid_actor_ids = set(id_table.actors.values())
     output: list[Any] = [None]
     for actor in sorted(result.items, key=lambda a: a.id):
+        if actor.id not in valid_actor_ids:
+            logger.warning("LLM이 유효하지 않은 actor id=%d 생성 → 무시", actor.id)
+            continue
         d = actor.model_dump()
 
         # characterName 검증
