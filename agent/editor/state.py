@@ -36,6 +36,7 @@ class AgentState(TypedDict, total=False):
         str  # router 가 coref 해소한 입력 (없으면 빈 문자열). 원본은 user_input 에 남긴다
     )
     game_id: str  # 수정 대상 게임 ID (예: "game_001")
+    conversation_id: str  # pending_store 조회 키 (세션 단위)
 
     # ── 1단계 Router ────────────────────────────────────────
     intent: Literal[
@@ -48,27 +49,51 @@ class AgentState(TypedDict, total=False):
         "범위_외",
     ]
     confidence: float  # 의도 분류 신뢰도 (0.0~1.0)
+    # Phase C 에서 실사용 시작. parsed_command = { field, target, action }
+    parsed_command: dict
+    needs_context_lookup: bool  # 조사·대명사 참조 여부
+    pending_resumed: bool  # 이번 턴이 이전 hold 의 응답인지
 
     # ── 2단계 Definition ────────────────────────────────────
     target_files: list[str]  # 수정 대상 JSON 파일 목록 (예: ["Enemies.json"])
     modifications: list[dict]  # 수정 내용 상세
     extracted_ids: dict  # 이름→ID 매핑 (예: {"enemy_id": 1})
     params_sufficient: bool  # 파라미터 충분 여부
+    # Phase D 에서 실사용 시작. hold / resolve 경로.
+    resolve: bool  # 기본 True. hold 활성 시 False
+    field: str  # 카테고리 (액터 / 무기 / 이벤트 ...)
+    target: str  # 확정된 이름·id 요약
+    description: str  # 한줄 요약 (profiler 가 LLM 프롬프트에 활용)
+    reference_checks: list[dict]  # [{category, name, status(있음/없음/애매), candidates?}]
+    hold_reason: Literal[
+        "already_exists",
+        "not_found",
+        "ambiguous_ref",
+        "page_condition_unclear",
+        "ambiguous_position",
+    ]
+    hold_question: str  # 유저에게 되묻는 문장
+    message_for_user: str  # definition 이 params 불충분 시 유저용 메시지 (drift 정리)
 
     # ── 2.5단계 Operation IR (definition → operation_ir.resolve → planner) ──
     operation_tuples: list[dict]  # 정규화된 operation IR
     plan_meta: dict  # planner → validator (op_idx → step_ids 역매핑)
 
     # ── 3단계 Planner ───────────────────────────────────────
-    game_context: dict  # 플래너 프롬프트에 주입할 현재 게임 데이터
     # 단계별 실행 명령. 레거시: [{"task": "..."}]. 구조화(3단계): step_id, action_type,
     # target_file, target_info, depends_on, condition, description 등.
     execution_plan: list[dict]
+    # Phase E 에서 실사용 시작. profiler 가 채울 빈칸 명세.
+    fill_slots: list[dict]  # [{step_id, field_name, hint, type?}]
+
+    # ── 3.5단계 Profiler ────────────────────────────────────
+    filled_values: dict  # {step_id: {field_name: value}} — profiler 가 LLM 으로 채운 결과
 
     # ── 4단계 Executor ──────────────────────────────────────
     # 파일명 → 스냅샷 JSON **파일 절대 경로(str)** (내용 dict는 graph/utils/game_state_json 로드)
     current_game_state: dict
     modified_game_state: dict
+    modified_file_paths: list[str]  # 실제 수정된 data/*.json 절대 경로 (drift 정리)
 
     # ── 5단계 Validator ─────────────────────────────────────
     validation_results: list  # 파일별 검증 결과 리스트
@@ -77,6 +102,7 @@ class AgentState(TypedDict, total=False):
     judge_feedback: str  # judge 실패 피드백 텍스트 (synthesizer 가 응답에 첨부)
     success: bool  # 전체 검증 통과 여부
     retry_count: int  # 검증 실패 후 재시도 횟수
+    soundness_warnings: list[str]  # 룰 기반 경고 (차단 아님, synthesizer 가 포장)
 
     # ── 6단계 Synthesizer ───────────────────────────────────
     final_response: str  # 사용자에게 전달할 최종 응답
@@ -95,4 +121,3 @@ class AgentState(TypedDict, total=False):
     backup_paths: Annotated[
         dict, _merge_dict
     ]  # 백업 파일 경로들 {"Skills.json": "/path/to/backup.bak"} — retry 시 첫 실행 경로 보존
-    operation_id: str  # 실행 추적용 고유 ID

@@ -39,23 +39,6 @@ def route_after_definition(state: AgentState) -> str:
     return "__end__"
 
 
-def route_after_validator(state: AgentState) -> str:
-    """Validator 이후 분기.
-
-    - 검증 통과 → synthesizer
-    - 검증 실패 + retry < MAX_RETRIES → executor (재시도)
-    - 검증 실패 + retry >= MAX_RETRIES → synthesizer (에러 응답 포함)
-    """
-    success = state.get("success", False)
-    retry_count = state.get("retry_count", 0)
-
-    if success:
-        logger.info("[route] validator → synthesizer (success)")
-        return "synthesizer"
-
-    if retry_count < 2:
-        logger.info("[route] validator → executor (retry %d/2)", retry_count + 1)
-        return "executor"
-
-    logger.warning("[route] validator → synthesizer (max retries reached, retry=%d)", retry_count)
-    return "synthesizer"
+# route_after_validator 는 Phase A 에서 제거됨.
+# 실제 workflow (workflow.py) 는 validator → synthesizer 로 항상 전진한다.
+# retry 는 validator 내부의 run_partial_retry 가 수행한다.

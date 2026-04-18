@@ -984,7 +984,6 @@ def _actors_validate_actor_id_context(
         user_input = getattr(_execute_one_structured_step, "_current_user_input", "")
         if user_input:
             original_request = str(user_input).lower()
-            print(f"🔧 [DEBUG] 원본 사용자 요청: '{user_input[:100]}'")
             logger.warning("[Executor] 🔧 원본 사용자 요청 확인: '%s'", user_input[:100])
 
         # execution_plan 전체의 다른 스텝들에서도 힌트 추출
@@ -1741,7 +1740,6 @@ async def _execute_one_structured_step(
     if target_file == "Items.json":
         target_info = _enrich_items_target_info_from_deps(step, step_results, target_info)
     if target_file == "Actors.json":
-        print(f"🔧 [EXECUTOR DEBUG] 액터 스텝 처리 시작: step_id={sid}")
         logger.warning("🔧 [EXECUTOR DEBUG] 액터 스텝 처리 시작: step_id=%s", sid)
 
         target_info = _enrich_actors_target_info_from_deps(step, step_results, target_info)
@@ -1751,23 +1749,19 @@ async def _execute_one_structured_step(
         old_name_check = _actors_old_name_for_reconcile(target_info)
         aid = target_info.get("actor_id")
 
-        print(f"🔧 [DEBUG] old_name_check='{old_name_check}', actor_id={aid}")
         logger.warning("🔧 [DEBUG] old_name_check='%s', actor_id=%s", old_name_check, aid)
 
         if not old_name_check and aid:
             aid_str = str(aid)
-            print(f"🔧 [DEBUG] 맥락 검증 진입: aid={aid}, isdigit={aid_str.isdigit()}")
             logger.warning("🔧 [DEBUG] 맥락 검증 진입: aid=%s, isdigit=%s", aid, aid_str.isdigit())
 
             if aid_str.isdigit():
                 # execution_plan 전체를 맥락 검증에 전달
                 ep = getattr(_execute_one_structured_step, "_current_execution_plan", None)
-                print("🔧 [DEBUG] 맥락 검증 실행 중...")
                 logger.warning("🔧 [DEBUG] 맥락 검증 실행 중...")
 
                 target_info = _actors_validate_actor_id_context(data_path, target_info, step, ep)
 
-                print(f"🔧 [DEBUG] 맥락 검증 완료: {target_info}")
                 logger.warning("🔧 [DEBUG] 맥락 검증 완료: %s", target_info)
     # raw_action은 디버그/에러 메시지에 남기고, 실제 실행 분기는 정규화된 action으로 통일한다.
     raw_action = (step.get("action_type") or "").strip().lower()
@@ -2978,8 +2972,10 @@ async def _executor_structured(
     ordered = _topological_sort_steps(execution_plan)
     target_files = sorted(_collect_structured_target_files(execution_plan))
     if not target_files:
-        logger.info("[Executor structured] target_files 비어있음, 기본값 Actors.json 사용")
-        target_files = ["Actors.json"]
+        # 기본값 없음. execution_plan 이 target_file 을 명시하지 않으면 즉시 실패.
+        raise ValueError(
+            "[Executor structured] target_files 비어있음. execution_plan 에 target_file 명시 필요"
+        )
 
     logger.info(
         "[Executor structured] game_id=%s steps=%d files=%s",
@@ -3100,7 +3096,9 @@ async def executor(state: AgentState) -> dict:
     """MVP 버전 Executor"""
 
     execution_plan = state.get("execution_plan", [])
-    game_id = state.get("game_id", "game_001")
+    game_id = state.get("game_id")
+    if not game_id:
+        raise ValueError("[Executor] game_id 가 state 에 없음. router/definition 에서 명시 필요")
     retry_count = state.get("retry_count", 0)
     user_input = state.get("user_input", "")
     _t0 = time.perf_counter()
@@ -3244,22 +3242,12 @@ async def executor(state: AgentState) -> dict:
 
         return _finish(result, mode="structured")
 
-    logger.warning("[Executor] 비구조화(번역) 경로는 제거된 json_modify_tools에 의존해 비활성화됨")
-    result = {
-        "changes_log": [
-            {
-                "success": False,
-                "error": (
-                    "비구조화 executor 경로는 제거된 legacy json_modify_tools 경로에 "
-                    "의존해 더 이상 지원되지 않습니다. 구조화 execution_plan을 사용하세요."
-                ),
-                "timestamp": datetime.now().isoformat(),
-            }
-        ],
-        "tool_results": [],
-        "modified_file_paths": [],
-    }
-    return _finish(result, mode="legacy_removed", icon="⚠️")
+    # 비구조화(legacy) 경로는 이미 dead code 였다. Phase A 에서 완전 제거.
+    # execution_plan 이 구조화 포맷이 아니면 즉시 에러.
+    raise ValueError(
+        "[Executor] execution_plan 이 구조화 포맷(action_type/step_id/target_file)이 아님. "
+        "planner 가 구조화 플랜을 생성해야 함."
+    )
 
 
 # ────────────────────────────────────────────────────────────
