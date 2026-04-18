@@ -174,20 +174,25 @@ def _validate_screenplay(
             # set_switch 검증: 금지된 스위치이거나 스위치 목록에 없으면 None으로 초기화
             if npc.set_switch:
                 sw = npc.set_switch
-                if _is_forbidden_set_switch(sw):
+                from agent.generation.registry.switch_table import normalize_switch_name
+
+                norm_sw = normalize_switch_name(sw)
+                if _is_forbidden_set_switch(norm_sw):
                     logger.warning(
                         "story_planner: NPC '%s' set_switch '%s' 금지 스위치 → None으로 초기화",
                         npc.name,
                         sw,
                     )
                     npc = npc.model_copy(update={"set_switch": None})
-                elif sw not in valid_switches:
+                elif norm_sw not in valid_switches:
                     logger.warning(
                         "story_planner: NPC '%s' set_switch '%s' 스위치 목록 없음 → None",
                         npc.name,
                         sw,
                     )
                     npc = npc.model_copy(update={"set_switch": None})
+                else:
+                    npc = npc.model_copy(update={"set_switch": norm_sw})
 
             fixed_npcs.append(npc)
 
@@ -204,13 +209,20 @@ def _validate_screenplay(
                     acq.item_name,
                 )
                 continue
-            if acq.chest_switch not in valid_switches:
+
+            from agent.generation.registry.switch_table import normalize_switch_name
+
+            norm_chest_sw = normalize_switch_name(acq.chest_switch)
+            if norm_chest_sw not in valid_switches:
                 logger.warning(
                     "story_planner: map_id=%d chest_switch '%s' 스위치 목록 없음 → 스킵",
                     ms.map_id,
                     acq.chest_switch,
                 )
                 continue
+
+            acq = acq.model_copy(update={"chest_switch": norm_chest_sw})
+
             # item_type 자동 보정: LLM이 잘못된 카테고리를 지정하는 경우 수정
             correct_type = (
                 "item"
