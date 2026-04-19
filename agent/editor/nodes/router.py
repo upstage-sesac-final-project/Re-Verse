@@ -186,6 +186,7 @@ async def router(state: AgentState, *, store: PendingStore | None = None) -> dic
             "confidence": 1.0,
             "ranked_map_candidates": ranked_candidates,
             "final_response": "무엇을 도와드릴까요? 만들거나 수정하고 싶은 게임 요소를 알려주세요.",
+            "success": False,
         }
 
     logger.info("─── 🔀 Router START ────────────────────────────────")
@@ -262,13 +263,17 @@ async def router(state: AgentState, *, store: PendingStore | None = None) -> dic
         result["resumed_snapshot"] = pending_snapshot
 
     # ── terminal intent 는 final_response 를 미리 채움 ───────────
+    # terminal intent 는 synthesizer 안 거치고 __end__ 로 직통이라
+    # success=False 도 여기서 함께 세팅 (API 레이어가 올바로 읽도록)
     if intent == IntentValue.MULTI_INTENT:
         result["final_response"] = (
             "요청을 하나씩 입력해주세요. 예) '슬라임 HP 올려줘' 후 '드래곤 만들어줘'"
         )
+        result["success"] = False
         logger.info("─── 🛑 Router END → multi_intent (terminal) ─────────")
     elif intent in TERMINAL_INTENTS:
         result["final_response"] = output.response or "조금 더 구체적으로 말씀해주시겠어요?"
+        result["success"] = False
         logger.info("─── 🛑 Router END → %s (terminal) ───────────────────", intent)
     elif intent in DEFINITION_INTENTS:
         logger.info("─── ✅ Router END → %s (next: definition) ───────────", intent)

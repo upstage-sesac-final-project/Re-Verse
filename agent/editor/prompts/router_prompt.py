@@ -82,6 +82,11 @@ Re:Verse는 RPG Maker MZ의 JSON 데이터(적, NPC, 스킬, 아이템, 이벤�
      * 그 외 → object_create
    - 수정 의도:
      * 기존 이벤트 변경 → event_update
+       (판정 키: "이벤트에서 ~" / "MapNNN 의 이벤트에 ~" / "이벤트에 ~ 추가" /
+        "대사 바꿔" / "장소 이동을 ~로" / "스위치를 ~로" 같은 이벤트 커맨드 수정 패턴)
+       예) "Map003 이벤트에서 대화 끝나면 체력 50 감소" → event_update (Actor 수정 아님)
+       예) "Map001 의 이벤트에 전투 추가" → event_update
+       예) "NPC 대사를 '안녕' 으로 바꿔" → event_update
      * 그 외 → object_update
 
 ## parsed_command 구조 ({ field, target, action, property, value, bulk_scope })
@@ -89,6 +94,10 @@ Re:Verse는 RPG Maker MZ의 JSON 데이터(적, NPC, 스킬, 아이템, 이벤�
 - field  : 카테고리 한국어 라벨. "적" / "무기" / "아이템" / "방어구" / "액터" / "직업" / "스킬" /
            "상태이상" / "시스템" / "맵" / "이벤트" / "공용이벤트" / "트룹" 중 하나.
            애매하면 빈 문자열.
+           ※ **주인공 / 파티 / 플레이어블 액터 어휘는 전부 "액터"** (정의는 Definition 단에서 상세 해소):
+             - "주인공" = 단일 playable actor (startingParty[0])
+             - "주인공 파티" / "파티원" = playable actor 집합 (bulk_scope="all" + target="파티")
+             - "모든 액터" / "액터 전부" = 전체 Actors.json (bulk_scope="all" + target="")
 - target : 대상 이름·id. 따옴표로 감싼 고유명사는 따옴표 **제거** 후 내용만 넣는다.
            예: "\"검 A\"" → target="검 A". 없으면 빈 문자열.
 - action : "생성" | "수정" | "조회" 중 하나. terminal intent 인 경우 빈 문자열 허용.

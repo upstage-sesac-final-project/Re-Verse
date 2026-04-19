@@ -79,6 +79,7 @@ class AgentState(TypedDict, total=False):
         "ambiguous_ref",
         "page_condition_unclear",
         "ambiguous_position",
+        "destination_unclear",  # teleport 목적지 좌표 미지정 (이벤트 위치와 구분)
     ]
     hold_question: str  # 유저에게 되묻는 문장
     message_for_user: str  # definition 이 params 불충분 시 유저용 메시지 (drift 정리)

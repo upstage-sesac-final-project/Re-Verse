@@ -1311,6 +1311,10 @@ _EVENT_TEMPLATE_KEYWORDS: list[tuple[str, str]] = [
     ("텔레포트", "teleport"),
     ("워프", "teleport"),
     ("이동시키", "teleport"),
+    ("넘어가", "teleport"),  # "Map002 로 넘어가기"
+    ("건너가", "teleport"),
+    ("로 가는", "teleport"),  # "...로 가는 이벤트"
+    ("로 이동", "teleport"),
     # 스위치
     ("스위치", "switch_trigger"),
     # 전투
@@ -1348,18 +1352,11 @@ def _extract_event_config(template: str, user_input: str) -> dict:
         # 기본값 (상품 없으면 placeholder 단일 아이템)
         config["items"] = []
     elif template == "teleport":
-        # "Map 003" / "3번 맵" / "맵 3" 에서 map_id 추출
-        m = _re.search(
-            r"(?:map\s*0*(\d{1,3})|맵\s*(\d{1,3})|(\d{1,3})\s*번\s*맵)",
-            user_input,
-            _re.IGNORECASE,
-        )
-        if m:
-            config["map_id"] = int(next(g for g in m.groups() if g))
-        else:
-            config["map_id"] = 1
-        config["x"] = 0
-        config["y"] = 0
+        # teleport 는 이벤트가 놓일 map + 목적지 map 두 가지 구분 필요.
+        # 목적지 map_id / x / y 는 기본값 대체 금지 (미지정이면 hold 유도).
+        config["map_id"] = _extract_teleport_target_map(user_input)
+        dest_coord = _extract_teleport_destination(user_input)
+        config["x"], config["y"] = dest_coord
     elif template == "switch_trigger":
         m = _re.search(r"스위치\s*(\d{1,3})", user_input)
         config["switch_id"] = int(m.group(1)) if m else 1
@@ -1367,6 +1364,87 @@ def _extract_event_config(template: str, user_input: str) -> dict:
         m = _re.search(r"(?:troop|트룹|부대)\s*(\d{1,3})", user_input, _re.IGNORECASE)
         config["troop_id"] = int(m.group(1)) if m else 1
     return config
+
+
+_MAP_REFS_RE = __import__("re").compile(
+    r"(?:map\s*0*(\d{1,3})|맵\s*(\d{1,3})|(\d{1,3})\s*번\s*맵)", __import__("re").IGNORECASE
+)
+_COORD_RE = __import__("re").compile(r"\(?\s*(\d{1,3})\s*[,，]\s*(\d{1,3})\s*\)?")
+
+
+def _find_all_map_refs(user_input: str) -> list[int]:
+    """user_input 에 등장하는 모든 Map 번호를 등장 순서대로 반환."""
+    out: list[int] = []
+    for m in _MAP_REFS_RE.finditer(user_input):
+        for g in m.groups():
+            if g:
+                out.append(int(g))
+                break
+    return out
+
+
+def _find_all_coords(user_input: str) -> list[tuple[int, int]]:
+    """user_input 에 등장하는 모든 (x,y) 쌍을 등장 순서대로 반환."""
+    return [(int(m.group(1)), int(m.group(2))) for m in _COORD_RE.finditer(user_input)]
+
+
+def _extract_teleport_destination(user_input: str) -> tuple[int | None, int | None]:
+    """teleport 의 **목적지** 좌표 추출.
+
+    규칙 (우선순위):
+    1. "으로|로|까지" 조사 바로 앞의 좌표 → 명시적 목적지
+    2. 두 개 이상 좌표가 등장하면 두 번째 이후 것을 목적지로
+    3. 둘 다 실패면 (None, None) — 호출자가 hold
+    """
+    import re as _re
+
+    m = _re.search(
+        r"\(?\s*(\d{1,3})\s*[,，]\s*(\d{1,3})\s*\)?\s*(?:으로|로|까지)", user_input
+    )
+    if m:
+        return int(m.group(1)), int(m.group(2))
+
+    coords = _find_all_coords(user_input)
+    if len(coords) >= 2:
+        return coords[1]
+    return None, None
+
+
+def _extract_teleport_target_map(user_input: str) -> int | None:
+    """teleport 의 **목적지 map** 추출.
+
+    규칙 (우선순위):
+    1. Map 번호가 두 개 이상 등장하면 두 번째를 목적지로
+       (첫 번째는 이벤트 생성 위치)
+    2. 단일 Map + 그 Map 바로 뒤에 목적지 조사("으로|로|까지") → 목적지
+    3. 단일 Map + 이어지는 좌표 뒤에 목적지 조사 → 그 Map 이 목적지
+       (예: "Map003 의 (5,6) 으로 이동")
+    4. 단일 Map + "에" 조사 (이벤트 생성 위치) → 목적지 아님
+    5. 그 외 → None (hold)
+    """
+    import re as _re
+
+    maps = _find_all_map_refs(user_input)
+    if len(maps) >= 2:
+        return maps[1]
+    if len(maps) == 1:
+        map_num = maps[0]
+        # Map 바로 뒤 목적지 조사
+        if _re.search(
+            r"(?:map\s*0*\d{1,3}|맵\s*\d{1,3}|\d{1,3}\s*번\s*맵)\s*(?:으로|로|까지)",
+            user_input,
+            _re.IGNORECASE,
+        ):
+            return map_num
+        # Map ... coord 으로/로/까지 패턴
+        if _re.search(
+            r"(?:map\s*0*\d{1,3}|맵\s*\d{1,3}|\d{1,3}\s*번\s*맵)"
+            r"[^\d]*\(?\s*\d{1,3}\s*[,，]\s*\d{1,3}\s*\)?\s*(?:으로|로|까지)",
+            user_input,
+            _re.IGNORECASE,
+        ):
+            return map_num
+    return None
 
 
 def _extract_event_position(user_input: str) -> tuple[int | None, int | None]:
@@ -1423,6 +1501,13 @@ def _try_build_event_operation_tuples(
 
     config = _extract_event_config(template, user_input)
 
+    # teleport 추가 검증: 목적지 map_id / x / y 누락이면 hold
+    if template == "teleport":
+        if config.get("map_id") is None:
+            return [], "page_condition_unclear"  # "어디로" 미지정
+        if config.get("x") is None or config.get("y") is None:
+            return [], "destination_unclear"  # 목적지 좌표 미지정 (이벤트 위치와 구분)
+
     # 대상 파일 결정
     if field == "공용이벤트":
         target_file = "CommonEvents.json"
@@ -1454,7 +1539,72 @@ def _try_build_event_operation_tuples(
         "subject": None,
         "raw_updates": raw,
     }
-    return [op], None
+    ops = [op]
+
+    # teleport 기본 양방향 — 두 맵 + 양쪽 좌표 모두 있고, 유저가 "단방향/한방향"
+    # 명시하지 않았으면 reverse teleport 도 자동 생성. "양방향/왕복" 은 굳이 명시
+    # 안 해도 기본값.
+    if template == "teleport" and target_file.startswith("Map"):
+        if not _is_one_way_requested(user_input):
+            reverse = _build_reverse_teleport(op)
+            if reverse is not None:
+                ops.append(reverse)
+
+    return ops, None
+
+
+def _is_one_way_requested(user_input: str) -> bool:
+    """'단방향' / '한방향' / '일방' / '한쪽으로만' 명시 시 True."""
+    if not user_input:
+        return False
+    keys = ("단방향", "한방향", "일방", "한쪽으로만", "한 쪽으로만", "편도")
+    return any(k in user_input for k in keys)
+
+
+def _build_reverse_teleport(forward_op: dict) -> dict | None:
+    """forward teleport op 을 보고 반대 방향 op 생성.
+
+    forward: Map(src_id) 의 (raw.x, raw.y) → destination Map(config.map_id) (config.x, config.y)
+    reverse: Map(config.map_id) 의 (config.x, config.y) → destination Map(src_id) (raw.x, raw.y)
+    """
+    raw = forward_op.get("raw_updates") or {}
+    cfg = raw.get("config") or {}
+    src_file = forward_op.get("file", "")
+
+    # src_id 파싱
+    import re as _re
+    m = _re.match(r"^Map(\d{3})\.json$", src_file)
+    if not m:
+        return None
+    src_id = int(m.group(1))
+
+    dest_id = cfg.get("map_id")
+    dest_x = cfg.get("x")
+    dest_y = cfg.get("y")
+    src_x = raw.get("x")
+    src_y = raw.get("y")
+
+    if dest_id is None or dest_x is None or dest_y is None:
+        return None
+    if src_x is None or src_y is None:
+        return None
+    # 같은 맵 내 이동이면 reverse 불필요
+    if int(dest_id) == src_id:
+        return None
+
+    reverse_raw = {
+        "template": "teleport",
+        "config": {"map_id": src_id, "x": src_x, "y": src_y},
+        "name": (raw.get("name") or "") + " (반대방향)",
+        "x": dest_x,
+        "y": dest_y,
+    }
+    return {
+        "op": "create",
+        "file": f"Map{int(dest_id):03d}.json",
+        "subject": None,
+        "raw_updates": reverse_raw,
+    }
 
 
 def _build_reference_checks(
@@ -1566,7 +1716,8 @@ async def definition(state: AgentState) -> dict:
             hold_msgs = {
                 "ambiguous_ref": "어떤 이벤트를 만들까요? (상점 / NPC 대사 / 장소 이동 / 스위치 / 전투 중 선택)",
                 "page_condition_unclear": "어느 맵에 만들까요? (예: Map003, 3번 맵)",
-                "ambiguous_position": "이벤트 좌표를 알려주세요. (예: (3, 5) 또는 x=3 y=5)",
+                "ambiguous_position": "이벤트가 놓일 좌표를 알려주세요. (예: (3, 5) 또는 x=3 y=5)",
+                "destination_unclear": "텔레포트 목적지 좌표를 알려주세요. 예: 'Map002 (5, 10) 으로 이동'",
             }
             logger.info("[Definition] 이벤트 의도 hold: reason=%s", ev_hold)
             result: dict = {
@@ -1632,6 +1783,10 @@ async def definition(state: AgentState) -> dict:
         hold_reason = state.get("_event_hold_reason") or _infer_hold_reason(msg)  # type: ignore[typeddict-item]
         result["hold_reason"] = hold_reason
         result["hold_question"] = msg or "추가 정보가 필요합니다."
+        # hold 는 route_after_definition 이 __end__ 로 바로 보냄 (synthesizer 안 거침).
+        # API 레이어가 success / final_response 를 올바르게 읽을 수 있도록 여기서 세팅.
+        result["success"] = False
+        result["final_response"] = result["hold_question"]
 
         # pending_store 에 저장 (conversation_id 있을 때만)
         cid = state.get("conversation_id") or ""

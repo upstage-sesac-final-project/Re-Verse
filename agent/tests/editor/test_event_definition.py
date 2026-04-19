@@ -51,12 +51,26 @@ class TestConfigExtraction:
         assert cfg["text"] == "안녕하세요"
 
     def test_teleport_map_id(self):
-        cfg = _extract_event_config("teleport", "Map003 으로 이동시키는 이벤트")
+        cfg = _extract_event_config("teleport", "Map003 의 (5, 6) 으로 이동시키는 이벤트")
         assert cfg["map_id"] == 3
+        assert cfg["x"] == 5
+        assert cfg["y"] == 6
 
     def test_teleport_korean_map(self):
-        cfg = _extract_event_config("teleport", "5번 맵으로 이동")
+        cfg = _extract_event_config("teleport", "5번 맵 (3,4) 으로 이동")
         assert cfg["map_id"] == 5
+
+    def test_teleport_missing_map_id_returns_none(self):
+        """Task 18 — map_id 누락이면 기본값 대신 None 반환."""
+        cfg = _extract_event_config("teleport", "어디론가 이동")
+        assert cfg["map_id"] is None
+
+    def test_teleport_missing_destination_coord_returns_none(self):
+        """Task 18 — 목적지 좌표 없으면 None (기본 0,0 으로 덮어쓰지 않음)."""
+        cfg = _extract_event_config("teleport", "Map003 으로 이동")
+        assert cfg["map_id"] == 3
+        assert cfg["x"] is None
+        assert cfg["y"] is None
 
     def test_switch_id(self):
         cfg = _extract_event_config("switch_trigger", "스위치 7 번 켜는 이벤트")
@@ -109,6 +123,96 @@ class TestBuildEventOperationTuples:
         ops, hold = _try_build_event_operation_tuples(pc, "NPC 대사 이벤트")
         assert ops == []
         assert hold == "page_condition_unclear"
+
+    def test_teleport_missing_destination_map_holds(self):
+        """Task 18 — teleport 인데 목적지 map 미지정 → hold."""
+        pc = {"field": "이벤트", "action": "생성", "target": ""}
+        ops, hold = _try_build_event_operation_tuples(
+            pc, "Map001 (3,5) 에 텔레포트 이벤트 만들어줘"
+        )
+        # 이벤트가 놓일 맵 (Map001) 은 있지만 목적지 map 없음 → page_condition_unclear
+        assert ops == []
+        assert hold == "page_condition_unclear"
+
+    def test_teleport_missing_destination_coord_holds(self):
+        """Task 18 — 목적지 map 은 있는데 좌표 없음 → destination_unclear (이벤트 위치와 구분)."""
+        pc = {"field": "이벤트", "action": "생성", "target": ""}
+        ops, hold = _try_build_event_operation_tuples(
+            pc, "Map001 (3,5) 에 Map005 로 이동하는 텔레포트 만들어줘"
+        )
+        assert ops == []
+        assert hold == "destination_unclear"
+
+    def test_넘어가기_keyword_detects_teleport(self):
+        """유저 실제 케이스 — '넘어가기' 키워드."""
+        pc = {"field": "이벤트", "action": "생성", "target": ""}
+        ops, hold = _try_build_event_operation_tuples(
+            pc, "Map001의 14, 35 위치에 Map002로 넘어가기 위한 이벤트 만들어줘"
+        )
+        # 목적지 map=Map002 는 감지. 목적지 좌표는 없음 → destination_unclear
+        assert ops == []
+        assert hold == "destination_unclear"
+
+    def test_teleport_default_bidirectional(self):
+        """목적지 좌표까지 확보되면 기본 양방향 — forward + reverse 2 ops."""
+        pc = {"field": "이벤트", "action": "생성", "target": ""}
+        ops, hold = _try_build_event_operation_tuples(
+            pc, "Map001 (14, 35) 에 Map002 (5, 10) 으로 이동하는 텔레포트"
+        )
+        assert hold is None
+        assert len(ops) == 2
+
+        forward, reverse = ops
+        # forward: Map001 (14,35) → Map002 (5,10)
+        assert forward["file"] == "Map001.json"
+        assert forward["raw_updates"]["x"] == 14
+        assert forward["raw_updates"]["y"] == 35
+        assert forward["raw_updates"]["config"]["map_id"] == 2
+        assert forward["raw_updates"]["config"]["x"] == 5
+        assert forward["raw_updates"]["config"]["y"] == 10
+
+        # reverse: Map002 (5,10) → Map001 (14,35)
+        assert reverse["file"] == "Map002.json"
+        assert reverse["raw_updates"]["x"] == 5
+        assert reverse["raw_updates"]["y"] == 10
+        assert reverse["raw_updates"]["config"]["map_id"] == 1
+        assert reverse["raw_updates"]["config"]["x"] == 14
+        assert reverse["raw_updates"]["config"]["y"] == 35
+        assert "반대방향" in reverse["raw_updates"]["name"]
+
+    def test_teleport_one_way_keyword_disables_reverse(self):
+        """'단방향' / '한방향' 명시 시 reverse op 생성 안 함."""
+        pc = {"field": "이벤트", "action": "생성", "target": ""}
+        ops, hold = _try_build_event_operation_tuples(
+            pc, "Map001 (14, 35) 에 Map002 (5, 10) 으로 단방향 텔레포트 이벤트"
+        )
+        assert hold is None
+        assert len(ops) == 1
+        assert ops[0]["file"] == "Map001.json"
+
+    def test_teleport_same_map_no_reverse(self):
+        """같은 맵 내 이동이면 reverse 불필요."""
+        pc = {"field": "이벤트", "action": "생성", "target": ""}
+        ops, hold = _try_build_event_operation_tuples(
+            pc, "Map003 (1, 1) 에 Map003 (10, 10) 으로 이동하는 워프"
+        )
+        # 같은 맵이면 forward 하나만
+        assert hold is None
+        assert len(ops) == 1
+
+    def test_teleport_fully_specified_proceeds(self):
+        """Task 18 — 모두 명시하면 정상 진행."""
+        pc = {"field": "이벤트", "action": "생성", "target": ""}
+        ops, hold = _try_build_event_operation_tuples(
+            pc,
+            "Map001 (3,5) 에 Map005 (10,10) 으로 이동시키는 텔레포트 이벤트",
+        )
+        assert hold is None
+        assert ops
+        assert ops[0]["raw_updates"]["template"] == "teleport"
+        assert ops[0]["raw_updates"]["config"]["map_id"] == 5
+        assert ops[0]["raw_updates"]["config"]["x"] == 10
+        assert ops[0]["raw_updates"]["config"]["y"] == 10
 
     def test_hold_no_position(self):
         pc = {"field": "이벤트", "action": "생성", "target": ""}

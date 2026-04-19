@@ -121,6 +121,141 @@ def get_schema_reference(target_file: str) -> str:
     return result
 
 
+# ── Task 19: parsed_command.value 강제 주입 ──────────────────────────────
+# property 한국어 라벨 → (target_file, field_path) 매핑.
+# field_path 는 dict 키 (예: "price") 또는 params[i] 형태 ("params[0]").
+
+_PROPERTY_FIELD_MAP: dict[str, dict[str, str]] = {
+    "Weapons.json": {
+        "이름": "name",
+        "설명": "description",
+        "가격": "price",
+        "hp": "params[0]",
+        "체력": "params[0]",
+        "mp": "params[1]",
+        "마력": "params[1]",
+        "공격": "params[2]",
+        "공격력": "params[2]",
+        "방어": "params[3]",
+        "방어력": "params[3]",
+        "마법공격력": "params[4]",
+        "마법방어력": "params[5]",
+        "민첩": "params[6]",
+        "민첩성": "params[6]",
+        "운": "params[7]",
+    },
+    "Armors.json": {
+        "이름": "name",
+        "설명": "description",
+        "가격": "price",
+        "hp": "params[0]",
+        "체력": "params[0]",
+        "mp": "params[1]",
+        "마력": "params[1]",
+        "공격": "params[2]",
+        "공격력": "params[2]",
+        "방어": "params[3]",
+        "방어력": "params[3]",
+    },
+    "Enemies.json": {
+        "이름": "name",
+        "hp": "params[0]",
+        "체력": "params[0]",
+        "mp": "params[1]",
+        "공격": "params[2]",
+        "공격력": "params[2]",
+        "방어": "params[3]",
+        "방어력": "params[3]",
+        "경험치": "exp",
+        "exp": "exp",
+        "골드": "gold",
+        "돈": "gold",
+    },
+    "Actors.json": {
+        "이름": "name",
+        "별명": "nickname",
+        "설명": "profile",
+        "레벨": "initialLevel",
+        "초기레벨": "initialLevel",
+        "최대레벨": "maxLevel",
+    },
+    "Items.json": {
+        "이름": "name",
+        "설명": "description",
+        "가격": "price",
+    },
+}
+
+
+def _coerce_value(raw: str) -> int | float | str:
+    """value 문자열을 숫자로 변환 가능하면 변환."""
+    raw = raw.strip()
+    if not raw:
+        return raw
+    try:
+        if "." in raw:
+            return float(raw)
+        return int(raw)
+    except ValueError:
+        return raw
+
+
+def _set_by_path(target_info: dict, path: str, value: int | float | str) -> bool:
+    """'params[2]' 또는 'price' 같은 경로로 target_info 에 값 세팅. 성공 시 True."""
+    import re as _re
+
+    m = _re.match(r"^(\w+)\[(\d+)\]$", path)
+    if m:
+        key, idx = m.group(1), int(m.group(2))
+        arr = target_info.get(key)
+        if not isinstance(arr, list):
+            # 길이 8 의 0 배열 생성 (params 는 길이 8)
+            arr = [0] * 8
+            target_info[key] = arr
+        while len(arr) <= idx:
+            arr.append(0)
+        arr[idx] = value
+        return True
+    # 단순 키
+    target_info[path] = value
+    return True
+
+
+def _inject_parsed_command_value(
+    step: dict, parsed_command: dict | None
+) -> dict:
+    """step.target_info 에 parsed_command.property/value 를 강제 주입.
+
+    user_input 에서 "공격력 50" 같은 명시적 값이 LLM profile 에 의해 덮이지 않도록
+    profile_one **이후** 호출해 우선순위 역전.
+    """
+    if not parsed_command:
+        return step
+    prop = (parsed_command.get("property") or "").strip()
+    val_str = str(parsed_command.get("value") or "").strip()
+    if not prop or not val_str:
+        return step
+    target_file = step.get("target_file", "")
+    mapping = _PROPERTY_FIELD_MAP.get(target_file)
+    if not mapping:
+        return step
+    field_path = mapping.get(prop.lower()) or mapping.get(prop)
+    if not field_path:
+        return step
+    target_info = dict(step.get("target_info") or {})
+    value = _coerce_value(val_str)
+    if _set_by_path(target_info, field_path, value):
+        logger.info(
+            "[Profiler] parsed_command.value 강제 주입: %s.%s = %r",
+            target_file,
+            field_path,
+            value,
+        )
+    step = dict(step)
+    step["target_info"] = target_info
+    return step
+
+
 async def profiler(state: dict) -> dict:
     """Profiler node entry point.
 
@@ -139,6 +274,7 @@ async def profiler(state: dict) -> dict:
     plan: list[dict] = state.get("execution_plan", [])
     game_id: str = state.get("game_id", "")
     fill_slots: list[dict] = state.get("fill_slots", []) or []
+    parsed_command: dict = state.get("parsed_command", {}) or {}
 
     # step_id 가 fill_slots 에 포함된 set (새 contract 대상)
     fill_targeted_sids: set[int] = set()
@@ -161,6 +297,8 @@ async def profiler(state: dict) -> dict:
             continue
         before_keys = set((step.get("target_info") or {}).keys())
         enriched = await profile_one(step, game_id=game_id)
+        # Task 19: LLM 결과 뒤에 parsed_command.value 강제 주입 (명시 값이 덮이지 않도록)
+        enriched = _inject_parsed_command_value(enriched, parsed_command)
         enriched_plan[idx] = enriched
         profiled_count += 1
 
