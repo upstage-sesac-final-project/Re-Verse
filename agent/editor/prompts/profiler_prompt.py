@@ -13,43 +13,94 @@ from agent.utils.traits_reference import (
     build_traits_reference_text,
 )
 
+# 파일별로 실제 사용하는 reference 만 system prompt 에 include — 불필요한 code
+# 표 (traits 2,700 / effects 1,431 chars) 가 통째로 박히는 낭비 제거.
+_FILES_USE_TRAITS: frozenset[str] = frozenset(
+    {
+        "Actors.json",
+        "Classes.json",
+        "Weapons.json",
+        "Armors.json",
+        "Enemies.json",
+        "States.json",
+    }
+)
+_FILES_USE_EFFECTS: frozenset[str] = frozenset({"Skills.json", "Items.json"})
+_FILES_USE_PARAMS: frozenset[str] = frozenset(
+    {
+        "Actors.json",
+        "Classes.json",
+        "Weapons.json",
+        "Armors.json",
+        "Enemies.json",
+    }
+)
 
-def build_profiler_system_prompt() -> str:
-    traits_ref = build_traits_reference_text()
-    effects_ref = build_effects_reference_text()
-    params_ref = build_params_reference_text()
 
-    return f"""\
-당신은 RPG Maker MZ 게임 엔티티 디자이너입니다.
+def build_profiler_system_prompt(target_file: str | None = None) -> str:
+    """profiler system prompt. target_file 이 주어지면 해당 파일이 실제 쓰는
+    reference block (traits / effects / params) 만 포함.
 
-## 역할
-새로 생성될 엔티티의 이름과 기본 정보를 받아, 해당 엔티티에 어울리는
-params, traits, effects, description 등의 필드를 **RPG Maker MZ 포맷**으로 채웁니다.
+    target_file=None (기본) 이면 모두 include — 하위호환.
+    """
+    include_traits = target_file is None or target_file in _FILES_USE_TRAITS
+    include_effects = target_file is None or target_file in _FILES_USE_EFFECTS
+    include_params = target_file is None or target_file in _FILES_USE_PARAMS
 
-## 핵심 원칙
-1. 엔티티 이름에서 의미를 파악합니다.
-2. RPG 세계관에 맞는 합리적인 수치를 사용합니다.
-3. 반드시 아래 코드표에 맞는 code/dataId/value 를 사용합니다.
+    blocks: list[str] = [
+        "당신은 RPG Maker MZ 게임 엔티티 디자이너입니다.",
+        "",
+        "## 역할",
+        "새로 생성될 엔티티의 이름과 기본 정보를 받아, 해당 엔티티에 어울리는",
+        "필드를 **RPG Maker MZ 포맷** 으로 채웁니다.",
+        "",
+        "## 핵심 원칙",
+        "1. 엔티티 이름에서 의미를 파악합니다.",
+        "2. RPG 세계관에 맞는 합리적인 수치를 사용합니다.",
+        "3. 반드시 아래 코드표 (있을 경우) 의 code/dataId/value 를 사용합니다.",
+        "",
+    ]
+    if include_traits:
+        blocks.append(build_traits_reference_text())
+        blocks.append("")
+    if include_effects:
+        blocks.append(build_effects_reference_text())
+        blocks.append("")
+    if include_params:
+        blocks.append(build_params_reference_text())
+        blocks.append("")
 
-{traits_ref}
+    blocks.extend(
+        [
+            "## 응답 규칙",
+            "- target_info 의 기존 필드(name, id 등)는 유지합니다.",
+            "- 비어 있는 필드만 채웁니다.",
+        ]
+    )
+    if include_params:
+        blocks.append(
+            "- params 는 반드시 8개 정수 배열 [HP, MP, ATK, DEF, MAT, MDF, AGI, LUK] 로 제공합니다."
+        )
+    if include_traits:
+        blocks.append(
+            '- traits 는 [{"code": int, "dataId": int, "value": number}, ...] 배열입니다.'
+        )
+    if include_effects:
+        blocks.append(
+            '- effects 는 [{"code": int, "dataId": int, "value1": number, "value2": number}, ...] 배열입니다.'
+        )
+    blocks.extend(
+        [
+            "- description 은 한국어로, 1~2문장으로 작성합니다.",
+            "- 기존 엔트리 예시는 포맷 참고용입니다. 값을 그대로 복사하지 마세요.",
+            "- **엔티티 이름에서 유형을 판단하세요**:",
+            '  - 방어구: "목걸이/반지/귀걸이" → etypeId=5(장신구), "갑옷/로브" → etypeId=4(몸), "투구/왕관" → etypeId=3(머리), "방패" → etypeId=2(방패)',
+            '  - 무기: "검/도" → wtypeId=2, "단검" → wtypeId=1, "지팡이" → wtypeId=6',
+            "- 스키마 레퍼런스에 정의된 유효 범위를 반드시 지키세요.",
+        ]
+    )
 
-{effects_ref}
-
-{params_ref}
-
-## 응답 규칙
-- target_info 의 기존 필드(name, id 등)는 유지합니다.
-- 비어 있는 필드만 채웁니다.
-- params 는 반드시 8개 정수 배열 [HP, MP, ATK, DEF, MAT, MDF, AGI, LUK] 로 제공합니다.
-- traits 는 [{{"code": int, "dataId": int, "value": number}}, ...] 배열입니다.
-- effects 는 [{{"code": int, "dataId": int, "value1": number, "value2": number}}, ...] 배열입니다.
-- description 은 한국어로, 1~2문장으로 작성합니다.
-- 기존 엔트리 예시는 포맷 참고용입니다. 값을 그대로 복사하지 마세요.
-- **엔티티 이름에서 유형을 판단하세요**:
-  - 방어구: "목걸이/반지/귀걸이" → etypeId=5(장신구), "갑옷/로브" → etypeId=4(몸), "투구/왕관" → etypeId=3(머리), "방패" → etypeId=2(방패)
-  - 무기: "검/도" → wtypeId=2, "단검" → wtypeId=1, "지팡이" → wtypeId=6
-- 스키마 레퍼런스에 정의된 유효 범위를 반드시 지키세요.
-"""
+    return "\n".join(blocks)
 
 
 def build_profiler_user_prompt(

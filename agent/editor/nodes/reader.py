@@ -686,6 +686,113 @@ def _finish_reader(started_at: float, response: str) -> dict:
     return {"final_response": response}
 
 
+# ── game_overview 전용 경로 ───────────────────────────────────────────────────
+
+
+def _collect_game_overview_payload(game_id: str) -> dict:
+    """game_overview 에 필요한 데이터 수집 — System + 카테고리 count + 대표 엔티티.
+
+    LLM 에 넘길 요약 payload. 직접 표시용 아님.
+    """
+    payload: dict[str, Any] = {}
+
+    sys_data = read_game_json(game_id, "System.json")
+    if isinstance(sys_data, dict):
+        payload["title"] = sys_data.get("gameTitle") or ""
+        payload["currency"] = sys_data.get("currencyUnit") or ""
+        payload["startingParty"] = sys_data.get("startingParty") or []
+        payload["elements"] = [e for e in (sys_data.get("elements") or []) if e]
+
+    # 카테고리별 count + 대표 이름 (최대 5 개)
+    for cat, plural in CATEGORY_TO_PLURAL.items():
+        raw = read_game_json(game_id, plural + ".json")
+        if not isinstance(raw, list):
+            continue
+        items = _valid_items(raw)
+        payload[f"{cat}_count"] = len(items)
+        payload[f"{cat}_names"] = [it.get("name", "") for it in items[:5] if it.get("name")]
+
+    # 맵 개수
+    map_infos = read_game_json(game_id, "MapInfos.json")
+    if isinstance(map_infos, list):
+        map_entries = [m for m in map_infos if isinstance(m, dict) and m.get("name")]
+        payload["map_count"] = len(map_entries)
+        payload["map_names"] = [m["name"] for m in map_entries[:5]]
+
+    # 파티 actor 이름 해소
+    starting = payload.get("startingParty") or []
+    actor_names_by_id: dict[int, str] = {}
+    actors_raw = read_game_json(game_id, "Actors.json")
+    if isinstance(actors_raw, list):
+        for a in actors_raw:
+            if isinstance(a, dict) and a.get("id") and a.get("name"):
+                actor_names_by_id[a["id"]] = a["name"]
+    payload["party_names"] = [actor_names_by_id.get(pid, f"id={pid}") for pid in starting]
+
+    return payload
+
+
+_GAME_OVERVIEW_SYSTEM = """\
+당신은 RPG Maker MZ 게임 데이터를 분석해 유저에게 **게임 컨셉** 을 설명하는
+어시스턴트입니다.
+
+주어진 데이터 payload (제목, 파티, 엔티티 종류별 개수, 대표 이름, 맵 목록, 속성 등)
+를 보고:
+1. 제목과 파티 / 대표 적·스킬·아이템 이름에서 세계관·분위기를 추측
+2. 맵 이름 / 속성 (elements) 에서 주제 유추
+3. 2-4 문장으로 자연스럽게 서술 (나열 금지 — 흐름 있는 문장)
+
+금지:
+- JSON 원문 노출
+- "데이터 payload 에 따르면" 같은 메타 언급
+- 정보 없으면 단정 금지, "~로 보입니다" 같은 추측 표현 OK
+"""
+
+
+async def _game_overview_response(game_id: str, user_input: str) -> str:
+    """game_overview intent 전용 — LLM 1 회로 컨셉 요약 생성."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    payload = _collect_game_overview_payload(game_id)
+
+    import json as _json
+
+    payload_text = _json.dumps(payload, ensure_ascii=False, indent=2)
+    user_content = (
+        f"## 유저 질문\n{user_input}\n\n## 게임 데이터 payload\n```json\n{payload_text}\n```"
+    )
+    try:
+        result = await invoke_llm(
+            [
+                SystemMessage(content=_GAME_OVERVIEW_SYSTEM),
+                HumanMessage(content=user_content),
+            ]
+        )
+        text = str(result).strip()
+        return text or _fallback_game_overview(payload)
+    except Exception as e:
+        logger.error("[Reader] game_overview LLM 실패: %s — fallback 템플릿 사용", e)
+        return _fallback_game_overview(payload)
+
+
+def _fallback_game_overview(payload: dict) -> str:
+    """LLM 실패 시 결정론 템플릿."""
+    title = payload.get("title") or "제목 미정"
+    lines = [f"게임 '{title}' 입니다."]
+    if payload.get("party_names"):
+        lines.append(f"초기 파티: {', '.join(payload['party_names'])}")
+    counts = []
+    for cat in ("actor", "enemy", "item", "skill", "weapon", "armor", "class"):
+        c = payload.get(f"{cat}_count")
+        if c:
+            counts.append(f"{cat} {c}")
+    if counts:
+        lines.append("등록 데이터: " + ", ".join(counts))
+    if payload.get("map_count"):
+        lines.append(f"맵 {payload['map_count']}개")
+    return " / ".join(lines)
+
+
 # ── 노드 함수 ──────────────────────────────────────────────────────────────────
 
 
@@ -696,6 +803,13 @@ async def reader(state: AgentState) -> dict:
     logger.info("  game  : %s", state.get("game_id"))
 
     game_id = state.get("game_id", "game_001")
+
+    # game_overview intent → 전용 경로 (LLM 1 회, query 파싱 스킵)
+    if state.get("intent") == "game_overview":
+        user_input = state.get("user_input", "") or ""
+        logger.info("[Reader] game_overview 경로 — payload 수집 + 컨셉 요약")
+        response = await _game_overview_response(game_id, user_input)
+        return _finish_reader(_t0, response)
 
     messages = build_prompt(state)
     try:

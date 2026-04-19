@@ -718,7 +718,7 @@ async def profile_one(
     examples = []
     schema_excerpt = get_schema_reference(target_file)
 
-    system_prompt = build_profiler_system_prompt()
+    system_prompt = build_profiler_system_prompt(target_file)
     user_prompt = build_profiler_user_prompt(
         step,
         schema_excerpt,
