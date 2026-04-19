@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent.editor.nodes.planner import _collect_fill_slots
+from agent.editor.nodes.planner import _collect_fill_slots, _consume_reference_checks
 
 
 def _step(step_id: int, target_file: str, *, needs_profiling: bool = True) -> dict:
@@ -38,6 +38,47 @@ def test_target_file_not_in_registry_skipped():
     # Skills.json 은 Phase E 1차 대상 아님
     plan = [_step(1, "Skills.json")]
     assert _collect_fill_slots(plan) == []
+
+
+# ── Task 5: reference_checks 소비 ────────────────────────────────────────
+
+
+class TestConsumeReferenceChecks:
+    def test_empty_returns_no_warnings(self):
+        ops, warnings = _consume_reference_checks([], [{"action": "update"}])
+        assert warnings == []
+
+    def test_not_found_without_create_produces_warning(self):
+        refs = [{"category": "Enemy", "name": "슬라임", "status": "not_found"}]
+        ops = [{"action": "update", "file": "Enemies.json"}]
+        _, warnings = _consume_reference_checks(refs, ops)
+        assert warnings
+        assert "슬라임" in warnings[0]
+
+    def test_not_found_with_create_no_warning(self):
+        refs = [{"category": "Enemy", "name": "슬라임", "status": "not_found"}]
+        ops = [{"action": "create", "file": "Enemies.json"}]
+        _, warnings = _consume_reference_checks(refs, ops)
+        assert warnings == []
+
+    def test_found_status_no_warning(self):
+        refs = [{"category": "Enemy", "name": "슬라임", "status": "found"}]
+        ops = [{"action": "update", "file": "Enemies.json"}]
+        _, warnings = _consume_reference_checks(refs, ops)
+        assert warnings == []
+
+    def test_ambiguous_status_no_warning(self):
+        """ambiguous 는 Definition 이 hold 처리해야 할 영역 — 여기서는 noop."""
+        refs = [{"category": "Enemy", "name": "슬라임", "status": "ambiguous"}]
+        ops = [{"action": "update", "file": "Enemies.json"}]
+        _, warnings = _consume_reference_checks(refs, ops)
+        assert warnings == []
+
+    def test_returns_operation_tuples_unchanged(self):
+        refs = [{"category": "Enemy", "name": "X", "status": "not_found"}]
+        ops = [{"action": "update", "file": "Enemies.json", "x": 1}]
+        out_ops, _ = _consume_reference_checks(refs, ops)
+        assert out_ops is ops
 
 
 def test_multiple_steps_accumulate_correctly():

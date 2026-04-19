@@ -18,6 +18,47 @@ from agent.utils.game_data_io import get_game_data_dir
 logger = logging.getLogger(__name__)
 
 
+def _consume_reference_checks(
+    reference_checks: list[dict], operation_tuples: list[dict]
+) -> tuple[list[dict], list[str]]:
+    """Definition 이 제공한 reference_checks 를 살펴 선행 step 필요성 / 경고 수집.
+
+    Task 5 (minimal) —
+    - status="not_found" + (operation 이 create 가 아님) → 경고 수집
+      (Definition 이 hold 처리했어야 하는 케이스. 여기선 signal 만 남기고 진행)
+    - 그 외 → 변경 없음
+
+    자동 선행 create step 삽입은 차기 sprint (operation_ir 재작성과 병합 필요).
+
+    Returns:
+        (원본 operation_tuples 그대로, 경고 문자열 list)
+    """
+    warnings: list[str] = []
+    if not reference_checks or not operation_tuples:
+        return operation_tuples, warnings
+
+    for ref in reference_checks:
+        if not isinstance(ref, dict):
+            continue
+        status = ref.get("status")
+        if status != "not_found":
+            continue
+        name = ref.get("name") or "(이름 없음)"
+        category = ref.get("category") or "?"
+        # operation_tuples 에 해당 대상에 대한 create 가 있으면 괜찮음
+        has_create = any(
+            isinstance(op, dict)
+            and str(op.get("action", "")).lower() in {"create", "생성"}
+            for op in operation_tuples
+        )
+        if not has_create:
+            warnings.append(
+                f"참조 불일치: {category}/{name} 이(가) DB 에 없는데 operation_tuples 에 create 없음"
+            )
+
+    return operation_tuples, warnings
+
+
 def _collect_fill_slots(plan: list[dict]) -> list[dict]:
     """execution_plan 의 profiling 대상 step 에 대해 fill_slots 생성.
 
@@ -67,7 +108,20 @@ def planner(state: AgentState) -> dict:
     from pathlib import Path
 
     data_path = Path(get_game_data_dir(game_id))
+
+    # Task 5: reference_checks 소비 — Definition 이 제공한 참조 사전 검사
+    reference_checks = state.get("reference_checks") or []
+    operation_tuples, ref_warnings = _consume_reference_checks(
+        reference_checks, operation_tuples
+    )
+    for w in ref_warnings:
+        logger.warning("[Planner] %s", w)
+
     plan, meta, deduped = build_execution_plan(operation_tuples, data_path)
+
+    if ref_warnings:
+        meta = dict(meta or {})
+        meta.setdefault("reference_warnings", []).extend(ref_warnings)
 
     fill_slots = _collect_fill_slots(plan)
 

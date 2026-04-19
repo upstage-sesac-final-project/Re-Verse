@@ -14,9 +14,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from agent.editor.nodes.definition import (
+    _build_reference_checks,
     _infer_field_label,
     _infer_hold_reason,
     _infer_target_label,
+    _try_rule_base_step12,
     definition,
 )
 from agent.editor.pending_store import PendingStore
@@ -60,6 +62,128 @@ class TestInferTargetLabel:
         assert _infer_target_label([], {}, None) == ""
 
 
+class TestTryRuleBaseStep12:
+    """Task 3 — parsed_command 로부터 Step 1/2 출력을 직접 만드는 rule-base 경로."""
+
+    def test_sufficient_fields_create(self):
+        pc = {"field": "무기", "target": "검 A", "action": "생성"}
+        ok, exts, cls = _try_rule_base_step12(pc, user_input="검 A 만들어줘")
+        assert ok is True
+        assert exts[0]["subject"] == "검 A"
+        assert exts[0]["action"] == "CREATE"
+        assert cls[0]["category"] == "Weapon"
+
+    def test_sufficient_fields_update_with_property_value(self):
+        pc = {
+            "field": "적",
+            "target": "슬라임",
+            "action": "수정",
+            "property": "HP",
+            "value": "200",
+        }
+        ok, exts, cls = _try_rule_base_step12(pc, user_input="슬라임 HP 를 200 으로")
+        assert ok is True
+        assert exts[0]["property"] == "HP"
+        assert exts[0]["value"] == "200"
+        assert cls[0]["category"] == "Enemy"
+
+    def test_bulk_scope_all_skips_rule_base(self):
+        pc = {"field": "적", "target": "", "action": "수정", "bulk_scope": "all"}
+        ok, _, _ = _try_rule_base_step12(pc, user_input="모든 적 HP 두 배")
+        assert ok is False
+
+    def test_unknown_field_label_skips(self):
+        pc = {"field": "외계어", "target": "X", "action": "생성"}
+        ok, _, _ = _try_rule_base_step12(pc, user_input="X 만들어")
+        assert ok is False
+
+    def test_missing_required_skips(self):
+        assert _try_rule_base_step12({"field": "무기", "target": "", "action": "생성"}, "x")[0] is False
+        assert _try_rule_base_step12({"field": "", "target": "A", "action": "생성"}, "x")[0] is False
+        assert _try_rule_base_step12({"field": "무기", "target": "A", "action": ""}, "x")[0] is False
+
+    def test_target_not_in_user_input_skips(self):
+        """router target 이 history 오염일 가능성 차단."""
+        pc = {"field": "무기", "target": "검 A", "action": "생성"}
+        ok, _, _ = _try_rule_base_step12(pc, user_input="슬라임 만들어")
+        assert ok is False
+
+
+class TestBuildReferenceChecks:
+    """Task 4 — db_lookup 기반 reference_checks 실제 생성."""
+
+    def _mock_lookup(self, status, **extras):
+        import_path = "agent.editor.nodes.definition.lookup_by_name"
+        from unittest.mock import patch
+
+        payload = {"status": status, "candidates": [], "suggestions": [], **extras}
+        return patch(
+            "agent.editor.db_lookup.lookup_by_name", return_value=payload
+        ), import_path
+
+    def test_empty_when_no_parsed_command(self):
+        assert _build_reference_checks(None, "g", {}) == []
+        assert _build_reference_checks({}, "g", {}) == []
+
+    def test_empty_when_no_game_id(self):
+        pc = {"field": "무기", "target": "X"}
+        assert _build_reference_checks(pc, "", {}) == []
+
+    def test_empty_when_unknown_field(self):
+        pc = {"field": "외계어", "target": "X"}
+        assert _build_reference_checks(pc, "g", {}) == []
+
+    def test_found_entry(self):
+        from unittest.mock import patch
+
+        with patch(
+            "agent.editor.db_lookup.lookup_by_name",
+            return_value={
+                "status": "found",
+                "candidates": [],
+                "suggestions": [],
+                "exact_match": {"id": 3, "name": "슬라임"},
+            },
+        ):
+            out = _build_reference_checks(
+                {"field": "적", "target": "슬라임"}, "g", {}
+            )
+        assert out == [{"category": "Enemy", "name": "슬라임", "status": "found"}]
+
+    def test_not_found_with_suggestions(self):
+        from unittest.mock import patch
+
+        with patch(
+            "agent.editor.db_lookup.lookup_by_name",
+            return_value={
+                "status": "not_found",
+                "candidates": [],
+                "suggestions": [{"id": 1, "name": "슬라임"}],
+            },
+        ):
+            out = _build_reference_checks(
+                {"field": "적", "target": "슬라임킹"}, "g", {}
+            )
+        assert out[0]["status"] == "not_found"
+        assert out[0]["suggestions"] == [{"id": 1, "name": "슬라임"}]
+
+    def test_ambiguous_carries_candidates(self):
+        from unittest.mock import patch
+
+        cands = [{"id": 1, "name": "A"}, {"id": 2, "name": "A"}]
+        with patch(
+            "agent.editor.db_lookup.lookup_by_name",
+            return_value={
+                "status": "ambiguous",
+                "candidates": cands,
+                "suggestions": [],
+            },
+        ):
+            out = _build_reference_checks({"field": "무기", "target": "A"}, "g", {})
+        assert out[0]["status"] == "ambiguous"
+        assert out[0]["candidates"] == cands
+
+
 class TestInferHoldReason:
     def test_not_found_keywords(self):
         assert _infer_hold_reason("슬라임킹을 찾을 수 없습니다") == "not_found"
@@ -101,7 +225,11 @@ async def test_wrapper_adds_new_contract_fields_on_success():
     assert result["field"] == "무기"
     assert result["target"] == "검 A"
     assert result["description"] == "검 A 만들어줘"
-    assert result["reference_checks"] == []
+    # Task 4: reference_checks 는 이제 db_lookup 결과 기반 (여기선 파일 없음 → not_found)
+    assert isinstance(result["reference_checks"], list)
+    if result["reference_checks"]:
+        assert result["reference_checks"][0]["category"] == "Weapon"
+        assert result["reference_checks"][0]["name"] == "검 A"
     assert result["resolve"] is True
     assert "hold_reason" not in result
     assert "hold_question" not in result

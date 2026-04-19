@@ -38,6 +38,98 @@ logger = logging.getLogger(__name__)
 PLURAL_TO_SINGULAR = {v.lower(): k for k, v in CATEGORY_TO_PLURAL.items()}
 PLURAL_TO_SINGULAR.update({"enemies": "enemy", "actors": "actor"})
 
+
+# ── Task 3: rule-base Step 1/2 fast path ──────────────────────────────────
+# parsed_command 가 충분한 정보를 갖고 있으면 Step 1/2 LLM 호출을 건너뛴다.
+
+# 한국어 field 라벨 → 카테고리 (KEYWORD_TO_CATEGORY 와 중복이지만 normalize 일관성 위해 별도 유지)
+_FIELD_LABEL_TO_CATEGORY: dict[str, str] = {
+    "적": "Enemy",
+    "몬스터": "Enemy",
+    "무기": "Weapon",
+    "아이템": "Item",
+    "방어구": "Armor",
+    "액터": "Actor",
+    "주인공": "Actor",
+    "캐릭터": "Actor",
+    "직업": "Class",
+    "스킬": "Skill",
+    "상태이상": "State",
+}
+
+# 한국어 action 라벨 → Step 1 schema 의 action (대문자)
+_ACTION_LABEL_TO_UPPER: dict[str, str] = {
+    "생성": "CREATE",
+    "수정": "UPDATE",
+    "조회": "READ",
+    "삭제": "DELETE",
+}
+
+
+def _try_rule_base_step12(
+    parsed_command: dict, user_input: str
+) -> tuple[bool, list[dict], list[dict]]:
+    """parsed_command 로부터 Step 1/2 출력 구조를 직접 생성한다.
+
+    성공 조건:
+    - field / target / action 세 필드 모두 채워져 있음
+    - field 가 _FIELD_LABEL_TO_CATEGORY 에서 해석 가능
+    - action 이 _ACTION_LABEL_TO_UPPER 에서 해석 가능
+    - bulk_scope 가 "all" 이 아니어야 함 (bulk 는 기존 LLM 경로로 위임 — RAG 컨텍스트 필요)
+
+    후속:
+    - 성공 시 Step 5 (build_from_extractions) 가 그대로 소비 가능
+    - 실패 시 (False, [], []) 반환 → caller 가 LLM Step 1/2 실행
+
+    Returns:
+        (ok, extractions, classifications)
+    """
+    if not parsed_command:
+        return False, [], []
+
+    field = (parsed_command.get("field") or "").strip()
+    target = (parsed_command.get("target") or "").strip()
+    action = (parsed_command.get("action") or "").strip()
+    prop = (parsed_command.get("property") or "").strip()
+    val = (parsed_command.get("value") or "").strip()
+    bulk_scope = (parsed_command.get("bulk_scope") or "").strip()
+
+    if not field or not target or not action:
+        return False, [], []
+
+    category = _FIELD_LABEL_TO_CATEGORY.get(field)
+    action_upper = _ACTION_LABEL_TO_UPPER.get(action)
+    if not category or not action_upper:
+        return False, [], []
+
+    # bulk 는 기존 LLM 경로 유지 (RAG bulk_context 필요)
+    if bulk_scope == "all":
+        return False, [], []
+
+    # Step 1 post-check 와 동일한 제약: subject 가 user_input 에 있어야 history 오염 아님
+    def _norm(s: str) -> str:
+        return s.replace(" ", "").lower()
+
+    if target and _norm(target) not in _norm(user_input):
+        # router 의 target 이 history 오염으로 들어왔을 가능성 → LLM 경로에 위임
+        return False, [], []
+
+    extraction: dict = {
+        "subject": target,
+        "property": prop or None,
+        "value": val or None,
+        "action": action_upper,
+    }
+    classification: dict = {
+        "name": target,
+        "category": category,
+        "category_scores": {category: 1.0},
+        "is_category_label": False,
+        "system_ref": None,
+        "reason": "parsed_command rule-base (Step 1/2 LLM 스킵)",
+    }
+    return True, [extraction], [classification]
+
 SUPPORTED_BULK_TARGETS = {
     "actor": {"target_file": "Actors.json", "rag_category": "Actors"},
     "enemy": {"target_file": "Enemies.json", "rag_category": "Enemies"},
@@ -455,76 +547,87 @@ async def _definition_core(state: AgentState) -> dict:
     logger.info("=" * 60)
     logger.info("[Definition] 노드 시작 - game_id: %s, user_input: %s", game_id, user_input)
 
-    # --- [1단계: 핵심 키워드 추출] ---
-    logger.info(f"[Definition] Step 1: '{user_input}'에서 키워드 추출 중...")
-    messages_1 = build_step1_prompt(state)
-    response_1 = cast(
-        Step1ExtractionResponse,
-        await invoke_llm(messages=messages_1, structured_output=Step1ExtractionResponse),
-    )
-    extractions = [ext.model_dump() for ext in response_1.extractions]
-    logger.debug("[Definition] Step 1 완료 - 추출된 키워드 수: %d", len(extractions))
+    # ── Task 3: parsed_command 로부터 Step 1/2 LLM 호출 스킵 시도 ──
+    pc = state.get("parsed_command") or {}
+    rb_ok, extractions, classifications = _try_rule_base_step12(pc, user_input)
 
-    # Step 1 post-check: subject/value 가 현재 user_input 내부 substring 이어야 함.
-    # 이전 대화의 엔티티가 LLM hallucination 으로 넘어온 경우를 차단 (1-② 오염 방지).
-    def _norm(s: str) -> str:
-        return s.replace(" ", "").lower()
+    if rb_ok:
+        logger.info(
+            "[Definition] Step 1/2 rule-base 성공 → LLM 2 회 건너뜀 (subject=%s, category=%s, action=%s)",
+            classifications[0]["name"],
+            classifications[0]["category"],
+            extractions[0]["action"],
+        )
+    else:
+        # --- [1단계: 핵심 키워드 추출] ---
+        logger.info(f"[Definition] Step 1: '{user_input}'에서 키워드 추출 중...")
+        messages_1 = build_step1_prompt(state)
+        response_1 = cast(
+            Step1ExtractionResponse,
+            await invoke_llm(messages=messages_1, structured_output=Step1ExtractionResponse),
+        )
+        extractions = [ext.model_dump() for ext in response_1.extractions]
+        logger.debug("[Definition] Step 1 완료 - 추출된 키워드 수: %d", len(extractions))
 
-    _ui_norm = _norm(user_input)
-    _cleaned: list[dict] = []
-    for ext in extractions:
-        subj = str(ext.get("subject") or "").strip()
-        if subj and _norm(subj) not in _ui_norm:
-            logger.warning(
-                "[Definition] Step 1 post-check: subject '%s' 가 현재 user_input 에 없음 → 추출 제거 (history 오염 의심)",
-                subj,
-            )
-            continue
-        val = ext.get("value")
-        if isinstance(val, str) and val.strip():
-            # 숫자·기호는 제외하고, 엔티티 이름류 value 만 검사
-            val_s = val.strip()
-            is_numeric = val_s.replace(".", "", 1).lstrip("-").isdigit()
-            if not is_numeric and _norm(val_s) not in _ui_norm:
+        # Step 1 post-check: subject/value 가 현재 user_input 내부 substring 이어야 함.
+        # 이전 대화의 엔티티가 LLM hallucination 으로 넘어온 경우를 차단 (1-② 오염 방지).
+        def _norm(s: str) -> str:
+            return s.replace(" ", "").lower()
+
+        _ui_norm = _norm(user_input)
+        _cleaned: list[dict] = []
+        for ext in extractions:
+            subj = str(ext.get("subject") or "").strip()
+            if subj and _norm(subj) not in _ui_norm:
                 logger.warning(
-                    "[Definition] Step 1 post-check: value '%s' 가 현재 user_input 에 없음 → value 비움",
-                    val_s,
+                    "[Definition] Step 1 post-check: subject '%s' 가 현재 user_input 에 없음 → 추출 제거 (history 오염 의심)",
+                    subj,
                 )
-                ext["value"] = None
-        _cleaned.append(ext)
-    extractions = _cleaned
+                continue
+            val = ext.get("value")
+            if isinstance(val, str) and val.strip():
+                val_s = val.strip()
+                is_numeric = val_s.replace(".", "", 1).lstrip("-").isdigit()
+                if not is_numeric and _norm(val_s) not in _ui_norm:
+                    logger.warning(
+                        "[Definition] Step 1 post-check: value '%s' 가 현재 user_input 에 없음 → value 비움",
+                        val_s,
+                    )
+                    ext["value"] = None
+            _cleaned.append(ext)
+        extractions = _cleaned
 
-    # --- [2단계: 카테고리 분류] ---
-    logger.info("[Definition] Step 2: 추출된 대상들 카테고리 분류 중...")
-    messages_2 = build_step2_prompt(extractions, user_input=user_input)
-    response_2 = cast(
-        Step2ClassificationResponse,
-        await invoke_llm(messages=messages_2, structured_output=Step2ClassificationResponse),
-    )
-    classifications = [cls.model_dump() for cls in response_2.classifications]
-    logger.debug("[Definition] Step 2 완료 - 분류된 엔티티 수: %d", len(classifications))
+        # --- [2단계: 카테고리 분류] ---
+        logger.info("[Definition] Step 2: 추출된 대상들 카테고리 분류 중...")
+        messages_2 = build_step2_prompt(extractions, user_input=user_input)
+        response_2 = cast(
+            Step2ClassificationResponse,
+            await invoke_llm(messages=messages_2, structured_output=Step2ClassificationResponse),
+        )
+        classifications = [cls.model_dump() for cls in response_2.classifications]
+        logger.debug("[Definition] Step 2 완료 - 분류된 엔티티 수: %d", len(classifications))
 
-    # category=None 보정: 한국어 키워드 매핑으로 복구 가능하면 복구, 아니면 제거
-    from agent.constants import KEYWORD_TO_CATEGORY
+        # category=None 보정: 한국어 키워드 매핑으로 복구 가능하면 복구, 아니면 제거
+        from agent.constants import KEYWORD_TO_CATEGORY
 
-    kept: list[dict] = []
-    removed_count = 0
-    for cls in classifications:
-        if cls.get("category") is not None:
-            kept.append(cls)
-            continue
-        name = (cls.get("name") or "").strip()
-        matched_cat = KEYWORD_TO_CATEGORY.get(name)
-        if matched_cat:
-            cls["category"] = matched_cat
-            cls["is_category_label"] = True
-            logger.info("[Definition] 키워드 매핑으로 카테고리 복구: %s -> %s", name, matched_cat)
-            kept.append(cls)
-        else:
-            removed_count += 1
-    classifications = kept
-    if removed_count:
-        logger.info("[Definition] category=None 분류 %d건 제거 (수치 표현 등)", removed_count)
+        kept: list[dict] = []
+        removed_count = 0
+        for cls in classifications:
+            if cls.get("category") is not None:
+                kept.append(cls)
+                continue
+            name = (cls.get("name") or "").strip()
+            matched_cat = KEYWORD_TO_CATEGORY.get(name)
+            if matched_cat:
+                cls["category"] = matched_cat
+                cls["is_category_label"] = True
+                logger.info("[Definition] 키워드 매핑으로 카테고리 복구: %s -> %s", name, matched_cat)
+                kept.append(cls)
+            else:
+                removed_count += 1
+        classifications = kept
+        if removed_count:
+            logger.info("[Definition] category=None 분류 %d건 제거 (수치 표현 등)", removed_count)
 
     bulk_scope_targets = _detect_bulk_scope_targets(extractions, classifications)
     unsupported_bulk_targets = _detect_unsupported_bulk_targets(extractions, classifications)
@@ -1157,6 +1260,57 @@ def _infer_target_label(
     return ""
 
 
+def _build_reference_checks(
+    parsed_command: dict | None,
+    game_id: str,
+    extracted_ids: dict,
+) -> list[dict]:
+    """db_lookup 기반 참조 체크 리스트 생성.
+
+    Planner (Task 5) 가 이 결과를 보고:
+    - status="not_found" + action="수정" → hold(not_found) 선행
+    - status="ambiguous" + action="생성" → hold(already_exists) 선행
+    - status="found" → 정상 진행
+
+    현재 버전은 parsed_command 의 주 대상만 검사한다. 다중 엔티티·보조 엔티티
+    (Actor.classId 등) 는 차기 sprint.
+
+    Returns:
+        list[{category, name, status, candidates?, suggestions?}]
+    """
+    from agent.editor.db_lookup import lookup_by_name
+
+    if not parsed_command or not game_id:
+        return []
+
+    target = (parsed_command.get("target") or "").strip()
+    field = (parsed_command.get("field") or "").strip()
+    if not target or not field:
+        return []
+
+    category = _FIELD_LABEL_TO_CATEGORY.get(field)
+    if not category:
+        return []
+
+    result = lookup_by_name(game_id, category.lower(), target)
+    entry: dict = {
+        "category": category,
+        "name": target,
+        "status": result["status"],  # found / not_found / ambiguous
+    }
+    if result["status"] == "ambiguous" and result.get("candidates"):
+        entry["candidates"] = [
+            {"id": c.get("id"), "name": c.get("name")}
+            for c in result["candidates"][:5]
+        ]
+    if result["status"] == "not_found" and result.get("suggestions"):
+        entry["suggestions"] = [
+            {"id": c.get("id"), "name": c.get("name")}
+            for c in result["suggestions"][:3]
+        ]
+    return [entry]
+
+
 def _infer_hold_reason(message_for_user: str) -> str:
     """message_for_user 에서 hold_reason 추론 (heuristic).
 
@@ -1217,8 +1371,14 @@ async def definition(state: AgentState) -> dict:
     result["field"] = field_label
     result["target"] = target_label
     result["description"] = description
-    # reference_checks 는 D+E-3 에서 rule-base 로 생성. 지금은 비어 있음.
-    result.setdefault("reference_checks", [])
+    # reference_checks — Task 4: db_lookup 기반 실제 생성
+    try:
+        result["reference_checks"] = _build_reference_checks(
+            parsed_command, state.get("game_id", "") or "", extracted_ids
+        )
+    except Exception as e:  # pragma: no cover — lookup 실패는 치명적이지 않음
+        logger.warning("[Definition] reference_checks 생성 실패: %s", e)
+        result["reference_checks"] = []
 
     # ── 4. resolve / hold 분기 + pending_store set ───────────────
     params_ok = bool(result.get("params_sufficient", False))

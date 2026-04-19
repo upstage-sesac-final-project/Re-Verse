@@ -13,12 +13,38 @@ LLM 1회(+@) 및 직접 파일 읽기로 조회 결과를 즉시 반환한다.
 import logging
 import statistics
 import time
-from difflib import SequenceMatcher
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
 
 from agent.core.llm_client import invoke_llm
+from agent.editor.db_lookup import (
+    FUZZY_SUGGESTION_THRESHOLD as _FUZZY_SUGGESTION_THRESHOLD,
+)
+from agent.editor.db_lookup import (
+    FUZZY_THRESHOLD as _FUZZY_THRESHOLD,
+)
+from agent.editor.db_lookup import (
+    PARAMS_INDEX as _PARAMS_INDEX,
+)
+from agent.editor.db_lookup import (
+    build_id_name_map as _build_id_name_map,
+)
+from agent.editor.db_lookup import (
+    find_candidates as _find_candidates,
+)
+from agent.editor.db_lookup import (
+    fuzzy_match as _fuzzy_match,
+)
+from agent.editor.db_lookup import (
+    get_field_value as _get_field_value,
+)
+from agent.editor.db_lookup import (
+    get_numeric_value as _get_numeric_value,
+)
+from agent.editor.db_lookup import (
+    valid_items as _valid_items,
+)
 from agent.editor.prompts.reader_prompt import (
     build_entity_name_match_prompt,
     build_entity_type_guess_prompt,
@@ -43,23 +69,8 @@ _CATEGORY_DISPLAY: dict[str, str] = {
     "system": "시스템",
 }
 
-# RPG Maker MZ params 배열 인덱스 (enemy/actor 공통 8개 기본 스탯)
-_PARAMS_INDEX: dict[str, int] = {
-    "maxhp": 0,
-    "mhp": 0,
-    "maxmp": 1,
-    "mmp": 1,
-    "atk": 2,
-    "def": 3,
-    "mat": 4,
-    "mdf": 5,
-    "agi": 6,
-    "luk": 7,
-}
-
-_FUZZY_THRESHOLD = 0.6
-_FUZZY_SUGGESTION_THRESHOLD = 0.5
 _BULK_LIST_TRUNCATE_THRESHOLD = 30
+# _PARAMS_INDEX / _FUZZY_THRESHOLD / _FUZZY_SUGGESTION_THRESHOLD 는 db_lookup 에서 import.
 
 # ── 참조 해소 맵 ──────────────────────────────────────────────────────────────
 # (entity_type, field_name) → 참조 정의
@@ -185,89 +196,9 @@ class _ReaderQuery(BaseModel):
 
 
 # ── 헬퍼 ──────────────────────────────────────────────────────────────────────
-
-
-def _valid_items(data: list) -> list[dict]:
-    """RPG Maker MZ JSON 배열에서 null 항목과 name이 빈 슬롯을 제거한다."""
-    return [item for item in data if isinstance(item, dict) and item.get("name")]
-
-
-def _fuzzy_match(
-    entity_name: str, items: list[dict], threshold: float = _FUZZY_THRESHOLD
-) -> list[dict]:
-    """entity_name과 SequenceMatcher로 유사도 매칭, threshold 이상인 항목을 유사도 내림차순으로 반환한다."""
-    scored: list[tuple[float, dict]] = []
-    for item in items:
-        name = item.get("name", "")
-        if not name:
-            continue
-        ratio = SequenceMatcher(None, entity_name.lower(), name.lower()).ratio()
-        if ratio >= threshold:
-            scored.append((ratio, item))
-    scored.sort(reverse=True, key=lambda x: x[0])
-    return [item for _, item in scored]
-
-
-def _find_candidates(entity_name: str, items: list[dict]) -> list[dict]:
-    """ID 숫자 > exact > case-insensitive exact > prefix > fuzzy 우선순위로 후보를 반환한다."""
-    # 0. 숫자면 ID로 직접 접근
-    if entity_name.isdigit():
-        by_id = [
-            item for item in items if isinstance(item, dict) and item.get("id") == int(entity_name)
-        ]
-        if by_id:
-            return by_id
-    # 1. 완전 일치
-    exact = [item for item in items if isinstance(item, dict) and item.get("name") == entity_name]
-    if exact:
-        return exact
-    # 2. 대소문자 무시 완전 일치
-    ci = [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("name", "").lower() == entity_name.lower()
-    ]
-    if ci:
-        return ci
-    # 3. prefix match (entity_name으로 시작하는 이름 전부)
-    prefix = [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("name", "").lower().startswith(entity_name.lower())
-    ]
-    if prefix:
-        return prefix
-    # 4. 퍼지 매칭
-    return _fuzzy_match(entity_name, items)
-
-
-def _get_field_value(entity: dict, field_name: str) -> tuple[Any, bool]:
-    """엔티티에서 필드값을 추출한다. dot notation(damage.elementId)과 params 배열 접근도 처리한다."""
-    # dot notation 처리 (예: damage.elementId)
-    if "." in field_name:
-        parts = field_name.split(".", 1)
-        nested = entity.get(parts[0])
-        if isinstance(nested, dict):
-            return _get_field_value(nested, parts[1])
-        return None, False
-    if field_name in entity:
-        return entity[field_name], True
-    idx = _PARAMS_INDEX.get(field_name.lower())
-    if idx is not None:
-        params = entity.get("params", [])
-        if isinstance(params, list) and len(params) > idx:
-            # Classes.params는 list[list[int]]이므로 첫 원소가 int인지 확인
-            if isinstance(params[idx], (int, float)):
-                return params[idx], True
-    return None, False
-
-
-def _get_numeric_value(entity: dict, field_name: str) -> float | None:
-    """엔티티에서 숫자 필드값을 추출한다. 숫자가 아니거나 없으면 None 반환."""
-    value, found = _get_field_value(entity, field_name)
-    if found and isinstance(value, (int, float)):
-        return float(value)
-    return None
+#
+# _valid_items / _fuzzy_match / _find_candidates / _get_field_value / _get_numeric_value /
+# _build_id_name_map 는 agent/editor/db_lookup 으로 이동했다. 이 파일 상단의 import 참조.
 
 
 def _get_category_display(entity_type: str | None) -> str:
@@ -299,10 +230,6 @@ def _build_ambiguous_response(entity_name: str | None, candidates: list[dict]) -
         f"'{entity_name}'과(와) 유사한 이름이 여럿 있습니다. 어떤 것을 찾으시나요?\n"
         f"{_format_candidate_lines(candidates)}"
     )
-
-
-def _build_id_name_map(data: list[Any]) -> dict[int, str]:
-    return {item["id"]: item["name"] for item in data if isinstance(item, dict) and item.get("id")}
 
 
 def _format_entity_summary(entity: dict) -> str:

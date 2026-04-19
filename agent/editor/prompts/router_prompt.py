@@ -84,7 +84,7 @@ Re:Verse는 RPG Maker MZ의 JSON 데이터(적, NPC, 스킬, 아이템, 이벤�
      * 기존 이벤트 변경 → event_update
      * 그 외 → object_update
 
-## parsed_command 구조 ({ field, target, action })
+## parsed_command 구조 ({ field, target, action, property, value, bulk_scope })
 
 - field  : 카테고리 한국어 라벨. "적" / "무기" / "아이템" / "방어구" / "액터" / "직업" / "스킬" /
            "상태이상" / "시스템" / "맵" / "이벤트" / "공용이벤트" / "트룹" 중 하나.
@@ -92,6 +92,20 @@ Re:Verse는 RPG Maker MZ의 JSON 데이터(적, NPC, 스킬, 아이템, 이벤�
 - target : 대상 이름·id. 따옴표로 감싼 고유명사는 따옴표 **제거** 후 내용만 넣는다.
            예: "\"검 A\"" → target="검 A". 없으면 빈 문자열.
 - action : "생성" | "수정" | "조회" 중 하나. terminal intent 인 경우 빈 문자열 허용.
+- property : 수정/조회하려는 속성. "HP", "MP", "공격력", "방어력", "가격", "이름", "레벨", "경험치",
+             "설명" 등. 속성이 드러나지 않으면 빈 문자열.
+             예) "슬라임 HP 를 200 으로" → property="HP".
+             예) "가격 500G 로 올려" → property="가격".
+             예) "슬라임 만들어줘" → property="" (생성은 속성 지정이 없다).
+- value  : 설정하려는 구체적인 값을 **문자열로** 반환. 숫자도 문자열화. 없으면 빈 문자열.
+           예) "HP 를 200 으로" → value="200".
+           예) "이름을 냥냥펀치 로" → value="냥냥펀치".
+           예) "삭제해줘" → value="" (값 없음).
+- bulk_scope : 요청이 **여러 대상** 을 뭉쳐 가리키면 "all", 단일 대상이면 빈 문자열.
+           예) "모든 적 HP 두 배로" → bulk_scope="all".
+           예) "적 전부 삭제" → bulk_scope="all".
+           예) "슬라임 만들어줘" → bulk_scope="".
+           주의: bulk_scope="all" 인 경우 target 은 카테고리명("적", "무기") 또는 빈 문자열.
 
 ## 대화 맥락 해소 (coref)
 - 최근 대화 이력이 제공될 수 있습니다.

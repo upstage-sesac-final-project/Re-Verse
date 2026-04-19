@@ -53,7 +53,8 @@ class AgentState(TypedDict, total=False):
         "clarification_needed",
     ]
     confidence: float  # 의도 분류 신뢰도 (0.0~1.0)
-    # parsed_command = { field, target, action } — definition / reader 가 소비
+    # parsed_command = { field, target, action, property, value, bulk_scope } — definition / reader 가 소비
+    # property/value/bulk_scope 는 Phase D+E+F 후속 sprint (parsed_command 확장) 에서 추가
     parsed_command: dict
     needs_context_lookup: bool  # 조사·대명사 참조 여부
     pending_resumed: bool  # 이번 턴이 이전 hold 의 응답인지

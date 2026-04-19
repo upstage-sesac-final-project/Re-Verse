@@ -12,6 +12,7 @@ from typing import Any
 
 from agent.editor.handlers.entity import ALL_SUPPORTED as ENTITY_SUPPORTED
 from agent.editor.handlers.entity import execute_entity_step
+from agent.editor.handlers.events import execute_events_step, is_event_target
 from agent.editor.handlers.map import execute_map_step
 
 logger = logging.getLogger(__name__)
@@ -27,9 +28,17 @@ def dispatch_step(
 ) -> dict[str, Any]:
     """target_file 을 보고 적절한 handler 로 라우팅.
 
+    우선순위:
+        1. events  — CommonEvents / Troops / Map 이벤트 액션
+        2. entity  — Actors / Classes / Skills / ... / System
+        3. map     — MapInfos / MapNNN 메타/타일
+
     Returns:
         RPGMakerCRUD 호환 result dict.
     """
+    if is_event_target(target_file, action):
+        return execute_events_step(data_path, action, target_file, target_info)
+
     if target_file in ENTITY_SUPPORTED:
         return execute_entity_step(data_path, action, target_file, target_info)
 

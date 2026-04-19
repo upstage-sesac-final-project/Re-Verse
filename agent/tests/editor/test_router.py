@@ -28,13 +28,23 @@ def _mock_output(
     field: str = "",
     target: str = "",
     action: str = "",
+    property: str = "",
+    value: str = "",
+    bulk_scope: str = "",
 ) -> _RouterOutput:
     return _RouterOutput(
         intent=intent,  # type: ignore[arg-type]
         confidence=confidence,
         reasoning=reasoning,
         response=response,
-        parsed_command=_ParsedCommand(field=field, target=target, action=action),
+        parsed_command=_ParsedCommand(
+            field=field,
+            target=target,
+            action=action,
+            property=property,
+            value=value,
+            bulk_scope=bulk_scope,
+        ),
     )
 
 
@@ -140,7 +150,46 @@ class TestRouter:
             "field": "적",
             "target": "슬라임",
             "action": "생성",
+            "property": "",
+            "value": "",
+            "bulk_scope": "",
         }
+
+    @pytest.mark.asyncio
+    async def test_parsed_command_extended_fields_propagated(self):
+        """property/value/bulk_scope 가 state 에 전파되어야 한다 (Phase D-followup)."""
+        with patch("agent.editor.nodes.router.invoke_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = _mock_output(
+                "object_update",
+                field="적",
+                target="슬라임",
+                action="수정",
+                property="HP",
+                value="200",
+            )
+            result = await router(_state("슬라임 HP 를 200 으로 올려줘"))
+
+        assert result["parsed_command"]["property"] == "HP"
+        assert result["parsed_command"]["value"] == "200"
+        assert result["parsed_command"]["bulk_scope"] == ""
+
+    @pytest.mark.asyncio
+    async def test_parsed_command_bulk_scope(self):
+        """bulk_scope='all' 이 state 에 전파되어야 한다."""
+        with patch("agent.editor.nodes.router.invoke_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = _mock_output(
+                "object_update",
+                field="적",
+                target="",
+                action="수정",
+                property="HP",
+                value="2배",
+                bulk_scope="all",
+            )
+            result = await router(_state("모든 적 HP 두 배로 올려"))
+
+        assert result["parsed_command"]["bulk_scope"] == "all"
+        assert result["parsed_command"]["property"] == "HP"
 
     @pytest.mark.asyncio
     async def test_empty_input_returns_clarification_without_llm(self):

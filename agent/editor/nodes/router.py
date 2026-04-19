@@ -42,6 +42,16 @@ class _ParsedCommand(BaseModel):
     field: str = Field(default="", description="카테고리 라벨 (적/무기/이벤트 등)")
     target: str = Field(default="", description="대상 이름·id (따옴표 제거)")
     action: str = Field(default="", description="'생성' | '수정' | '조회' | ''")
+    property: str = Field(
+        default="", description="수정/조회 대상 속성 (예: HP, 공격력, 가격, 이름). 없으면 빈 문자열"
+    )
+    value: str = Field(
+        default="", description="설정하려는 값 (예: 500, 냥냥펀치, 전설무기). 없으면 빈 문자열"
+    )
+    bulk_scope: str = Field(
+        default="",
+        description="다중 대상 범위 — 'all' | '' (단일). 예: '모든 적', '적 전부' 는 'all'",
+    )
 
 
 class _RouterOutput(BaseModel):
