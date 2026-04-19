@@ -15,14 +15,39 @@ def build_final_response(
     changes_log: list[dict[str, Any]],
     details: list[str] | None = None,
     judge_feedback: str = "",
+    soundness_warnings: list[str] | None = None,
 ) -> str:
-    """최종 사용자 응답 문자열 생성."""
+    """최종 사용자 응답 문자열 생성.
+
+    Phase H: soundness_warnings 포장 추가. YB.md 8-5 의 "성공 + 경고 통합" 경로를
+    결정론 템플릿으로 처리 (LLM 0회). 경고가 다중이면 bullet list 로 렌더.
+    """
     if success:
         resp = _success_response(changes_log)
+        # 호환: 구 judge_feedback 경로는 유지 (Phase G 가 빈 문자열로 치환 중)
         if judge_feedback:
             resp += f"\n\n참고: {judge_feedback}"
+        if soundness_warnings:
+            resp += "\n\n" + _render_soundness_warnings(soundness_warnings)
         return resp
     return _failure_response(summary, changes_log, details)
+
+
+def _render_soundness_warnings(warnings: list[str]) -> str:
+    """soundness_warnings 리스트를 사용자 친화적 bullet 로 포장."""
+    if len(warnings) == 1:
+        return f"⚠️ 참고: {warnings[0]}"
+    header = f"⚠️ 참고 ({len(warnings)}건):"
+    lines = [f"  - {w}" for w in warnings]
+    return "\n".join([header, *lines])
+
+
+def build_hold_response(hold_question: str, hold_reason: str | None = None) -> str:
+    """Hold 응답 렌더 — definition 이 resolve=False 로 끝낼 때 synthesizer 가 호출.
+
+    현 구현은 hold_question 을 그대로 돌려준다. 추후 reason 별 템플릿 세분화 예정.
+    """
+    return hold_question or "추가 정보가 필요합니다. 구체적으로 알려주시겠어요?"
 
 
 def _format_query_result(target: str, data: Any) -> str:

@@ -90,6 +90,33 @@ MCP_TOOL_MAP: dict[tuple[str, str], dict[str, Any]] = {
     ("MapInfos.json", "list"): {"tool": "list_maps", "backup_files": ["MapInfos.json"]},
     ("MapInfos.json", "query"): {"tool": "list_maps", "backup_files": ["MapInfos.json"]},
     ("MapInfos.json", "create"): {"tool": "create_map", "backup_files": ["MapInfos.json"]},
+    # ── Phase I 뼈대 (이벤트 3종) ───────────────────────────────
+    # MCP 툴 자체가 아직 없는 action 도 있음. 엔트리만 등록해 두고 handler 본체는
+    # Phase I 에서 handlers/events.py 로 구현. 현 core._execute_one_structured_step
+    # 은 이 엔트리를 당장 라우팅하지 못할 수 있어 guard 필요.
+    ("CommonEvents.json", "list"): {"tool": "list_common_events", "backup_files": []},
+    ("CommonEvents.json", "query"): {
+        "tool": "get_common_event",
+        "backup_files": [],
+    },
+    ("CommonEvents.json", "create"): {
+        "tool": "create_common_event",
+        "backup_files": ["CommonEvents.json"],
+    },
+    ("CommonEvents.json", "update"): {
+        "tool": "update_common_event",
+        "backup_files": ["CommonEvents.json"],
+    },
+    ("Troops.json", "list"): {"tool": "list_troops", "backup_files": []},
+    ("Troops.json", "query"): {"tool": "get_troop", "backup_files": []},
+    ("Troops.json", "create"): {
+        "tool": "create_troop",
+        "backup_files": ["Troops.json"],
+    },
+    ("Troops.json", "update"): {
+        "tool": "update_troop",
+        "backup_files": ["Troops.json"],
+    },
 }
 
 

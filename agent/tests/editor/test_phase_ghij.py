@@ -1,0 +1,204 @@
+"""Phase G/H/I 뼈대 동작 단위 테스트."""
+
+from __future__ import annotations
+
+import pytest
+
+from agent.editor.nodes.executor.mcp_registry import MCP_TOOL_MAP
+from agent.editor.nodes.validator import _collect_soundness_warnings
+from agent.editor.nodes.validator.responder import (
+    build_final_response,
+    build_hold_response,
+)
+
+
+# ── Phase G: soundness_warnings 수집 ────────────────────────────
+
+
+class TestSoundnessWarnings:
+    def test_empty_returns_no_warnings(self):
+        assert _collect_soundness_warnings([], []) == []
+
+    def test_entity_id_missing_on_create_warns(self):
+        log = [
+            {
+                "success": True,
+                "action": "create",
+                "target_file": "Weapons.json",
+                "entity_id": None,
+            }
+        ]
+        warnings = _collect_soundness_warnings(log, [])
+        assert len(warnings) == 1
+        assert "entity_id" in warnings[0]
+
+    def test_skipped_entry_does_not_warn(self):
+        log = [{"success": True, "skipped": True, "action": "create"}]
+        assert _collect_soundness_warnings(log, []) == []
+
+    def test_all_skipped_with_ops_warns(self):
+        log = [{"success": True, "skipped": True}]
+        ops = [{"op": "create"}]
+        warnings = _collect_soundness_warnings(log, ops)
+        assert any("전부 skip" in w for w in warnings)
+
+    def test_failed_entry_not_counted_as_missing_id(self):
+        log = [{"success": False, "action": "create", "entity_id": None}]
+        assert _collect_soundness_warnings(log, []) == []
+
+
+# ── Phase H: responder ──────────────────────────────────────────
+
+
+class TestResponder:
+    def test_hold_response_returns_question(self):
+        assert build_hold_response("'검 A' 를 찾을 수 없습니다.") == "'검 A' 를 찾을 수 없습니다."
+
+    def test_hold_response_default_on_empty(self):
+        resp = build_hold_response("")
+        assert resp  # 빈 문자열이 아님
+        assert "추가 정보" in resp or "구체" in resp
+
+    def test_success_without_warnings_returns_clean_template(self):
+        log = [
+            {
+                "success": True,
+                "action": "create",
+                "target_file": "Weapons.json",
+                "data": {"name": "검 A"},
+                "entity_id": 12,
+            }
+        ]
+        resp = build_final_response(
+            success=True, summary="성공", changes_log=log, soundness_warnings=[]
+        )
+        assert "검 A" in resp
+        assert "참고" not in resp  # warnings 없으면 붙지 않음
+
+    def test_single_warning_rendered_inline(self):
+        resp = build_final_response(
+            success=True,
+            summary="성공",
+            changes_log=[
+                {
+                    "success": True,
+                    "action": "create",
+                    "target_file": "W.json",
+                    "data": {"name": "X"},
+                    "entity_id": 1,
+                }
+            ],
+            soundness_warnings=["공격력 대비 가격이 낮습니다"],
+        )
+        assert "⚠️" in resp
+        assert "공격력 대비 가격" in resp
+
+    def test_multiple_warnings_rendered_as_bullets(self):
+        resp = build_final_response(
+            success=True,
+            summary="성공",
+            changes_log=[
+                {
+                    "success": True,
+                    "action": "create",
+                    "target_file": "W.json",
+                    "data": {"name": "X"},
+                    "entity_id": 1,
+                }
+            ],
+            soundness_warnings=["경고1", "경고2", "경고3"],
+        )
+        assert "(3건)" in resp
+        assert "- 경고1" in resp
+        assert "- 경고2" in resp
+        assert "- 경고3" in resp
+
+    def test_failure_path_ignores_warnings_for_now(self):
+        resp = build_final_response(
+            success=False,
+            summary="Schema 검증 실패",
+            changes_log=[{"success": False, "error": "bad"}],
+            soundness_warnings=["ignored"],
+        )
+        assert "문제가 발생했습니다" in resp
+        # 실패 응답은 soundness_warnings 포장을 skip — 실패 정보가 우선
+        assert "⚠️" not in resp
+
+
+# ── Phase H: synthesizer hold 경로 ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_synthesizer_hold_response_used_when_resolve_false():
+    from agent.editor.nodes.synthesizer import synthesizer
+
+    state = {
+        "resolve": False,
+        "hold_reason": "not_found",
+        "hold_question": "'검 A' 를 찾을 수 없습니다. 먼저 만들까요?",
+        "intent": "object_update",
+    }
+    result = await synthesizer(state)
+    assert result["final_response"] == "'검 A' 를 찾을 수 없습니다. 먼저 만들까요?"
+
+
+@pytest.mark.asyncio
+async def test_synthesizer_reuses_existing_final_response():
+    from agent.editor.nodes.synthesizer import synthesizer
+
+    state = {
+        "resolve": True,
+        "final_response": "요청을 하나씩 입력해주세요.",  # router terminal 이 set
+        "intent": "multi_intent",
+    }
+    result = await synthesizer(state)
+    assert result["final_response"] == "요청을 하나씩 입력해주세요."
+
+
+@pytest.mark.asyncio
+async def test_synthesizer_soundness_warnings_propagate_to_response():
+    from agent.editor.nodes.synthesizer import synthesizer
+
+    state = {
+        "intent": "object_create",
+        "success": True,
+        "changes_log": [
+            {
+                "success": True,
+                "action": "create",
+                "target_file": "Weapons.json",
+                "data": {"name": "검 A"},
+                "entity_id": 12,
+            }
+        ],
+        "soundness_warnings": ["공격력 대비 가격이 낮습니다"],
+    }
+    result = await synthesizer(state)
+    assert "검 A" in result["final_response"]
+    assert "공격력 대비 가격" in result["final_response"]
+
+
+# ── Phase I: MCP registry 확장 ──────────────────────────────────
+
+
+class TestPhaseIEventMcpEntries:
+    """Phase I 뼈대 — CommonEvents / Troops 엔트리 등록 여부만."""
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            ("CommonEvents.json", "list"),
+            ("CommonEvents.json", "query"),
+            ("CommonEvents.json", "create"),
+            ("CommonEvents.json", "update"),
+            ("Troops.json", "list"),
+            ("Troops.json", "query"),
+            ("Troops.json", "create"),
+            ("Troops.json", "update"),
+        ],
+    )
+    def test_entry_exists(self, key):
+        assert key in MCP_TOOL_MAP, f"Phase I: {key} 미등록"
+        entry = MCP_TOOL_MAP[key]
+        assert "tool" in entry and entry["tool"]
+        assert "backup_files" in entry
