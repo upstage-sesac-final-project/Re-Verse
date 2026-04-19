@@ -52,119 +52,17 @@ game_locks: defaultdict[str, asyncio.Lock] = defaultdict(lambda: asyncio.Lock())
 # - MapNNN.json + draw_tile → draw_map_tile
 # 플래너는 target_file에 Map003.json 형태를 쓰고, mapId는 파일명에서 자동 보강된다.
 # ────────────────────────────────────────────────────────────
-MCP_TOOL_MAP: dict[tuple[str, str], dict[str, Any]] = {
-    # Actors.json
-    ("Actors.json", "list"): {"tool": "list_actors", "backup_files": []},
-    ("Actors.json", "search"): {"tool": "search_actors", "backup_files": []},
-    ("Actors.json", "query_by_id"): {"tool": "get_actor", "backup_files": []},
-    ("Actors.json", "create"): {"tool": "create_actor", "backup_files": ["Actors.json"]},
-    ("Actors.json", "update_actor"): {"tool": "update_actor", "backup_files": ["Actors.json"]},
-    # Skills.json
-    ("Skills.json", "list"): {"tool": "list_skills", "backup_files": []},
-    ("Skills.json", "query"): {"tool": "get_skill", "backup_files": []},
-    ("Skills.json", "search"): {"tool": "search_skills", "backup_files": []},
-    ("Skills.json", "create"): {"tool": "create_skill", "backup_files": ["Skills.json"]},
-    ("Skills.json", "create_damage"): {
-        "tool": "create_damage_skill",
-        "backup_files": ["Skills.json"],
-    },
-    ("Skills.json", "create_healing"): {
-        "tool": "create_healing_skill",
-        "backup_files": ["Skills.json"],
-    },
-    ("Skills.json", "create_buff"): {"tool": "create_buff_skill", "backup_files": ["Skills.json"]},
-    ("Skills.json", "create_state"): {
-        "tool": "create_state_skill",
-        "backup_files": ["Skills.json"],
-    },
-    ("Skills.json", "update"): {"tool": "update_skill", "backup_files": ["Skills.json"]},
-    # Items.json
-    ("Items.json", "list"): {"tool": "list_items", "backup_files": []},
-    ("Items.json", "search"): {"tool": "search_items", "backup_files": []},
-    ("Items.json", "create"): {"tool": "create_item", "backup_files": ["Items.json"]},
-    ("Items.json", "update"): {"tool": "update_item", "backup_files": ["Items.json"]},
-    # Weapons.json
-    ("Weapons.json", "list"): {"tool": "list_weapons", "backup_files": []},
-    ("Weapons.json", "create"): {"tool": "create_weapon", "backup_files": ["Weapons.json"]},
-    ("Weapons.json", "update"): {"tool": "update_weapon", "backup_files": ["Weapons.json"]},
-    # Armors.json
-    ("Armors.json", "list"): {"tool": "list_armors", "backup_files": []},
-    ("Armors.json", "create"): {"tool": "create_armor", "backup_files": ["Armors.json"]},
-    ("Armors.json", "update"): {"tool": "update_armor", "backup_files": ["Armors.json"]},
-    # Classes.json (통합 MCP에서 추가)
-    ("Classes.json", "list"): {"tool": "list_classes", "backup_files": []},
-    ("Classes.json", "create"): {"tool": "create_class", "backup_files": ["Classes.json"]},
-    ("Classes.json", "update"): {"tool": "update_class", "backup_files": ["Classes.json"]},
-    # States.json (통합 MCP에서 추가)
-    ("States.json", "list"): {"tool": "list_states", "backup_files": []},
-    ("States.json", "create"): {"tool": "create_state", "backup_files": ["States.json"]},
-    ("States.json", "update"): {"tool": "update_state", "backup_files": ["States.json"]},
-    # Enemies.json (통합 MCP에서 추가)
-    ("Enemies.json", "list"): {"tool": "list_enemies", "backup_files": []},
-    ("Enemies.json", "create"): {"tool": "create_enemy", "backup_files": ["Enemies.json"]},
-    ("Enemies.json", "update"): {"tool": "update_enemy", "backup_files": ["Enemies.json"]},
-    # System.json
-    ("System.json", "query"): {"tool": "get_system", "backup_files": []},
-    ("System.json", "list_variables"): {"tool": "get_variables", "backup_files": []},
-    ("System.json", "set_variable_name"): {
-        "tool": "set_variable_name",
-        "backup_files": ["System.json"],
-    },
-    ("System.json", "list_switches"): {"tool": "get_switches", "backup_files": []},
-    ("System.json", "set_switch_name"): {
-        "tool": "set_switch_name",
-        "backup_files": ["System.json"],
-    },
-    ("System.json", "get_game_title"): {"tool": "get_game_title", "backup_files": []},
-    ("System.json", "update_game_title"): {
-        "tool": "update_game_title",
-        "backup_files": ["System.json"],
-    },
-    ("System.json", "update_starting_position"): {
-        "tool": "update_starting_position",
-        "backup_files": ["System.json"],
-    },
-    # MapInfos.json — 맵 목록/생성 (맵 단일 파일 MapNNN.json 과 구분)
-    ("MapInfos.json", "list"): {"tool": "list_maps", "backup_files": ["MapInfos.json"]},
-    ("MapInfos.json", "query"): {"tool": "list_maps", "backup_files": ["MapInfos.json"]},
-    ("MapInfos.json", "create"): {"tool": "create_map", "backup_files": ["MapInfos.json"]},
-}
-
-
-_MAP_JSON_FILE_RE = re.compile(r"^Map(\d{1,3})\.json$", re.IGNORECASE)
-
-
-def _parse_map_id_from_target_file(target_file: str) -> int | None:
-    m = _MAP_JSON_FILE_RE.match((target_file or "").strip())
-    if not m:
-        return None
-    try:
-        return int(m.group(1))
-    except ValueError:
-        return None
-
-
-def _resolve_mcp_map_file_entry(target_file: str, action: str) -> dict[str, Any] | None:
-    """Map001.json … Map999.json + action → MCP 툴 (MCP_TOOL_MAP 정적 키로 넣기 어려워 동적 분기)."""
-    if _parse_map_id_from_target_file(target_file) is None:
-        return None
-    a = (action or "").strip().lower()
-    tool_by_action: dict[str, str] = {
-        "query": "get_map",
-        "read": "get_map",
-        "update": "update_map",
-        "list_events": "get_map_events",
-        "search": "search_map_events",
-        "search_events": "search_map_events",
-        "create_event": "create_map_event",
-        "update_event": "update_map_event",
-        "add_event_command": "add_event_command",
-        "draw_tile": "draw_map_tile",
-    }
-    tool = tool_by_action.get(a)
-    if not tool:
-        return None
-    return {"tool": tool, "backup_files": [target_file]}
+# Phase F 분해 1단계: MCP registry 는 mcp_registry.py 로 분리.
+# core.py 내부 참조 이름을 유지하기 위해 alias 로 가져온다.
+from agent.editor.nodes.executor.mcp_registry import (  # noqa: E402
+    MCP_TOOL_MAP,
+)
+from agent.editor.nodes.executor.mcp_registry import (
+    parse_map_id_from_target_file as _parse_map_id_from_target_file,
+)
+from agent.editor.nodes.executor.mcp_registry import (
+    resolve_mcp_map_file_entry as _resolve_mcp_map_file_entry,
+)
 
 
 def _coerce_list_from_mcp_search_payload(data: Any) -> list[Any]:

@@ -125,6 +125,11 @@ async def profiler(state: dict) -> dict:
     """Profiler node entry point.
 
     execution_plan 내 create step 에 _needs_profiling=True 인 것들에 대해 LLM 호출.
+
+    Phase D+E 통합에서 `filled_values` 출력 추가. planner 가 내려준
+    `fill_slots` 에 대응하는 step 에 대해, LLM 결과를 `filled_values[step_id]`
+    에 저장하여 YB.md 5-2 contract 맞춤. 기존 `target_info` merge 는 유지
+    (executor 호환).
     """
     import time
 
@@ -133,8 +138,20 @@ async def profiler(state: dict) -> dict:
 
     plan: list[dict] = state.get("execution_plan", [])
     game_id: str = state.get("game_id", "")
+    fill_slots: list[dict] = state.get("fill_slots", []) or []
+
+    # step_id 가 fill_slots 에 포함된 set (새 contract 대상)
+    fill_targeted_sids: set[int] = set()
+    for slot in fill_slots:
+        sid = slot.get("step_id")
+        if sid is not None:
+            try:
+                fill_targeted_sids.add(int(sid))
+            except (TypeError, ValueError):
+                continue
 
     enriched_plan = list(plan)  # shallow copy
+    filled_values: dict[int, dict] = {}
     profiled_count = 0
     for idx, step in enumerate(enriched_plan):
         if not step.get("_needs_profiling"):
@@ -142,18 +159,38 @@ async def profiler(state: dict) -> dict:
         target_file = step.get("target_file", "")
         if target_file in SKIP_FILES:
             continue
+        before_keys = set((step.get("target_info") or {}).keys())
         enriched = await profile_one(step, game_id=game_id)
         enriched_plan[idx] = enriched
         profiled_count += 1
 
+        # filled_values 생성 — LLM 이 새로 넣은 키만 추려 YB.md contract 에 맞춘다
+        try:
+            sid = int(enriched.get("step_id", -1))
+        except (TypeError, ValueError):
+            continue
+        if sid < 0:
+            continue
+        if sid not in fill_targeted_sids:
+            # fill_slots 대상이 아니면 filled_values 채우지 않음 (기존 경로)
+            continue
+        after_info = enriched.get("target_info") or {}
+        new_values = {k: v for k, v in after_info.items() if k not in before_keys}
+        if new_values:
+            filled_values[sid] = new_values
+
     elapsed = time.perf_counter() - _t0
     logger.info(
-        "─── Profiler END (elapsed=%.2fs, profiled=%d/%d) ──────────",
+        "─── Profiler END (elapsed=%.2fs, profiled=%d/%d, fill_slot_steps=%d) ──",
         elapsed,
         profiled_count,
         len(plan),
+        len(filled_values),
     )
-    return {"execution_plan": enriched_plan}
+    return {
+        "execution_plan": enriched_plan,
+        "filled_values": filled_values,
+    }
 
 
 async def profile_one(

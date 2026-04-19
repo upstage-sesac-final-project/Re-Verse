@@ -30,9 +30,21 @@ def route_after_router(state: AgentState) -> str:
 def route_after_definition(state: AgentState) -> str:
     """Definition 이후 분기.
 
+    - resolve=False (hold) → __end__ (유저에게 hold_question 반환)
     - 파라미터 충분 → planner
-    - 파라미터 불충분 → __end__ (clarification 메시지 포함)
+    - 파라미터 불충분 → __end__ (기존 경로, clarification 메시지 포함)
+
+    hold 분기와 params_sufficient 분기는 병행 허용. 재설계가 완료된 이후
+    params_sufficient 는 resolve 로 완전히 대체 예정.
     """
+    # Phase D+E-1: hold 감지 우선
+    if state.get("resolve") is False:
+        logger.info(
+            "[route] definition → __end__ (hold, reason=%s)",
+            state.get("hold_reason"),
+        )
+        return "__end__"
+
     if state.get("params_sufficient", False):
         logger.info("[route] definition → planner")
         return "planner"

@@ -421,8 +421,12 @@ def _format_to_progress_spec(modifications: list[dict], classifications: list[di
     return formatted_mods
 
 
-async def definition(state: AgentState) -> dict:
+async def _definition_core(state: AgentState) -> dict:
     """사용자 입력을 operation IR 로 변환하는 10 단계 파이프라인.
+
+    Phase D+E-3 에서 Step 1/2/5/5.5/6/7 이 rule-base 로 대체될 예정.
+    현재는 기존 Step 구조 유지. 상위 `definition` wrapper 가 hold / pending /
+    신규 contract 필드 (field / target / description / reference_checks / resolve) 를 보강한다.
 
     각 Step 의 역할은 다음과 같습니다:
         Step 1  extract_keywords          LLM 으로 subject/property/value/action 추출.
@@ -1091,4 +1095,164 @@ async def definition(state: AgentState) -> dict:
         len(final_extracted_ids),
         resolved_params_sufficient,
     )
+    return result
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase D+E-1 wrapper — hold / pending_store / 신규 contract 필드 보강
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+# 기존 CATEGORY_TO_FILE 의 역매핑: "Weapons.json" → "무기" 같은 한국어 라벨.
+_FILE_TO_KOREAN_LABEL = {
+    "Actors.json": "액터",
+    "Classes.json": "직업",
+    "Skills.json": "스킬",
+    "Items.json": "아이템",
+    "Weapons.json": "무기",
+    "Armors.json": "방어구",
+    "Enemies.json": "적",
+    "Troops.json": "트룹",
+    "States.json": "상태이상",
+    "Animations.json": "애니메이션",
+    "Tilesets.json": "타일셋",
+    "CommonEvents.json": "공용이벤트",
+    "System.json": "시스템",
+    "MapInfos.json": "맵",
+}
+
+
+def _infer_field_label(target_files: list[str], parsed_command: dict | None) -> str:
+    """field 라벨 추론. parsed_command.field 우선, 없으면 target_files 첫 번째로부터."""
+    if parsed_command:
+        f = (parsed_command.get("field") or "").strip()
+        if f:
+            return f
+    for tf in target_files:
+        if tf in _FILE_TO_KOREAN_LABEL:
+            return _FILE_TO_KOREAN_LABEL[tf]
+        if tf.startswith("Map") and tf.endswith(".json"):
+            return "이벤트"
+    return ""
+
+
+def _infer_target_label(
+    modifications: list[dict], extracted_ids: dict, parsed_command: dict | None
+) -> str:
+    """target (확정된 대상 요약). parsed_command.target 우선."""
+    if parsed_command:
+        t = (parsed_command.get("target") or "").strip()
+        if t:
+            return t
+    # modifications[0].params.name 또는 extracted_ids 첫 번째
+    for mod in modifications or []:
+        params = mod.get("params") if isinstance(mod, dict) else None
+        if isinstance(params, dict):
+            name = params.get("name")
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+    for k in extracted_ids or {}:
+        if isinstance(k, str) and k.strip():
+            return k.strip()
+    return ""
+
+
+def _infer_hold_reason(message_for_user: str) -> str:
+    """message_for_user 에서 hold_reason 추론 (heuristic).
+
+    Phase D+E-3 에서 rule-base 분기로 정확한 reason 생성 예정.
+    현재는 대부분의 clarification 케이스가 'not_found' 혹은 'ambiguous_ref'
+    중 하나라서 키워드 기반 분류만 함.
+    """
+    if not message_for_user:
+        return "ambiguous_ref"
+    m = message_for_user
+    if ("찾을 수 없" in m) or ("없습니다" in m) or ("존재하지 않" in m) or ("미식별" in m):
+        return "not_found"
+    if ("이미 있" in m) or ("이미 존재" in m):
+        return "already_exists"
+    return "ambiguous_ref"
+
+
+async def definition(state: AgentState) -> dict:
+    """Phase D+E-1 wrapper.
+
+    책임:
+    1. router 의 `resumed_snapshot` 복원 — 이전 턴의 user_input 로 재실행
+    2. 본체 `_definition_core` 실행
+    3. 결과에 신규 contract 필드 보강: field / target / description / reference_checks / resolve
+    4. hold 발생 시 pending_store 에 set (conversation_id 있을 때)
+
+    Phase D+E-3 에서 본체 Step 1/2/5/5.5/6/7 제거 + 재작성 예정.
+    """
+    from agent.editor.pending_store import get_default_store
+
+    # ── 1. resumed_snapshot 복원 ─────────────────────────────────
+    resumed = state.get("resumed_snapshot") or {}
+    if resumed and state.get("pending_resumed"):
+        # 이전 턴 user_input 이 snapshot 에 있다면 복원.
+        # 현재는 snapshot 형태가 고정 안 됐으니 얕은 merge 만.
+        restored_keys = [k for k in resumed if k not in state]
+        if restored_keys:
+            logger.info(
+                "[Definition] pending resume: snapshot 복원 키 = %s", restored_keys
+            )
+            # state 는 TypedDict 지만 dict 로 취급 가능
+            for k in restored_keys:
+                state[k] = resumed[k]  # type: ignore[literal-required]
+
+    # ── 2. 본체 실행 ─────────────────────────────────────────────
+    result = await _definition_core(state)
+
+    # ── 3. 신규 contract 필드 보강 ──────────────────────────────
+    parsed_command = state.get("parsed_command") or {}
+    target_files = result.get("target_files") or []
+    modifications = result.get("modifications") or []
+    extracted_ids = result.get("extracted_ids") or {}
+
+    field_label = _infer_field_label(target_files, parsed_command)
+    target_label = _infer_target_label(modifications, extracted_ids, parsed_command)
+    description = state.get("user_input") or ""
+
+    result["field"] = field_label
+    result["target"] = target_label
+    result["description"] = description
+    # reference_checks 는 D+E-3 에서 rule-base 로 생성. 지금은 비어 있음.
+    result.setdefault("reference_checks", [])
+
+    # ── 4. resolve / hold 분기 + pending_store set ───────────────
+    params_ok = bool(result.get("params_sufficient", False))
+    if not params_ok:
+        # hold 상태
+        result["resolve"] = False
+        msg = result.get("message_for_user") or ""
+        hold_reason = _infer_hold_reason(msg)
+        result["hold_reason"] = hold_reason
+        result["hold_question"] = msg or "추가 정보가 필요합니다."
+
+        # pending_store 에 저장 (conversation_id 있을 때만)
+        cid = state.get("conversation_id") or ""
+        if cid:
+            try:
+                snapshot = {
+                    "user_input": state.get("user_input", ""),
+                    "parsed_command": parsed_command,
+                    "field": field_label,
+                    "target": target_label,
+                    "description": description,
+                }
+                get_default_store().set(
+                    cid,
+                    hold_reason=hold_reason,  # type: ignore[arg-type]
+                    hold_question=result["hold_question"],
+                    snapshot=snapshot,
+                )
+                logger.info(
+                    "[Definition] pending_store.set (cid=%s, reason=%s)", cid, hold_reason
+                )
+            except Exception as e:  # pragma: no cover — store 장애는 로직 차단 금지
+                logger.warning("[Definition] pending_store.set 실패: %s", e)
+    else:
+        result["resolve"] = True
+
     return result

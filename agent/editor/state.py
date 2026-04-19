@@ -78,6 +78,8 @@ class AgentState(TypedDict, total=False):
     ]
     hold_question: str  # 유저에게 되묻는 문장
     message_for_user: str  # definition 이 params 불충분 시 유저용 메시지 (drift 정리)
+    # router 가 pending resume 시 definition 이 소비. snapshot 에 이전 턴의 field/target/... 보존
+    resumed_snapshot: dict
 
     # ── 2.5단계 Operation IR (definition → operation_ir.resolve → planner) ──
     operation_tuples: list[dict]  # 정규화된 operation IR
