@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from agent.generation.models import CharacterSpec, EnemySpec, GameMapInfo, GameSpec
+from agent.generation.models import CharacterSpec, EnemySpec, GameMapInfo, GameSpec, GuardrailResult
 from agent.generation.nodes.asset_planner import _build_id_table, asset_planner
 from agent.generation.nodes.game_designer import _validate_map_connections, game_designer
 from agent.generation.progress import (
@@ -157,7 +157,13 @@ async def test_game_designer_uses_structured_output_and_publishes_progress(
         assert generation_id == "gen-001"
         recorded_events.append(event)
 
+    call_count = 0
+
     async def fake_invoke_llm(messages, structured_output=None, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if structured_output is GuardrailResult:
+            return GuardrailResult(decision="safe", reason="테스트용 세이프")
         assert structured_output is GameSpec
         assert len(messages) == 2
         return expected_spec
@@ -175,6 +181,7 @@ async def test_game_designer_uses_structured_output_and_publishes_progress(
         }
     )
 
+    assert call_count == 2  # 가드레일 1회 + 기획 1회
     assert result["game_spec"] == expected_spec
     assert result["completed_phases"] == ["spec"]
     assert recorded_events[0]["type"] == "progress"

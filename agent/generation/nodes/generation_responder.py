@@ -77,12 +77,32 @@ def _build_partial_message(
 
 async def generation_responder(state: GenerationState) -> dict:
     """J 노드: 최종 메시지 생성 + WebSocket 100% 전송."""
+    gen_id = state["generation_id"]
+
+    # 가드레일 등에서 이미 실패 처리된 경우 (game_spec 없음)
+    if state.get("is_success") is False and state.get("final_message"):
+        logger.info(
+            "generation_responder: 조기 종료 감지 (gen_id=%s) - %s",
+            gen_id,
+            state["final_message"],
+        )
+        # 에러 상태를 유지하며 100% 진행률 전송 (프론트엔드 실패 처리 유도)
+        await publish_progress(
+            gen_id,
+            {
+                "type": "error",
+                "phase": state.get("error_phase", "unknown"),
+                "progress": 100,
+                "message": state["final_message"],
+            },
+        )
+        return {}
+
     errors = state.get("validation_errors", [])
     game_spec: GameSpec = state["game_spec"]  # type: ignore[assignment]
     id_table: IdTable = state["id_table"]  # type: ignore[assignment]
     map_specs: list[MapSpec] = state.get("map_specs", [])
     retry_count = state.get("retry_count", 0)
-    gen_id = state["generation_id"]
 
     is_success = len(errors) == 0
 
