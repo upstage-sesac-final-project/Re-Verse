@@ -178,6 +178,10 @@ _PROPERTY_FIELD_MAP: dict[str, dict[str, str]] = {
         "레벨": "initialLevel",
         "초기레벨": "initialLevel",
         "최대레벨": "maxLevel",
+        # Task 29: "직업" property 는 특수 처리 — Classes.json 을 db_lookup 해서
+        # int classId 로 변환 후 주입. _apply_single_property 에서 감지.
+        "직업": "classId",
+        "클래스": "classId",
     },
     "Items.json": {
         "이름": "name",
@@ -221,28 +225,48 @@ def _set_by_path(target_info: dict, path: str, value: int | float | str) -> bool
     return True
 
 
-def _inject_parsed_command_value(
-    step: dict, parsed_command: dict | None
-) -> dict:
-    """step.target_info 에 parsed_command.property/value 를 강제 주입.
+def _apply_single_property(
+    target_info: dict,
+    mapping: dict[str, str],
+    prop: str,
+    val_str: str,
+    target_file: str,
+    *,
+    game_id: str = "",
+) -> bool:
+    """단일 (prop, val) 쌍을 target_info 에 주입. 성공 시 True.
 
-    user_input 에서 "공격력 50" 같은 명시적 값이 LLM profile 에 의해 덮이지 않도록
-    profile_one **이후** 호출해 우선순위 역전.
+    Task 29: Actors.json 의 "직업"/"클래스" property 는 db_lookup 으로 Classes.json
+    에서 id 조회 후 int classId 로 주입. 못 찾으면 `_class_not_found` 힌트만 남김
+    (validator 가 경고로 사용할 수 있게).
     """
-    if not parsed_command:
-        return step
-    prop = (parsed_command.get("property") or "").strip()
-    val_str = str(parsed_command.get("value") or "").strip()
+    prop = (prop or "").strip()
+    val_str = str(val_str or "").strip()
     if not prop or not val_str:
-        return step
-    target_file = step.get("target_file", "")
-    mapping = _PROPERTY_FIELD_MAP.get(target_file)
-    if not mapping:
-        return step
+        return False
     field_path = mapping.get(prop.lower()) or mapping.get(prop)
     if not field_path:
-        return step
-    target_info = dict(step.get("target_info") or {})
+        return False
+
+    # "직업"/"클래스" 특수 처리 — 문자열 이름을 Classes.json 의 id 로 변환
+    if target_file == "Actors.json" and field_path == "classId":
+        class_id = _resolve_class_id(game_id, val_str)
+        if class_id is None:
+            logger.info(
+                "[Profiler] 직업 '%s' 를 Classes.json 에서 찾지 못함 — classId 주입 건너뜀, "
+                "힌트 `_class_not_found` 남김",
+                val_str,
+            )
+            target_info["_class_not_found"] = val_str
+            return False
+        _set_by_path(target_info, "classId", class_id)
+        logger.info(
+            "[Profiler] 직업 '%s' → classId=%d 주입",
+            val_str,
+            class_id,
+        )
+        return True
+
     value = _coerce_value(val_str)
     if _set_by_path(target_info, field_path, value):
         logger.info(
@@ -251,9 +275,178 @@ def _inject_parsed_command_value(
             field_path,
             value,
         )
+        return True
+    return False
+
+
+def _resolve_class_id(game_id: str, class_name: str) -> int | None:
+    """Classes.json 에서 이름으로 id 조회. db_lookup 활용."""
+    if not game_id or not class_name:
+        return None
+    try:
+        from agent.editor.db_lookup import lookup_by_name
+
+        result = lookup_by_name(game_id, "class", class_name)
+        if result["status"] == "found" and result.get("exact_match"):
+            return int(result["exact_match"]["id"])
+        # ambiguous 인 경우 첫 candidate 를 사용할지 말지 — 안전하게 not_found 처리
+        return None
+    except Exception as e:  # pragma: no cover
+        logger.warning("[Profiler] class 조회 실패: %s", e)
+        return None
+
+
+def _inject_parsed_command_value(
+    step: dict, parsed_command: dict | None, *, game_id: str = ""
+) -> dict:
+    """step.target_info 에 parsed_command.property/value + additional_properties 를
+    강제 주입.
+
+    정책 (2026-04-19 sprint β):
+    - 유저가 명시한 속성은 LLM 결과를 덮어쓴다
+    - 유저가 지정 안 한 속성은 LLM/기본값 유지
+    - 첫 속성: property/value
+    - 나머지 속성들: additional_properties=[{property, value}, ...]
+
+    user_input 에서 "체력 400, MP 30, 공격력 15" 같은 다중 지정이 LLM profile 에
+    의해 일부 속성만 반영되는 사례 차단.
+
+    Task 29: game_id 를 받아서 Actor.classId 를 Classes.json 에서 조회.
+    """
+    if not parsed_command:
+        return step
+    target_file = step.get("target_file", "")
+    mapping = _PROPERTY_FIELD_MAP.get(target_file)
+    if not mapping:
+        return step
+
+    target_info = dict(step.get("target_info") or {})
+
+    # 1) 기본 property/value
+    _apply_single_property(
+        target_info,
+        mapping,
+        parsed_command.get("property") or "",
+        str(parsed_command.get("value") or ""),
+        target_file,
+        game_id=game_id,
+    )
+
+    # 2) additional_properties 루프
+    extras = parsed_command.get("additional_properties") or []
+    if isinstance(extras, list):
+        for item in extras:
+            if not isinstance(item, dict):
+                continue
+            _apply_single_property(
+                target_info,
+                mapping,
+                item.get("property") or "",
+                str(item.get("value") or ""),
+                target_file,
+                game_id=game_id,
+            )
+
     step = dict(step)
     step["target_info"] = target_info
     return step
+
+
+def _inject_fixed_fields(step: dict) -> dict:
+    """profile_one 호출 전에 fill_schema.fixed_fields 를 target_info 에 merge.
+
+    이미 target_info 에 있는 키는 덮지 않음 (planner / definition 이 명시 세팅한 값 우선).
+    """
+    from agent.editor.nodes.planner.fill_schemas import get_fill_schema
+
+    tf = step.get("target_file", "")
+    schema = get_fill_schema(tf)
+    if not schema:
+        return step
+    fixed = schema.get("fixed_fields") or {}
+    if not fixed:
+        return step
+    target_info = dict(step.get("target_info") or {})
+    added = False
+    for k, v in fixed.items():
+        if k not in target_info:
+            target_info[k] = v
+            added = True
+    if added:
+        step = dict(step)
+        step["target_info"] = target_info
+    return step
+
+
+def _enforce_name_lock(original_step: dict, enriched_step: dict) -> dict:
+    """LLM 이 target_info.name 을 엉뚱한 값 (기존 엔티티 복사 / hallucination) 으로
+    덮는 경우 차단. planner 가 넣은 원본 name 을 유지.
+    """
+    original_name = (original_step.get("target_info") or {}).get("name")
+    enriched_info = dict(enriched_step.get("target_info") or {})
+    llm_name = enriched_info.get("name")
+    if original_name and llm_name != original_name:
+        logger.info(
+            "[Profiler] name lock: LLM '%s' → 원본 '%s' 로 강제 복원",
+            llm_name,
+            original_name,
+        )
+        enriched_info["name"] = original_name
+        enriched_step = dict(enriched_step)
+        enriched_step["target_info"] = enriched_info
+    return enriched_step
+
+
+# Task 30 — LLM 이 RPG Maker MZ 기본 템플릿 (Actor1 nickname="용사" 등) 을 그대로
+# 베껴오는 문제 차단. planner/definition 이 명시적으로 세팅했거나 비워둔 값은
+# LLM 이 덮어쓰지 못하도록 파일별 lock 목록 정의.
+_LOCKED_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
+    "Actors.json": (
+        "nickname",
+        "profile",
+        # 이미지 관련 — user 가 명시적으로 지정 안 하면 LLM 이 "Actor1" 복사
+        "faceName",
+        "characterName",
+        "battlerName",
+    ),
+    "Weapons.json": ("description", "note"),
+    "Armors.json": ("description", "note"),
+    "Items.json": ("description", "note"),
+    "Skills.json": ("description", "note", "message1", "message2"),
+    "Enemies.json": ("note",),
+    "States.json": ("note", "message1", "message2", "message3", "message4"),
+    "Classes.json": ("note",),
+}
+
+
+def _enforce_default_field_lock(original_step: dict, enriched_step: dict) -> dict:
+    """planner 가 target_info 에 명시적으로 세팅한 optional 기본 필드 (nickname 등)
+    를 LLM 이 덮지 못하게 복원. 명시 세팅 없으면 (키 부재) LLM 자율.
+
+    원본 target_info 에 해당 키가 **존재** 하면 (빈 문자열 포함) 그 값으로 고정.
+    """
+    target_file = enriched_step.get("target_file", "")
+    locked = _LOCKED_OPTIONAL_FIELDS.get(target_file)
+    if not locked:
+        return enriched_step
+    original_info = original_step.get("target_info") or {}
+    enriched_info = dict(enriched_step.get("target_info") or {})
+    changed = False
+    for key in locked:
+        if key in original_info and enriched_info.get(key) != original_info.get(key):
+            logger.info(
+                "[Profiler] default lock: %s.%s = %r (LLM %r 무시)",
+                target_file,
+                key,
+                original_info.get(key),
+                enriched_info.get(key),
+            )
+            enriched_info[key] = original_info[key]
+            changed = True
+    if changed:
+        enriched_step = dict(enriched_step)
+        enriched_step["target_info"] = enriched_info
+    return enriched_step
 
 
 async def profiler(state: dict) -> dict:
@@ -275,6 +468,7 @@ async def profiler(state: dict) -> dict:
     game_id: str = state.get("game_id", "")
     fill_slots: list[dict] = state.get("fill_slots", []) or []
     parsed_command: dict = state.get("parsed_command", {}) or {}
+    user_input: str = state.get("user_input", "") or ""
 
     # step_id 가 fill_slots 에 포함된 set (새 contract 대상)
     fill_targeted_sids: set[int] = set()
@@ -295,10 +489,26 @@ async def profiler(state: dict) -> dict:
         target_file = step.get("target_file", "")
         if target_file in SKIP_FILES:
             continue
+        # Task 30: profile 전에 fill_schema.fixed_fields 를 target_info 에 merge.
+        # 이렇게 하면 LLM 이 이 필드에 기본값을 넣으려 해도 _enforce_default_field_lock
+        # 이 원본 (= 여기서 세팅한 값) 으로 복원.
+        step = _inject_fixed_fields(step)
         before_keys = set((step.get("target_info") or {}).keys())
-        enriched = await profile_one(step, game_id=game_id)
-        # Task 19: LLM 결과 뒤에 parsed_command.value 강제 주입 (명시 값이 덮이지 않도록)
-        enriched = _inject_parsed_command_value(enriched, parsed_command)
+        enriched = await profile_one(
+            step,
+            game_id=game_id,
+            user_input=user_input,
+            parsed_command=parsed_command,
+        )
+        # sprint β: LLM 이 name 을 엉뚱한 값으로 덮지 않도록 원본 name 강제 복원
+        enriched = _enforce_name_lock(step, enriched)
+        # Task 30: nickname / 이미지 등 optional 기본 필드도 lock
+        enriched = _enforce_default_field_lock(step, enriched)
+        # Task 19 + sprint β + Task 29: parsed_command.value + additional_properties +
+        # "직업" → classId 해소 (game_id 필요)
+        enriched = _inject_parsed_command_value(
+            enriched, parsed_command, game_id=game_id
+        )
         enriched_plan[idx] = enriched
         profiled_count += 1
 
@@ -335,10 +545,15 @@ async def profile_one(
     step: dict,
     game_id: str = "",
     feedback: str | None = None,
+    *,
+    user_input: str | None = None,
+    parsed_command: dict | None = None,
 ) -> dict:
     """단일 create step 의 target_info 를 의미적으로 채운다.
 
     validator 의 partial retry 에서도 직접 호출된다.
+    Task 28: user_input / parsed_command 를 LLM 프롬프트에 함께 주입해
+    template default 복사를 차단.
     """
     target_file = step.get("target_file", "")
     target_info = dict(step.get("target_info") or {})
@@ -349,7 +564,14 @@ async def profile_one(
     schema_excerpt = get_schema_reference(target_file)
 
     system_prompt = build_profiler_system_prompt()
-    user_prompt = build_profiler_user_prompt(step, schema_excerpt, examples, feedback)
+    user_prompt = build_profiler_user_prompt(
+        step,
+        schema_excerpt,
+        examples,
+        feedback,
+        user_input=user_input,
+        parsed_command=parsed_command,
+    )
 
     messages = [
         SystemMessage(content=system_prompt),

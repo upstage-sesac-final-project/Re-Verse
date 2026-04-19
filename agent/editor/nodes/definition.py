@@ -660,6 +660,34 @@ async def _definition_core(state: AgentState) -> dict:
         if removed_count:
             logger.info("[Definition] category=None 분류 %d건 제거 (수치 표현 등)", removed_count)
 
+    # ── bulk 지시어 후처리 — "모든 주인공" / "~들" / "전체 액터" 같은 패턴 감지 ──
+    # LLM 이 classify 할 때 "주인공" keyword 때문에 system_ref=hero 로 단일 취급하는
+    # 오류 방지. 복수/전체 수식이 붙으면 bulk 처리 (is_category_label=True, hero 해제).
+    _BULK_PREFIX_KEYWORDS = ("모든", "전체", "전부의", "모두의", "각")
+    _BULK_SUFFIX_KEYWORDS = ("들", "전부", "모두")
+    for cls in classifications:
+        name = str(cls.get("name") or "").strip()
+        if not name:
+            continue
+        is_bulk_name = name.endswith(_BULK_SUFFIX_KEYWORDS) or any(
+            name.startswith(kw + " ") or name.startswith(kw) for kw in _BULK_PREFIX_KEYWORDS
+        )
+        # user_input 수준에서도 검사 (LLM 이 수식을 떼버려 "주인공" 만 남기는 경우)
+        ui = (state.get("user_input") or "").replace(" ", "")
+        for kw in _BULK_PREFIX_KEYWORDS:
+            if kw + name.replace(" ", "") in ui or kw in ui and name.replace(" ", "") in ui:
+                is_bulk_name = True
+                break
+        if is_bulk_name:
+            # bulk 는 단일 hero 가 아니라 범위 처리
+            if cls.get("system_ref") == "hero":
+                cls["system_ref"] = None
+                logger.info(
+                    "[Definition] bulk 감지 → hero 보정 해제: name='%s' → is_category_label=True",
+                    name,
+                )
+            cls["is_category_label"] = True
+
     bulk_scope_targets = _detect_bulk_scope_targets(extractions, classifications)
     unsupported_bulk_targets = _detect_unsupported_bulk_targets(extractions, classifications)
     if bulk_scope_targets:
@@ -1655,7 +1683,45 @@ def _build_reference_checks(
             {"id": c.get("id"), "name": c.get("name")}
             for c in result["suggestions"][:3]
         ]
-    return [entry]
+    entries = [entry]
+
+    # Task 32: Actor create + "직업" 지정 시 Class 참조도 reference_checks 에 추가.
+    # Planner 의 `_consume_reference_checks` (Task 12) 가 status=not_found 면
+    # 선행 Class create op 을 자동 prepend → Actor 가 new Class 의 id 참조.
+    if category == "Actor":
+        job_name = _extract_job_from_parsed(parsed_command)
+        if job_name:
+            class_result = lookup_by_name(game_id, "class", job_name)
+            class_entry: dict = {
+                "category": "Class",
+                "name": job_name,
+                "status": class_result["status"],
+            }
+            if class_result["status"] == "ambiguous":
+                class_entry["candidates"] = [
+                    {"id": c.get("id"), "name": c.get("name")}
+                    for c in (class_result.get("candidates") or [])[:5]
+                ]
+            entries.append(class_entry)
+
+    return entries
+
+
+def _extract_job_from_parsed(parsed_command: dict) -> str | None:
+    """parsed_command 에서 '직업'/'클래스' property 값 추출."""
+    JOB_KEYS = ("직업", "클래스", "class")
+    prop = (parsed_command.get("property") or "").strip().lower()
+    val = str(parsed_command.get("value") or "").strip()
+    if prop in JOB_KEYS and val:
+        return val
+    for extra in parsed_command.get("additional_properties") or []:
+        if not isinstance(extra, dict):
+            continue
+        p = (extra.get("property") or "").strip().lower()
+        v = str(extra.get("value") or "").strip()
+        if p in JOB_KEYS and v:
+            return v
+    return None
 
 
 def _infer_hold_reason(message_for_user: str) -> str:

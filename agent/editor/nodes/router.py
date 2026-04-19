@@ -52,6 +52,18 @@ class _ParsedCommand(BaseModel):
         default="",
         description="다중 대상 범위 — 'all' | '' (단일). 예: '모든 적', '적 전부' 는 'all'",
     )
+    additional_properties: list[dict] = Field(
+        default_factory=list,
+        description=(
+            "같은 대상에 대해 **여러 속성을 동시에 지정** 하는 경우 사용. "
+            "첫 속성은 property/value 에, 나머지는 이 배열에. "
+            "각 원소: {'property': str, 'value': str}. "
+            "예) '체력 400 mp 30 atk 15' → "
+            "property='체력', value='400', "
+            "additional_properties=[{'property':'mp','value':'30'}, {'property':'공격력','value':'15'}]. "
+            "단일 속성이면 빈 list ([])."
+        ),
+    )
 
 
 class _ParsedExtraction(BaseModel):

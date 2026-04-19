@@ -74,12 +74,15 @@ class LLMService:
                     result["intent"],
                     result.get("affected_files", []),
                 )
-            except TimeoutError:
+            except (TimeoutError, asyncio.CancelledError) as te:
+                # asyncio.wait_for 가 timeout 시 내부에서 CancelledError 로 전파될 수도 있음.
+                # 둘 다 "사용자에게 timeout 으로 보이는 장애" 로 통일 처리.
                 processing_time = time.time() - start_time
                 logger.error(
-                    "[LLMService] Agent 타임아웃 | game_id=%s, elapsed=%.1fs",
+                    "[LLMService] Agent 타임아웃 | game_id=%s, elapsed=%.1fs, cause=%s",
                     game_id,
                     processing_time,
+                    type(te).__name__,
                 )
                 await self._save_log(
                     db,
@@ -199,21 +202,33 @@ class LLMService:
             agent_node="Chat Agent (agent.editor.workflow)",
         )
 
-        modified = final_state.get("modified_game_state", {})
+        # executor_v2 는 modified_file_paths (절대 경로 list) 를 내고,
+        # legacy 경로는 modified_game_state (dict) 를 내던 이중 상태.
+        # 어느 쪽이든 파일명만 뽑아 affected_files 로 반환.
+        modified_paths: list[str] = final_state.get("modified_file_paths", []) or []
+        modified_state: dict = final_state.get("modified_game_state", {}) or {}
+        from pathlib import Path as _Path
+
+        affected_files = sorted(
+            set(
+                [_Path(p).name for p in modified_paths if p]
+                + list(modified_state.keys())
+            )
+        )
         success = final_state.get("success", True)
 
         return {
             # Synthesizer(6단계)가 생성한 사용자 대상 최종 자연어 응답
             "message": final_state.get("final_response", ""),
-            # Router(1단계)가 분류한 사용자 의도 (예: "object_create", "object_update" 등)
+            # Router(1단계)가 분류한 사용자 의도
             "intent": final_state.get("intent", ""),
-            # Validator(5단계) 전체 검증 통과 여부
+            # 전체 검증 통과 여부
             "success": success,
-            # Executor(4단계)가 수정한 게임 JSON 파일명 목록 (예: ["Skills.json"])
-            "affected_files": list(modified.keys()) if modified else [],
+            # Executor 가 수정한 게임 JSON 파일명 목록
+            "affected_files": affected_files,
             # 수정된 파일이 있으면 True → 프론트엔드 게임 리로드 필요
-            "reload_required": bool(modified),
-            # Executor(4단계)가 누적한 단계별 변경 이력 리스트
+            "reload_required": bool(affected_files),
+            # Executor 가 누적한 단계별 변경 이력 리스트
             "changes_log": final_state.get("changes_log", []),
         }
 

@@ -47,11 +47,29 @@ def _iter_event_commands(entry_data: dict | None):
                 yield page["list"]
 
 
+_ACTOR_STAT_KEYWORDS = (
+    "체력",
+    "hp",
+    "HP",
+    "mp",
+    "MP",
+    "마나",
+    "공격력",
+    "공격",
+    "방어력",
+    "방어",
+    "민첩",
+    "운",
+)
+
+
 def _collect_soundness_warnings(
     changes_log: list[dict],
     operation_tuples: list[dict],
+    user_input: str = "",
+    execution_plan: list[dict] | None = None,
 ) -> list[str]:
-    """룰 기반 경고 수집. Task 14 에서 룰 카탈로그 확장.
+    """룰 기반 경고 수집.
 
     룰 카탈로그:
       1. entity_id 누락 — create/update 성공인데 id 추적 안 됨
@@ -60,8 +78,13 @@ def _collect_soundness_warnings(
       4. 무기/방어구 params 전부 0 create — 능력치 빠짐 경고
       5. 이벤트 code=0 종결 — 마지막 커맨드가 terminator (code=0) 가 아님
       6. HP 값 이상 — 적/액터 params[0]=0 create 는 전투 불가
+      7. (Task 31) Actor create + user 가 스탯 수치 지정 — Actor 스키마에 params 없음.
+         스탯은 Classes.params 곡선으로 관리되므로 사용자 안내.
     """
     warnings: list[str] = []
+    user_has_stat_spec = bool(user_input) and any(
+        kw in user_input for kw in _ACTOR_STAT_KEYWORDS
+    )
 
     for entry in changes_log:
         if not entry.get("success"):
@@ -102,6 +125,49 @@ def _collect_soundness_warnings(
                 warnings.append(
                     f"{tf}: '{data.get('name', '?')}' 최대 HP 가 0 입니다 — 전투 불가 상태"
                 )
+
+        # 룰 7 (Task 31): Actor create 인데 user 가 체력/MP/공격력 등 스탯 수치를
+        # 지정한 경우. Actor 스키마에는 params 가 없고 Classes.params (레벨 곡선)
+        # 가 실제 스탯을 결정하므로 반영 안 됨. 안내 필요.
+        if (
+            action.startswith("create")
+            and tf == "Actors.json"
+            and user_has_stat_spec
+            and isinstance(data, dict)
+        ):
+            name = data.get("name", "?")
+            warnings.append(
+                f"Actors.json: '{name}' 생성 시 지정한 스탯(체력/MP/공격력 등)은 "
+                f"Actor 자체에 저장되지 않습니다. Classes 레벨 곡선으로 관리되므로 "
+                f"해당 직업(Class) 수정 또는 신규 Class 생성이 필요합니다."
+            )
+
+        # 룰 8 (Task 29): Actor create 인데 profiler 가 "_class_not_found" 힌트를
+        # 남긴 경우. execution_plan.step.target_info 에 접근 (changes_log.data 는
+        # pydantic 통과 후라 _ 접두사 힌트가 날아감).
+        if action.startswith("create") and tf == "Actors.json" and execution_plan:
+            sid = entry.get("step_id")
+            matching = next(
+                (
+                    s
+                    for s in execution_plan
+                    if s.get("step_id") == sid and s.get("target_file") == "Actors.json"
+                ),
+                None,
+            )
+            if matching:
+                ti = matching.get("target_info") or {}
+                missing_class = ti.get("_class_not_found")
+                if missing_class:
+                    name = (
+                        (data.get("name") if isinstance(data, dict) else None)
+                        or ti.get("name", "?")
+                    )
+                    warnings.append(
+                        f"Actors.json: '{name}' 의 직업 '{missing_class}' 가 Classes.json 에 "
+                        f"없어 기본 classId 가 세팅됐습니다. 해당 직업을 먼저 생성하거나 "
+                        f"기존 직업명을 지정하세요."
+                    )
 
         # 룰 5: 이벤트 list code=0 종결 검증
         if "event" in action or tf in {"CommonEvents.json", "Troops.json"} or (
@@ -213,7 +279,12 @@ async def validator(state: dict) -> dict:
         }
 
     # 3. Phase G: judge_operation LLM 호출 제거. 대신 룰 기반 soundness 경고.
-    soundness_warnings = _collect_soundness_warnings(changes_log, operation_tuples)
+    soundness_warnings = _collect_soundness_warnings(
+        changes_log,
+        operation_tuples,
+        user_input=state.get("user_input", "") or "",
+        execution_plan=execution_plan,
+    )
     if soundness_warnings:
         logger.info(
             "[Validator] soundness_warnings %d건 — synthesizer 가 포장", len(soundness_warnings)

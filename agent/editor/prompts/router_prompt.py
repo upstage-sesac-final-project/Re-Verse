@@ -110,6 +110,24 @@ Re:Verse는 RPG Maker MZ의 JSON 데이터(적, NPC, 스킬, 아이템, 이벤�
            예) "HP 를 200 으로" → value="200".
            예) "이름을 냥냥펀치 로" → value="냥냥펀치".
            예) "삭제해줘" → value="" (값 없음).
+- additional_properties : 같은 대상에 **여러 속성을 동시에** 지정하는 경우 사용.
+           첫 번째 속성은 property/value 에 담고, **나머지 속성들**을 이 배열에 담는다.
+           각 원소: `{"property": str, "value": str}`. 단일 속성이면 빈 list (`[]`).
+           예) "슬라임 체력 400, MP 30, 공격력 15" →
+             property="체력", value="400",
+             additional_properties=[
+               {"property": "mp", "value": "30"},
+               {"property": "공격력", "value": "15"}
+             ]
+           예) "검 A 가격 500" → additional_properties=[] (단일)
+           ※ **액터의 "직업" 지정**: `{"property": "직업", "value": "직업명"}` 형태로 담는다.
+             예) "액터로 경찰 '이자야' 추가" →
+               target="이자야", property="직업", value="경찰"
+               (이자야 가 고유명사 이름, 경찰 이 직업)
+             예) "마법사 직업의 용사" → target="용사", property="직업", value="마법사"
+           주의: parsed_extractions 는 **대상이 여럿** 일 때. additional_properties 는
+                 **속성이 여럿** 일 때. 혼동 금지.
+
 - bulk_scope : 요청이 **여러 대상** 을 뭉쳐 가리키면 "all", 단일 대상이면 빈 문자열.
            예) "모든 적 HP 두 배로" → bulk_scope="all".
            예) "적 전부 삭제" → bulk_scope="all".

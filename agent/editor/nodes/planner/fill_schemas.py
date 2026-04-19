@@ -136,6 +136,16 @@ ARMOR_FILL_SCHEMA: dict[str, Any] = {
 ACTOR_FILL_SCHEMA: dict[str, Any] = {
     "target_file": "Actors.json",
     "base_fields": ["name"],
+    # Task 30: 유저가 명시 안 한 optional 필드는 planner 가 빈 문자열로 세팅,
+    # profiler 의 _enforce_default_field_lock 이 LLM 덮어쓰기 차단. RPG Maker MZ
+    # Actor1 기본 nickname="용사" 같은 템플릿 복사 방지.
+    "fixed_fields": {
+        "nickname": "",
+        "profile": "",
+        "faceName": "",
+        "characterName": "",
+        "battlerName": "",
+    },
     "required_slots": [
         {
             "name": "classId",

@@ -8,6 +8,7 @@ import pytest
 
 from agent.editor.nodes.profiler import (
     _coerce_value,
+    _enforce_name_lock,
     _inject_parsed_command_value,
     _set_by_path,
     profiler,
@@ -103,6 +104,117 @@ class TestInjectParsedCommandValue:
         pc = {"property": "공격력", "value": "50"}
         out = _inject_parsed_command_value(step, pc)
         assert out["target_info"] == {}
+
+
+# ── sprint β: multi-property + name lock ────────────────────────────
+
+
+class TestMultiPropertyInjection:
+    def test_weapon_three_stats_at_once(self):
+        """'체력 400, MP 30, 공격력 15' → params[0]/[1]/[2] 모두 세팅."""
+        step = {
+            "target_file": "Weapons.json",
+            "target_info": {"name": "경찰봉"},
+        }
+        pc = {
+            "property": "체력",
+            "value": "400",
+            "additional_properties": [
+                {"property": "MP", "value": "30"},
+                {"property": "공격력", "value": "15"},
+            ],
+        }
+        out = _inject_parsed_command_value(step, pc)
+        params = out["target_info"]["params"]
+        assert params[0] == 400  # 체력
+        assert params[1] == 30   # MP
+        assert params[2] == 15   # 공격력
+
+    def test_enemy_hp_and_exp(self):
+        step = {
+            "target_file": "Enemies.json",
+            "target_info": {"name": "드래곤"},
+        }
+        pc = {
+            "property": "HP",
+            "value": "9999",
+            "additional_properties": [{"property": "경험치", "value": "500"}],
+        }
+        out = _inject_parsed_command_value(step, pc)
+        assert out["target_info"]["params"][0] == 9999
+        assert out["target_info"]["exp"] == 500
+
+    def test_empty_additional_properties_noop(self):
+        """기존 단일 property/value 경로는 그대로 작동 (하위호환)."""
+        step = {
+            "target_file": "Weapons.json",
+            "target_info": {"name": "검"},
+        }
+        pc = {
+            "property": "공격력",
+            "value": "50",
+            "additional_properties": [],
+        }
+        out = _inject_parsed_command_value(step, pc)
+        assert out["target_info"]["params"][2] == 50
+
+    def test_additional_properties_non_list_ignored(self):
+        """오염된 타입이 와도 크래시 없이 단일 경로만 작동."""
+        step = {
+            "target_file": "Weapons.json",
+            "target_info": {"name": "검"},
+        }
+        pc = {"property": "공격력", "value": "50", "additional_properties": "not a list"}
+        out = _inject_parsed_command_value(step, pc)
+        assert out["target_info"]["params"][2] == 50
+
+    def test_unknown_extra_property_silently_skipped(self):
+        step = {
+            "target_file": "Weapons.json",
+            "target_info": {"name": "검"},
+        }
+        pc = {
+            "property": "공격력",
+            "value": "50",
+            "additional_properties": [{"property": "외계속성", "value": "999"}],
+        }
+        out = _inject_parsed_command_value(step, pc)
+        # 알려진 속성은 반영
+        assert out["target_info"]["params"][2] == 50
+        # 모르는 속성은 무시 (추가 키 없음)
+        assert "외계속성" not in out["target_info"]
+
+
+class TestNameLock:
+    def test_llm_overwrites_name_gets_reverted(self):
+        """LLM 이 '경찰' 을 '리드' 로 바꿨을 때 원본 복원."""
+        original = {
+            "target_file": "Actors.json",
+            "target_info": {"name": "경찰"},
+        }
+        enriched = {
+            "target_file": "Actors.json",
+            "target_info": {"name": "리드", "initialLevel": 10, "classId": 1},
+        }
+        out = _enforce_name_lock(original, enriched)
+        assert out["target_info"]["name"] == "경찰"
+        # 다른 필드는 유지
+        assert out["target_info"]["initialLevel"] == 10
+        assert out["target_info"]["classId"] == 1
+
+    def test_name_preserved_when_same(self):
+        original = {"target_info": {"name": "검"}}
+        enriched = {"target_info": {"name": "검", "price": 100}}
+        out = _enforce_name_lock(original, enriched)
+        assert out["target_info"]["name"] == "검"
+        assert out["target_info"]["price"] == 100
+
+    def test_no_original_name_noop(self):
+        """planner 가 name 을 안 넣었으면 LLM 의 값을 허용."""
+        original = {"target_info": {}}
+        enriched = {"target_info": {"name": "자동생성", "price": 50}}
+        out = _enforce_name_lock(original, enriched)
+        assert out["target_info"]["name"] == "자동생성"
 
 
 @pytest.mark.asyncio

@@ -153,6 +153,7 @@ class TestRouter:
             "property": "",
             "value": "",
             "bulk_scope": "",
+            "additional_properties": [],
         }
 
     @pytest.mark.asyncio

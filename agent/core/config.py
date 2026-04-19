@@ -59,7 +59,10 @@ class AgentConfig(BaseSettings):
     LANGSMITH_TRACING: bool = False  # True 로 바꾸면 모든 LLM 호출이 트레이싱됨
 
     # ── 에이전트 동작 ────────────────────────────────────────
-    AGENT_TIMEOUT: int = 30
+    # 전체 agent graph 실행 타임아웃. 단일 LLM 호출이 큰 프롬프트 (profiler schema
+    # 7000+ char 등) 를 태울 때 30s 는 빡빡. 2026-04-19 로컬 테스트에서 Class 생성
+    # 타임아웃 확인 → 60s 로 완화. env AGENT_TIMEOUT 로 오버라이드 가능.
+    AGENT_TIMEOUT: int = 60
     LLM_TIMEOUT: int = 300  # 단일 LLM ainvoke 최대 대기 시간(초)
     MAX_RETRIES: int = 3
 
