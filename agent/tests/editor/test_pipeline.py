@@ -47,7 +47,7 @@ class TestFullPipeline:
     async def test_terminal_intent_ends_immediately(self):
         """지원 불가 인텐트는 definition 없이 즉시 종료."""
         result = await graph.ainvoke(_base_state("안녕 반가워"))
-        assert result["intent"] in {"일반_대화", "범위_외", "추가_정보_필요"}
+        assert result["intent"] in {"small_talk", "out_of_scope", "clarification_needed"}
         assert result.get("final_response") is not None
         assert "params_sufficient" not in result
 
@@ -55,7 +55,14 @@ class TestFullPipeline:
         """수정 요청 시 모든 단계 상태 필드가 채워진다."""
         result = await graph.ainvoke(_base_state("고블린 HP를 120으로 수정해줘"))
 
-        assert result.get("intent") in {"게임_요소_수정", "게임_요소_생성", "게임_요소_조회"}
+        assert result.get("intent") in {
+            "object_create",
+            "object_update",
+            "event_create",
+            "event_update",
+            "query",
+            "game_overview",
+        }
         assert "final_response" in result
 
         if result.get("params_sufficient"):

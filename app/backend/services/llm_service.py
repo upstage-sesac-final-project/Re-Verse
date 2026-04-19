@@ -205,7 +205,7 @@ class LLMService:
         return {
             # Synthesizer(6단계)가 생성한 사용자 대상 최종 자연어 응답
             "message": final_state.get("final_response", ""),
-            # Router(1단계)가 분류한 사용자 의도 (예: "게임_요소_생성", "게임_요소_수정" 등)
+            # Router(1단계)가 분류한 사용자 의도 (예: "object_create", "object_update" 등)
             "intent": final_state.get("intent", ""),
             # Validator(5단계) 전체 검증 통과 여부
             "success": success,

@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from agent.editor.nodes.router import _RouterOutput, router
+from agent.editor.nodes.router import _ParsedCommand, _RouterOutput, router
 from agent.editor.prompts.router_prompt import build_prompt
 from agent.editor.state import AgentState
 
@@ -24,12 +24,17 @@ def _mock_output(
     confidence: float = 0.9,
     reasoning: str = "test",
     response: str = "",
+    *,
+    field: str = "",
+    target: str = "",
+    action: str = "",
 ) -> _RouterOutput:
     return _RouterOutput(
-        intent=intent,
+        intent=intent,  # type: ignore[arg-type]
         confidence=confidence,
         reasoning=reasoning,
         response=response,
+        parsed_command=_ParsedCommand(field=field, target=target, action=action),
     )
 
 
@@ -77,7 +82,10 @@ class TestBuildPrompt:
 
 class TestRouter:
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("intent", ["게임_요소_생성", "게임_요소_수정", "게임_요소_조회"])
+    @pytest.mark.parametrize(
+        "intent",
+        ["object_create", "object_update", "event_create", "event_update", "query", "game_overview"],
+    )
     async def test_action_intents_return_intent_and_confidence(self, intent):
         with patch("agent.editor.nodes.router.invoke_llm", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = _mock_output(intent, confidence=0.95)
@@ -90,7 +98,7 @@ class TestRouter:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "intent",
-        ["추가_정보_필요", "일반_대화", "범위_외"],
+        ["clarification_needed", "small_talk", "out_of_scope"],
     )
     async def test_terminal_intents_set_final_response(self, intent):
         expected_response = "이것은 응답입니다."
@@ -104,7 +112,7 @@ class TestRouter:
     @pytest.mark.asyncio
     async def test_passes_correct_structured_output_type(self):
         with patch("agent.editor.nodes.router.invoke_llm", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = _mock_output("게임_요소_생성")
+            mock_llm.return_value = _mock_output("object_create")
             await router(_state("새 적 만들어줘"))
 
         _, kwargs = mock_llm.call_args
@@ -114,11 +122,106 @@ class TestRouter:
     async def test_conversation_history_forwarded_to_prompt(self):
         history = [{"role": "user", "content": "이전 대화"}]
         with patch("agent.editor.nodes.router.invoke_llm", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = _mock_output("게임_요소_조회")
+            mock_llm.return_value = _mock_output("query")
             await router(_state("현재 적 목록 보여줘", history=history))
 
         messages = mock_llm.call_args[0][0]
         assert any("이전 대화" in str(m.content) for m in messages)
+
+    @pytest.mark.asyncio
+    async def test_parsed_command_propagated_to_state(self):
+        with patch("agent.editor.nodes.router.invoke_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = _mock_output(
+                "object_create", field="적", target="슬라임", action="생성"
+            )
+            result = await router(_state("적 슬라임 만들어줘"))
+
+        assert result["parsed_command"] == {
+            "field": "적",
+            "target": "슬라임",
+            "action": "생성",
+        }
+
+    @pytest.mark.asyncio
+    async def test_empty_input_returns_clarification_without_llm(self):
+        with patch("agent.editor.nodes.router.invoke_llm", new_callable=AsyncMock) as mock_llm:
+            result = await router(_state("   "))
+
+        assert mock_llm.await_count == 0
+        assert result["intent"] == "clarification_needed"
+        assert "final_response" in result
+
+    @pytest.mark.asyncio
+    async def test_low_confidence_action_force_clarification(self):
+        with patch("agent.editor.nodes.router.invoke_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = _mock_output("object_create", confidence=0.4)
+            result = await router(_state("적 어떻게 해줘"))
+
+        assert result["intent"] == "clarification_needed"
+
+    @pytest.mark.asyncio
+    async def test_pending_resume_yes_path(self):
+        """active hold 가 있고 yes 판정이면 pending_resumed=True + snapshot 전달."""
+        from agent.editor.pending_store import PendingStore
+
+        store = PendingStore()
+        store.set(
+            "conv-1",
+            hold_reason="not_found",
+            hold_question="'검 A' 가 없는데 만들까요?",
+            snapshot={"field": "무기", "target": "검 A"},
+        )
+
+        s = _state("어 그래")
+        s["conversation_id"] = "conv-1"
+
+        with patch("agent.editor.nodes.router.invoke_llm", new_callable=AsyncMock) as mock_llm:
+            # 첫 호출: yes/no 판정 (is_answer=True)
+            # 두 번째 호출: 메인 분류
+            from agent.editor.nodes.router import _YesNoOutput
+
+            mock_llm.side_effect = [
+                _YesNoOutput(is_answer=True, reasoning="긍정 응답"),
+                _mock_output("object_create", field="무기", target="검 A", action="생성"),
+            ]
+            result = await router(s, store=store)
+
+        assert result["pending_resumed"] is True
+        assert result["resumed_snapshot"] == {"field": "무기", "target": "검 A"}
+        entry = store.get("conv-1")
+        assert entry is not None
+        assert entry.status == "resolved"
+
+    @pytest.mark.asyncio
+    async def test_pending_resume_no_path_drops(self):
+        """active hold 가 있지만 no 판정이면 pending 은 dropped + 새 intent 진행."""
+        from agent.editor.pending_store import PendingStore
+
+        store = PendingStore()
+        store.set(
+            "conv-2",
+            hold_reason="not_found",
+            hold_question="'검 A' 가 없는데 만들까요?",
+            snapshot={"field": "무기", "target": "검 A"},
+        )
+
+        s = _state("아니 됐고 슬라임 만들어줘")
+        s["conversation_id"] = "conv-2"
+
+        with patch("agent.editor.nodes.router.invoke_llm", new_callable=AsyncMock) as mock_llm:
+            from agent.editor.nodes.router import _YesNoOutput
+
+            mock_llm.side_effect = [
+                _YesNoOutput(is_answer=False, reasoning="새 요청"),
+                _mock_output("object_create", field="적", target="슬라임", action="생성"),
+            ]
+            result = await router(s, store=store)
+
+        assert result["pending_resumed"] is False
+        assert "resumed_snapshot" not in result
+        entry = store.get("conv-2")
+        assert entry is not None
+        assert entry.status == "dropped"
 
 
 # ── 통합 테스트 (실제 LLM 호출) ───────────────────────────────────────────────
@@ -132,36 +235,36 @@ class TestRouterIntegration:
     @pytest.mark.asyncio
     async def test_game_create_intent(self):
         result = await router(_state("불속성 검을 하나 만들어줘."))
-        print(f"\n[게임_요소_생성] {result}")
-        assert result["intent"] == "게임_요소_생성"
+        print(f"\n[object_create] {result}")
+        assert result["intent"] == "object_create"
         assert result["confidence"] >= 0.7
 
     @pytest.mark.asyncio
     async def test_game_modify_intent(self):
         result = await router(_state("게임 제목 을 냥냥펀치~!! 로 바꾸고싶어."))
-        print(f"\n[게임_요소_수정] {result}")
-        assert result["intent"] == "게임_요소_수정"
+        print(f"\n[object_update] {result}")
+        assert result["intent"] == "object_update"
         assert result["confidence"] >= 0.7
 
     @pytest.mark.asyncio
     async def test_game_query_intent(self):
         result = await router(_state("지금 게임 제목 뭐야?"))
-        print(f"\n[게임_요소_조회] {result}")
-        assert result["intent"] == "게임_요소_조회"
+        print(f"\n[query] {result}")
+        assert result["intent"] == "query"
         assert result["confidence"] >= 0.7
 
     @pytest.mark.asyncio
     async def test_clarification_needed_intent(self):
         result = await router(_state("천 갑옷은 얼마야?"))  # 대상/종류 전혀 없음
-        print(f"\n[게임_요소_조회] {result}")
-        assert result["intent"] == "게임_요소_조회"
+        print(f"\n[query] {result}")
+        assert result["intent"] == "query"
         assert result["confidence"] >= 0.7
 
     @pytest.mark.asyncio
     async def test_general_chat_intent(self):
         result = await router(_state("아바타 주인공 누구야?"))  # 게임과 무관한 일상 대화
-        print(f"\n[일반_대화] {result}")
-        assert result["intent"] == "일반_대화"
+        print(f"\n[small_talk] {result}")
+        assert result["intent"] == "small_talk"
         assert "final_response" in result
 
     @pytest.mark.asyncio
@@ -171,8 +274,8 @@ class TestRouterIntegration:
                 "드래곤볼 7개를 만들어서 그 드래곤볼을 다 모으면 용이 나타나는 효과가 나타나게 해줘"
             )
         )
-        print(f"\n[범위_외] {result}")
-        assert result["intent"] == "범위_외"
+        print(f"\n[out_of_scope] {result}")
+        assert result["intent"] == "out_of_scope"
         assert "final_response" in result
 
 
@@ -199,8 +302,8 @@ class TestRouterIntegrationRealistic:
     )
     async def test_create_intent(self, user_input):
         result = await router(_state(user_input))
-        print(f"\n[게임_요소_생성] '{user_input}' → {result['intent']}")
-        assert result["intent"] == "게임_요소_생성", f"입력: {user_input!r}"
+        print(f"\n[object_create] '{user_input}' → {result['intent']}")
+        assert result["intent"] == "object_create", f"입력: {user_input!r}"
         assert result["confidence"] >= 0.7
 
     # ── 게임_요소_수정 ──────────────────────────────────────────────────────────
@@ -218,8 +321,8 @@ class TestRouterIntegrationRealistic:
     )
     async def test_modify_intent(self, user_input):
         result = await router(_state(user_input))
-        print(f"\n[게임_요소_수정] '{user_input}' → {result['intent']}")
-        assert result["intent"] == "게임_요소_수정", f"입력: {user_input!r}"
+        print(f"\n[object_update] '{user_input}' → {result['intent']}")
+        assert result["intent"] == "object_update", f"입력: {user_input!r}"
         assert result["confidence"] >= 0.7
 
     # ── 게임_요소_조회 ──────────────────────────────────────────────────────────
@@ -237,8 +340,9 @@ class TestRouterIntegrationRealistic:
     )
     async def test_query_intent(self, user_input):
         result = await router(_state(user_input))
-        print(f"\n[게임_요소_조회] '{user_input}' → {result['intent']}")
-        assert result["intent"] == "게임_요소_조회", f"입력: {user_input!r}"
+        print(f"\n[query] '{user_input}' → {result['intent']}")
+        # game_overview 가 살짝 섞일 수 있음 ("주인공 이름 뭐야?" 등은 경계 케이스)
+        assert result["intent"] in {"query", "game_overview"}, f"입력: {user_input!r}"
         assert result["confidence"] >= 0.7
 
     # ── 추가_정보_필요 ──────────────────────────────────────────────────────────
@@ -254,8 +358,8 @@ class TestRouterIntegrationRealistic:
     )
     async def test_clarification_intent(self, user_input):
         result = await router(_state(user_input))
-        print(f"\n[추가_정보_필요] '{user_input}' → {result['intent']}")
-        assert result["intent"] == "추가_정보_필요", f"입력: {user_input!r}"
+        print(f"\n[clarification_needed] '{user_input}' → {result['intent']}")
+        assert result["intent"] == "clarification_needed", f"입력: {user_input!r}"
         assert "final_response" in result
 
     # ── 복합_의도 ───────────────────────────────────────────────────────────────
@@ -271,8 +375,8 @@ class TestRouterIntegrationRealistic:
     )
     async def test_complex_intent(self, user_input):
         result = await router(_state(user_input))
-        print(f"\n[복합_의도] '{user_input}' → {result['intent']}")
-        assert result["intent"] == "복합_의도", f"입력: {user_input!r}"
+        print(f"\n[multi_intent] '{user_input}' → {result['intent']}")
+        assert result["intent"] == "multi_intent", f"입력: {user_input!r}"
 
     # ── 일반_대화 ───────────────────────────────────────────────────────────────
 
@@ -288,8 +392,8 @@ class TestRouterIntegrationRealistic:
     )
     async def test_general_chat(self, user_input):
         result = await router(_state(user_input))
-        print(f"\n[일반_대화] '{user_input}' → {result['intent']}")
-        assert result["intent"] == "일반_대화", f"입력: {user_input!r}"
+        print(f"\n[small_talk] '{user_input}' → {result['intent']}")
+        assert result["intent"] == "small_talk", f"입력: {user_input!r}"
         assert "final_response" in result
 
     # ── 범위_외 ─────────────────────────────────────────────────────────────────
@@ -307,6 +411,6 @@ class TestRouterIntegrationRealistic:
     )
     async def test_out_of_scope(self, user_input):
         result = await router(_state(user_input))
-        print(f"\n[범위_외] '{user_input}' → {result['intent']}")
-        assert result["intent"] in {"범위_외", "일반_대화"}, f"입력: {user_input!r}"
+        print(f"\n[out_of_scope] '{user_input}' → {result['intent']}")
+        assert result["intent"] in {"out_of_scope", "small_talk"}, f"입력: {user_input!r}"
         assert "final_response" in result

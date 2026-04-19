@@ -39,17 +39,21 @@ class AgentState(TypedDict, total=False):
     conversation_id: str  # pending_store 조회 키 (세션 단위)
 
     # ── 1단계 Router ────────────────────────────────────────
+    # Phase C 부터 영문 IntentValue (agent/editor/intents.py) 사용.
     intent: Literal[
-        "게임_요소_생성",
-        "게임_요소_수정",
-        "게임_요소_조회",
-        "추가_정보_필요",
-        "복합_의도",
-        "일반_대화",
-        "범위_외",
+        "object_create",
+        "object_update",
+        "event_create",
+        "event_update",
+        "query",
+        "game_overview",
+        "multi_intent",
+        "out_of_scope",
+        "small_talk",
+        "clarification_needed",
     ]
     confidence: float  # 의도 분류 신뢰도 (0.0~1.0)
-    # Phase C 에서 실사용 시작. parsed_command = { field, target, action }
+    # parsed_command = { field, target, action } — definition / reader 가 소비
     parsed_command: dict
     needs_context_lookup: bool  # 조사·대명사 참조 여부
     pending_resumed: bool  # 이번 턴이 이전 hold 의 응답인지

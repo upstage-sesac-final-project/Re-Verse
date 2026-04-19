@@ -2,24 +2,25 @@
 
 import logging
 
+from agent.editor.intents import DEFINITION_INTENTS, READER_INTENTS, IntentValue
 from agent.editor.state import AgentState
 
 logger = logging.getLogger(__name__)
 
 
 def route_after_router(state: AgentState) -> str:
-    """Router 이후 분기.
+    """Router 이후 분기 — Phase C 기준 영문 intent.
 
-    - 게임_요소_생성 / 게임_요소_수정 → definition
-    - 게임_요소_조회 → reader
-    - 추가_정보_필요 / 일반_대화 / 범위_외 → __end__ (final_response 포함)
+    - object_create / object_update / event_create / event_update → definition
+    - query / game_overview → reader
+    - multi_intent / out_of_scope / small_talk / clarification_needed → __end__
     """
-    intent = state.get("intent", "범위_외")
+    intent = state.get("intent", IntentValue.OUT_OF_SCOPE)
 
-    if intent in ("게임_요소_생성", "게임_요소_수정"):
+    if intent in DEFINITION_INTENTS:
         logger.info("[route] router → definition (intent=%s)", intent)
         return "definition"
-    if intent == "게임_요소_조회":
+    if intent in READER_INTENTS:
         logger.info("[route] router → reader (intent=%s)", intent)
         return "reader"
     logger.info("[route] router → __end__ (intent=%s)", intent)

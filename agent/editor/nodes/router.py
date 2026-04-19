@@ -1,6 +1,17 @@
-"""Router 노드 — 1단계: 사용자 의도 분류 및 라우팅 결정.
+"""Router 노드 — 1단계: 의도 분류 + parsed_command 구조화 + pending resume.
 
-담당: 세종님
+Phase C 재작성 포인트
+- intent 값 영문 enum (`IntentValue`) 사용
+- parsed_command { field, target, action } 구조 LLM structured output 으로 획득
+- pending_store 조회하여 이전 hold 가 있으면 이번 턴이 답인지 LLM 판정
+  (yes → 스냅샷 복원 + pending resolve + definition 재진입 힌트)
+  (no  → pending drop + 새 intent 분류로 진행)
+- game_overview 분기 추가
+
+LLM 호출 수
+- 빈 입력: 0 회
+- pending 없음: 1 회 (intent + parsed_command 통합 structured output)
+- pending 있음: 2 회 (yes/no + 위)
 """
 
 import json
@@ -11,66 +22,174 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from agent.core.llm_client import invoke_llm
+from agent.editor.intents import (
+    ACTION_INTENTS,
+    DEFINITION_INTENTS,
+    TERMINAL_INTENTS,
+    IntentValue,
+)
+from agent.editor.pending_store import PendingStore, get_default_store
 from agent.editor.prompts.router_prompt import build_prompt
 from agent.editor.state import AgentState
 from app.backend.core.game_paths import get_game_data_path
 
 logger = logging.getLogger(__name__)
 
-_TERMINAL_INTENTS = frozenset({"추가_정보_필요", "복합_의도", "일반_대화", "범위_외"})
-_ACTION_INTENTS = frozenset({"게임_요소_생성", "게임_요소_수정", "게임_요소_조회"})
 _CONFIDENCE_THRESHOLD = 0.7
+
+
+class _ParsedCommand(BaseModel):
+    field: str = Field(default="", description="카테고리 라벨 (적/무기/이벤트 등)")
+    target: str = Field(default="", description="대상 이름·id (따옴표 제거)")
+    action: str = Field(default="", description="'생성' | '수정' | '조회' | ''")
 
 
 class _RouterOutput(BaseModel):
     resolved_input: str = Field(default="", description="맥락이 해소된 완전한 요청 문장")
     intent: Literal[
-        "게임_요소_생성",
-        "게임_요소_수정",
-        "게임_요소_조회",
-        "추가_정보_필요",
-        "복합_의도",
-        "일반_대화",
-        "범위_외",
-    ] = Field(description="분류된 의도")
+        "object_create",
+        "object_update",
+        "event_create",
+        "event_update",
+        "query",
+        "game_overview",
+        "multi_intent",
+        "out_of_scope",
+        "small_talk",
+        "clarification_needed",
+    ] = Field(description="분류된 의도 (영문 enum)")
     confidence: float = Field(ge=0.0, le=1.0, description="분류 신뢰도")
+    parsed_command: _ParsedCommand = Field(
+        default_factory=_ParsedCommand, description="구조화된 요청"
+    )
+    needs_context_lookup: bool = Field(
+        default=False, description="조사·대명사 참조가 있어 맥락 조회가 필요한지"
+    )
     reasoning: str = Field(description="분류 근거")
     response: str = Field(
-        default="", description="clarification/chat/out_of_scope 시 즉시 반환할 응답"
+        default="", description="terminal intent 시 즉시 반환할 응답"
     )
 
 
-async def router(state: AgentState) -> dict:
+class _YesNoOutput(BaseModel):
+    is_answer: bool = Field(
+        description="현재 입력이 직전 hold 질문에 대한 '답' 인지 여부"
+    )
+    reasoning: str = Field(default="", description="판단 근거 한 줄")
+
+
+_YESNO_SYSTEM = """\
+당신은 대화 흐름을 분석하는 판별기입니다.
+바로 직전에 시스템이 유저에게 질문(hold)을 던졌고, 유저가 새 입력을 보냈습니다.
+이 새 입력이 그 질문에 대한 "답" 인지, 아니면 무관한 새 요청("딴소리")인지 판별하세요.
+
+판정 기준:
+- 질문에 대해 긍정/부정/선택을 표현하면 is_answer=true
+  예) "어", "응", "그래", "아니", "1번으로", "검 A 로 해"
+- 질문과 전혀 다른 새 요청을 하면 is_answer=false
+  예) "아니 됐고 슬라임 만들어줘", "그건 놔두고 다른 거 하자"
+
+reasoning 에 한 줄로 근거를 써라.
+"""
+
+
+async def _judge_pending_answer(user_input: str, hold_question: str) -> bool:
+    """직전 hold 질문에 대한 답인지 LLM 에게 yes/no 판정 요청."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    messages = [
+        SystemMessage(content=_YESNO_SYSTEM),
+        HumanMessage(
+            content=(
+                f"## 시스템이 던진 질문\n{hold_question}\n\n"
+                f"## 유저의 새 입력\n{user_input}"
+            )
+        ),
+    ]
+    try:
+        result: _YesNoOutput = await invoke_llm(  # type: ignore[assignment]
+            messages, structured_output=_YesNoOutput
+        )
+        logger.info(
+            "[Router] pending yes/no 판정: %s (%s)", result.is_answer, result.reasoning
+        )
+        return bool(result.is_answer)
+    except Exception as e:  # pragma: no cover — LLM 장애 시 안전 기본값
+        logger.warning("[Router] pending yes/no 판정 실패: %s → no(드롭)로 처리", e)
+        return False
+
+
+def _load_ranked_candidates(state: AgentState, game_id: str) -> list | None:
+    """기존 동작 유지: SampleMapCandidates.json 로드."""
+    ranked = state.get("ranked_map_candidates")
+    if ranked:
+        return ranked
+    if not game_id:
+        return None
+    try:
+        candidates_path = get_game_data_path(game_id) / "SampleMapCandidates.json"
+        if candidates_path.exists():
+            ranked = json.loads(candidates_path.read_text(encoding="utf-8"))
+            logger.info("🔀 Router: 맵 후보군 로드 완료 (%d개)", len(ranked))
+            return ranked
+    except Exception as e:
+        logger.warning("🔀 Router: 맵 후보군 로드 실패: %s", e)
+    return None
+
+
+async def router(state: AgentState, *, store: PendingStore | None = None) -> dict:
+    """Router 진입점.
+
+    Args:
+        state: AgentState
+        store: 테스트에서 주입 가능한 PendingStore. 기본은 전역 싱글톤.
+    """
     user_input = state.get("user_input", "")
     game_id = state.get("game_id", "")
+    conversation_id = state.get("conversation_id", "")
+    ranked_candidates = _load_ranked_candidates(state, game_id)
 
-    # ── 맵 후보군 로드 (Generation에서 이월된 SampleMapCandidates.json) ──
-    ranked_candidates = state.get("ranked_map_candidates")
-    if not ranked_candidates and game_id:
-        try:
-            candidates_path = get_game_data_path(game_id) / "SampleMapCandidates.json"
-            if candidates_path.exists():
-                ranked_candidates = json.loads(candidates_path.read_text(encoding="utf-8"))
-                logger.info("🔀 Router: 맵 후보군 로드 완료 (%d개)", len(ranked_candidates))
-        except Exception as e:
-            logger.warning("🔀 Router: 맵 후보군 로드 실패: %s", e)
+    pstore = store or get_default_store()
 
-    # 빈 입력 사전 차단 — LLM 호출 없이 즉시 반환
+    # ── 빈 입력 사전 차단 ───────────────────────────────────────
     if not user_input.strip():
-        logger.info("🔀 Router: 빈 입력 감지 → 추가_정보_필요 (LLM 호출 없음)")
+        logger.info("🔀 Router: 빈 입력 → clarification_needed (LLM 0 회)")
         return {
-            "intent": "추가_정보_필요",
+            "intent": IntentValue.CLARIFICATION_NEEDED,
             "confidence": 1.0,
-            "ranked_map_candidates": ranked_candidates,  # 전파
+            "ranked_map_candidates": ranked_candidates,
             "final_response": "무엇을 도와드릴까요? 만들거나 수정하고 싶은 게임 요소를 알려주세요.",
         }
 
     logger.info("─── 🔀 Router START ────────────────────────────────")
     logger.info("  input : %r", user_input)
 
+    # ── pending 조회 및 이어받기 판정 ───────────────────────────
+    pending_resumed = False
+    pending_snapshot: dict = {}
+    if conversation_id:
+        entry = pstore.get(conversation_id)
+        if entry is not None and entry.status == "active" and not entry.resolve:
+            logger.info(
+                "[Router] active hold 발견 (reason=%s) → yes/no 판정",
+                entry.hold_reason,
+            )
+            is_answer = await _judge_pending_answer(user_input, entry.hold_question)
+            if is_answer:
+                pstore.mark_resolved(conversation_id)
+                pending_snapshot = dict(entry.snapshot)
+                pending_resumed = True
+                logger.info("[Router] pending resolved → definition 재진입 힌트")
+            else:
+                pstore.mark_dropped(conversation_id)
+                logger.info("[Router] pending dropped → 새 intent 분류 진행")
+
+    # ── 메인 분류 LLM 호출 ──────────────────────────────────────
     messages = build_prompt(state)
     _t0 = time.perf_counter()
-    output: _RouterOutput = await invoke_llm(messages, structured_output=_RouterOutput)  # type: ignore[assignment]
+    output: _RouterOutput = await invoke_llm(  # type: ignore[assignment]
+        messages, structured_output=_RouterOutput
+    )
     _elapsed = time.perf_counter() - _t0
 
     logger.info(
@@ -81,43 +200,50 @@ async def router(state: AgentState) -> dict:
     )
     logger.info("  reason: %s", output.reasoning)
 
-    intent = output.intent
+    intent: str = output.intent
 
-    # confidence 가 기준 미만이면 추가 정보 요청으로 강제 전환
-    if intent in _ACTION_INTENTS and output.confidence < _CONFIDENCE_THRESHOLD:
+    # confidence 가 기준 미만인 액션 intent 는 clarification_needed 로 강제 전환
+    if intent in ACTION_INTENTS and output.confidence < _CONFIDENCE_THRESHOLD:
         logger.warning(
-            "  ⚠️  confidence %.2f < %.2f → 추가_정보_필요로 강제 전환 (원래 의도: %s)",
+            "  ⚠️  confidence %.2f < %.2f → clarification_needed 로 강제 전환 (원래: %s)",
             output.confidence,
             _CONFIDENCE_THRESHOLD,
             intent,
         )
-        intent = "추가_정보_필요"
+        intent = IntentValue.CLARIFICATION_NEEDED
 
-    # resolved_input: coref 해소된 입력. 비어 있으면 원본 사용.
     resolved = output.resolved_input.strip() if output.resolved_input else ""
     if resolved:
         logger.info("  resolved: %r", resolved)
 
+    parsed_command = output.parsed_command.model_dump()
+
     result: dict = {
         "intent": intent,
         "confidence": output.confidence,
-        # user_input 은 원본 그대로 유지 (따옴표·고유명사 보존).
-        # coref 해소본은 resolved_input 에 별도 저장 — downstream 에서 필요 시 참조.
         "resolved_input": resolved,
-        "ranked_map_candidates": ranked_candidates,  # 상태 전파
+        "parsed_command": parsed_command,
+        "needs_context_lookup": bool(output.needs_context_lookup),
+        "pending_resumed": pending_resumed,
+        "ranked_map_candidates": ranked_candidates,
     }
 
-    # 터미널 인텐트는 즉시 응답을 final_response 에 기록
-    if intent == "복합_의도":
+    # pending 이어받기 힌트는 따로 보존 (Phase D definition 이 소비 예정)
+    if pending_resumed and pending_snapshot:
+        result["resumed_snapshot"] = pending_snapshot
+
+    # ── terminal intent 는 final_response 를 미리 채움 ───────────
+    if intent == IntentValue.MULTI_INTENT:
         result["final_response"] = (
             "요청을 하나씩 입력해주세요. 예) '슬라임 HP 올려줘' 후 '드래곤 만들어줘'"
         )
-        logger.info("─── 🛑 Router END → 복합_의도 (terminal) ──────────────")
-    elif intent in _TERMINAL_INTENTS:
+        logger.info("─── 🛑 Router END → multi_intent (terminal) ─────────")
+    elif intent in TERMINAL_INTENTS:
         result["final_response"] = output.response or "조금 더 구체적으로 말씀해주시겠어요?"
-        logger.info("─── 🛑 Router END → %s (terminal) ─────────────────────", intent)
-    else:
-        next_node = "reader" if intent == "게임_요소_조회" else "definition"
-        logger.info("─── ✅ Router END → %s (next: %s) ──────────────", intent, next_node)
+        logger.info("─── 🛑 Router END → %s (terminal) ───────────────────", intent)
+    elif intent in DEFINITION_INTENTS:
+        logger.info("─── ✅ Router END → %s (next: definition) ───────────", intent)
+    else:  # query / game_overview
+        logger.info("─── ✅ Router END → %s (next: reader) ───────────────", intent)
 
     return result
