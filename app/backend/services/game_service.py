@@ -215,13 +215,32 @@ class GameService:
         bucket = settings.S3_BUCKET_NAME
         prefix = settings.S3_PREFIX.strip("/")
         key = f"{prefix}/{game_id}/data/System.json"
-        try:
-            obj = client.get_object(Bucket=bucket, Key=key)
-        except ClientError as e:
-            logger.warning(
-                "[GameService] S3 System.json 조회 실패 — gameId 갱신 생략 | key=%s: %s", key, e
-            )
+
+        import time
+
+        max_retries = 3
+        obj = None
+        for attempt in range(max_retries):
+            try:
+                obj = client.get_object(Bucket=bucket, Key=key)
+                break
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code", "Unknown")
+                if error_code == "NoSuchKey" and attempt < max_retries - 1:
+                    logger.debug(
+                        "[GameService] S3 System.json 낫파운드, 재시도 대기 | attempt=%d",
+                        attempt + 1,
+                    )
+                    time.sleep(1.0)
+                    continue
+                logger.warning(
+                    "[GameService] S3 System.json 조회 실패 — gameId 갱신 생략 | key=%s: %s", key, e
+                )
+                return
+
+        if obj is None:
             return
+
         data = json.loads(obj["Body"].read().decode("utf-8"))
         data.setdefault("advanced", {})["gameId"] = new_game_id
         client.put_object(
