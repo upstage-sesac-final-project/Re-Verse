@@ -26,7 +26,7 @@ export default function GenerationForm({ onSubmit, isLoading }) {
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="어떤 게임을 만들고 싶은지 자유롭게 설명해주세요..."
+          placeholder={"어떤 게임을 만들고 싶은지 자유롭게 설명해주세요...\n(현재는 RPG 장르만 지원하지만, 어떤 주제든 멋진 RPG로 만들어드려요 !)"}
           rows={4}
           maxLength={1000}
           required

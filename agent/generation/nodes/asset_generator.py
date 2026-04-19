@@ -594,7 +594,7 @@ _BATTLE_POSITIONS = {
     2: [(250, 280), (550, 280)],
     3: [(150, 280), (400, 280), (650, 280)],
 }
-_BOSS_POSITION = (400, 200)
+_BOSS_POSITION = (400, 400)
 
 
 def _ensure_null_at_0(lst: list) -> list:

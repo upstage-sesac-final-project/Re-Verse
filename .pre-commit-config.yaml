@@ -65,6 +65,6 @@ repos:
       - id: eslint
         name: ESLint
         language: system
-        entry: bash -c 'cd app/frontend && npm run lint'
+        entry: python -c "import os, sys, subprocess; cmd = 'npm --prefix app/frontend run lint' if os.name == 'nt' else 'bash -c \"cd app/frontend && npm run lint\"'; sys.exit(subprocess.call(cmd, shell=True))"
         files: ^app/frontend/src/.*\.(js|jsx)$
         pass_filenames: false
