@@ -63,6 +63,13 @@ def _route_after_sample_map_selector(state: GenerationState) -> str:
     return "story_phase"
 
 
+def _route_after_game_designer(state: GenerationState) -> str:
+    """A 노드 이후 라우팅: 가드레일 위반 시 즉시 responder로 이동."""
+    if state.get("is_success") is False:
+        return "blocked"
+    return "next"
+
+
 def build_generation_graph() -> Any:
     """Full Generation 그래프 조립.
 
@@ -88,7 +95,17 @@ def build_generation_graph() -> Any:
 
     # ── 엣지 ───────────────────────────────────────────────────────────────
     builder.add_edge(START, "game_designer")
-    builder.add_edge("game_designer", "asset_planner")
+
+    # A → (unsafe → J) or (safe → B)
+    builder.add_conditional_edges(
+        "game_designer",
+        _route_after_game_designer,
+        {
+            "blocked": "responder",
+            "next": "asset_planner",
+        },
+    )
+
     builder.add_edge("asset_planner", "asset_generator")
 
     # C → (assets → H) or (maps/events → D)

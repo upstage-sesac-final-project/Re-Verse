@@ -10,9 +10,10 @@ from typing import cast
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from agent.core.llm_client import invoke_llm
-from agent.generation.models import GameSpec
+from agent.generation.models import GameSpec, GuardrailResult
 from agent.generation.progress import publish_progress
 from agent.generation.prompts.game_designer_prompt import SYSTEM_PROMPT
+from agent.generation.prompts.guardrail_prompt import build_guardrail_messages
 from agent.generation.state import GenerationState
 
 logger = logging.getLogger(__name__)
@@ -24,9 +25,37 @@ _MAX_MAPS = 6  # 5~10분 게임에 적합
 async def game_designer(state: GenerationState) -> dict:
     """A 노드: 사용자 입력 → GameSpec."""
     gen_id = state["generation_id"]
+    user_input = state["user_input"]
     options = state.get("options", {})
     playtime_minutes = options.get("playtime_minutes", 7)
 
+    # 1. 가드레일 체크 (부적절한 입력 필터링)
+    logger.info("game_designer: 가드레일 체크 시작")
+    guardrail_messages = build_guardrail_messages(user_input)
+    guardrail_res = cast(
+        GuardrailResult,
+        await invoke_llm(guardrail_messages, structured_output=GuardrailResult, temperature=0.1),
+    )
+
+    if guardrail_res.decision == "unsafe":
+        error_msg = f"부적절한 요청으로 생성이 중단되었습니다: {guardrail_res.reason}"
+        logger.warning("game_designer: 부적절한 입력 감지 - %s", guardrail_res.reason)
+        await publish_progress(
+            gen_id,
+            {
+                "type": "error",
+                "phase": "spec",
+                "message": error_msg,
+            },
+        )
+        return {
+            "is_success": False,
+            "final_message": error_msg,
+            "error_phase": "spec",
+            "error_message": guardrail_res.reason,
+        }
+
+    # 2. 본 게임 기획 시작
     # 목표 맵 개수 계산 (5분→3개, 10분→6개, 15분→9개)
     target_n_maps = (playtime_minutes * 3) // 5
     logger.info(
