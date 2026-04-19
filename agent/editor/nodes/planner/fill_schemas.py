@@ -182,11 +182,197 @@ ACTOR_FILL_SCHEMA: dict[str, Any] = {
 }
 
 
+# ── Skills.json ─────────────────────────────────────────────────
+SKILL_FILL_SCHEMA: dict[str, Any] = {
+    "target_file": "Skills.json",
+    "base_fields": ["name"],
+    "fixed_fields": {"messageType": 1},
+    "required_slots": [
+        {"name": "stypeId", "type": "int", "ge": 0, "hint": "스킬 유형 (공격=1, 특수=2 등 System.skillTypes)"},
+        {"name": "mpCost", "type": "int", "ge": 0, "le": 9999, "hint": "소비 MP. 공격 스킬은 보통 4-20"},
+        {"name": "tpCost", "type": "int", "ge": 0, "le": 100, "hint": "소비 TP. 기본 0"},
+        {"name": "scope", "type": "int", "ge": 0, "le": 14, "hint": "범위 (1=적 1, 2=적 전체, 7=아군 1 등)"},
+        {"name": "occasion", "type": "int", "ge": 0, "le": 3, "hint": "사용 가능 시점 (0=언제나, 1=전투 중, 3=메뉴 전용)"},
+        {"name": "speed", "type": "int", "ge": -2000, "le": 2000, "hint": "속도 보정. 보통 0"},
+        {"name": "successRate", "type": "int", "ge": 1, "le": 100, "hint": "성공률. 기본 100"},
+        {"name": "repeats", "type": "int", "ge": 1, "le": 9, "hint": "연속 횟수. 기본 1"},
+        {"name": "tpGain", "type": "int", "ge": 0, "le": 100, "hint": "TP 획득. 공격 스킬 10 표준"},
+        {"name": "hitType", "type": "int", "ge": 0, "le": 2, "hint": "명중 유형 (0=확정, 1=물리, 2=마법)"},
+        {"name": "animationId", "type": "int", "ge": -1, "hint": "애니메이션 id"},
+        {
+            "name": "damage",
+            "type": "dict",
+            "hint": "damage = {type, elementId, formula, critical, variance}. formula 는 'a.atk*4 - b.def*2' 같은 문자열",
+        },
+    ],
+    "optional_slots": [
+        {"name": "description", "type": "str"},
+        {"name": "iconIndex", "type": "int", "ge": 0},
+        {"name": "message1", "type": "str", "hint": "행동 메시지 첫 줄"},
+        {"name": "message2", "type": "str", "hint": "행동 메시지 둘째 줄"},
+        {"name": "requiredWtypeId1", "type": "int", "ge": 0, "hint": "필요 무기 유형 1. 없으면 0"},
+        {"name": "requiredWtypeId2", "type": "int", "ge": 0, "hint": "필요 무기 유형 2. 없으면 0"},
+        {"name": "effects", "type": "list[Effect]", "hint": "추가 효과. 상태 부여·HP 회복 등"},
+    ],
+}
+
+
+# ── Items.json ──────────────────────────────────────────────────
+ITEM_FILL_SCHEMA: dict[str, Any] = {
+    "target_file": "Items.json",
+    "base_fields": ["name"],
+    "required_slots": [
+        {
+            "name": "itypeId",
+            "type": "int",
+            "ge": 1,
+            "le": 4,
+            "hint": "아이템 유형 (1=일반, 2=key 아이템)",
+        },
+        {"name": "price", "type": "int", "ge": 0, "le": 999999},
+        {"name": "consumable", "type": "bool", "hint": "소모품 여부"},
+        {"name": "scope", "type": "int", "ge": 0, "le": 14, "hint": "사용 범위"},
+        {"name": "occasion", "type": "int", "ge": 0, "le": 3, "hint": "사용 시점"},
+        {"name": "speed", "type": "int", "ge": 0, "le": 2000},
+        {"name": "successRate", "type": "int", "ge": 1, "le": 100},
+        {"name": "repeats", "type": "int", "ge": 1, "le": 9},
+        {"name": "tpGain", "type": "int", "ge": 0, "le": 100},
+        {"name": "hitType", "type": "int", "ge": 0, "le": 2},
+        {"name": "animationId", "type": "int", "ge": -1},
+        {"name": "damage", "type": "dict", "hint": "피해 정의 — 회복 아이템은 type=3 (HP 회복)"},
+    ],
+    "optional_slots": [
+        {"name": "description", "type": "str"},
+        {"name": "iconIndex", "type": "int", "ge": 0},
+        {
+            "name": "effects",
+            "type": "list[Effect]",
+            "hint": "효과. 회복 아이템은 [{code:11, value1>=1, ...}] 형태 (value1>=1 필수)",
+        },
+    ],
+}
+
+
+# ── Classes.json ────────────────────────────────────────────────
+CLASS_FILL_SCHEMA: dict[str, Any] = {
+    "target_file": "Classes.json",
+    "base_fields": ["name"],
+    "required_slots": [
+        {
+            "name": "expParams",
+            "type": "list[int]",
+            "length": 4,
+            "hint": "EXP 곡선 [base, extra, acc_a, acc_b]. 표준 [30, 20, 20, 40]",
+        },
+        {
+            "name": "params",
+            "type": "list[list[int]]",
+            "length": 8,
+            "hint": "능력치 곡선 [MHP, MMP, ATK, DEF, MAT, MDF, AGI, LUK]. 각 요소는 레벨별 값 리스트",
+        },
+    ],
+    "optional_slots": [
+        {
+            "name": "learnings",
+            "type": "list[Learning]",
+            "hint": "[{level, skillId, note}] — 레벨별 습득 스킬",
+        },
+        {"name": "traits", "type": "list[Trait]", "hint": "장비 유형/스킬 유형 허용 등"},
+    ],
+}
+
+
+# ── Enemies.json ────────────────────────────────────────────────
+ENEMY_FILL_SCHEMA: dict[str, Any] = {
+    "target_file": "Enemies.json",
+    "base_fields": ["name"],
+    "required_slots": [
+        {"name": "battlerName", "type": "str", "hint": "전투 스프라이트 파일명 (예: 'Bat')"},
+        {"name": "battlerHue", "type": "int", "ge": 0, "le": 360, "hint": "색조 (보통 0)"},
+        {
+            "name": "params",
+            "type": "list[int]",
+            "length": 8,
+            "hint": "[MHP>=1, MMP, ATK, DEF, MAT, MDF, AGI, LUK]. 파티 레벨 대비 조정",
+        },
+        {"name": "exp", "type": "int", "ge": 0, "le": 9999999, "hint": "처치 시 EXP"},
+        {"name": "gold", "type": "int", "ge": 0, "le": 9999999, "hint": "처치 시 소지금"},
+    ],
+    "optional_slots": [
+        {"name": "dropItems", "type": "list[DropItem]", "hint": "[{kind, dataId, denominator}]"},
+        {"name": "actions", "type": "list[Action]", "hint": "행동 패턴"},
+        {"name": "traits", "type": "list[Trait]", "hint": "속성 내성·저항"},
+    ],
+    "resource_fields": ["battlerName"],
+}
+
+
+# ── States.json ─────────────────────────────────────────────────
+STATE_FILL_SCHEMA: dict[str, Any] = {
+    "target_file": "States.json",
+    "base_fields": ["name"],
+    "fixed_fields": {"messageType": 1, "overlay": 0},
+    "required_slots": [
+        {"name": "iconIndex", "type": "int", "ge": 0, "hint": "상태 아이콘 인덱스"},
+        {"name": "restriction", "type": "int", "ge": 0, "le": 4, "hint": "행동 제한 (0=없음, 2=적으로 공격 등)"},
+        {"name": "priority", "type": "int", "ge": 0, "le": 100, "hint": "우선권. 기본 50"},
+        {"name": "motion", "type": "int", "ge": 0, "le": 3, "hint": "[SV] 모션 번호"},
+        {
+            "name": "autoRemovalTiming",
+            "type": "int",
+            "ge": 0,
+            "le": 2,
+            "hint": "자동 해제 타이밍 (0=없음, 1=행동 종료시, 2=턴 종료시)",
+        },
+        {"name": "minTurns", "type": "int", "ge": 0, "le": 9999, "hint": "지속 최소 턴"},
+        {"name": "maxTurns", "type": "int", "ge": 0, "le": 9999, "hint": "지속 최대 턴"},
+        {"name": "chanceByDamage", "type": "int", "ge": 0, "le": 100, "hint": "피해 해제 확률"},
+        {"name": "stepsToRemove", "type": "int", "ge": 1, "le": 9999, "hint": "보행 해제 걸음 수"},
+    ],
+    "optional_slots": [
+        {"name": "removeAtBattleEnd", "type": "bool"},
+        {"name": "removeByRestriction", "type": "bool"},
+        {"name": "removeByDamage", "type": "bool"},
+        {"name": "removeByWalking", "type": "bool"},
+        {"name": "releaseByDamage", "type": "bool"},
+        {"name": "message1", "type": "str", "hint": "액터가 해당 상태 됐을 때"},
+        {"name": "message2", "type": "str", "hint": "적이 해당 상태 됐을 때"},
+        {"name": "message3", "type": "str", "hint": "지속 메시지"},
+        {"name": "message4", "type": "str", "hint": "해제 메시지"},
+        {"name": "traits", "type": "list[Trait]"},
+    ],
+}
+
+
+# ── System.json ─────────────────────────────────────────────────
+# System 은 단일 dict 파일. create 는 없고 update 만 있으므로 "append_system_type"
+# 액션에서만 쓰임. 일반 create 경로는 미사용.
+SYSTEM_FILL_SCHEMA: dict[str, Any] = {
+    "target_file": "System.json",
+    "base_fields": [],
+    "required_slots": [
+        {
+            "name": "value",
+            "type": "str",
+            "hint": "System.json 배열 (elements/weaponTypes 등) 에 추가할 값",
+        },
+    ],
+    "optional_slots": [],
+}
+
+
 # ── 레지스트리 ──────────────────────────────────────────────────
 FILL_SCHEMAS: dict[str, dict[str, Any]] = {
     "Weapons.json": WEAPONS_FILL_SCHEMA,
     "Armors.json": ARMOR_FILL_SCHEMA,
     "Actors.json": ACTOR_FILL_SCHEMA,
+    # Phase E-2 신규
+    "Skills.json": SKILL_FILL_SCHEMA,
+    "Items.json": ITEM_FILL_SCHEMA,
+    "Classes.json": CLASS_FILL_SCHEMA,
+    "Enemies.json": ENEMY_FILL_SCHEMA,
+    "States.json": STATE_FILL_SCHEMA,
+    "System.json": SYSTEM_FILL_SCHEMA,
 }
 
 

@@ -18,45 +18,93 @@ from agent.utils.game_data_io import get_game_data_dir
 logger = logging.getLogger(__name__)
 
 
+# category (첫 글자 대문자) → 파일명
+_CATEGORY_TO_FILE: dict[str, str] = {
+    "Actor": "Actors.json",
+    "Enemy": "Enemies.json",
+    "Item": "Items.json",
+    "Skill": "Skills.json",
+    "Weapon": "Weapons.json",
+    "Armor": "Armors.json",
+    "Class": "Classes.json",
+    "State": "States.json",
+}
+
+
 def _consume_reference_checks(
     reference_checks: list[dict], operation_tuples: list[dict]
 ) -> tuple[list[dict], list[str]]:
-    """Definition 이 제공한 reference_checks 를 살펴 선행 step 필요성 / 경고 수집.
+    """Definition 이 제공한 reference_checks 를 살펴 선행 create step 삽입 / 경고 수집.
 
-    Task 5 (minimal) —
-    - status="not_found" + (operation 이 create 가 아님) → 경고 수집
-      (Definition 이 hold 처리했어야 하는 케이스. 여기선 signal 만 남기고 진행)
-    - 그 외 → 변경 없음
-
-    자동 선행 create step 삽입은 차기 sprint (operation_ir 재작성과 병합 필요).
+    Task 12 —
+    - status="not_found" + (target_file 에 해당 엔티티의 create op 없음) + (update/delete/read op 있음)
+      → 해당 엔티티의 선행 create operation 을 **자동 삽입** (이름만 있는 placeholder, profiler 가 나머지 채움)
+    - status="not_found" 이지만 연관된 op 이 이미 create 면 noop
+    - 삽입 불가능한 케이스 (category 가 매핑 없음 등) → 경고만 누적
 
     Returns:
-        (원본 operation_tuples 그대로, 경고 문자열 list)
+        (수정된 operation_tuples, 경고 문자열 list)
     """
     warnings: list[str] = []
     if not reference_checks or not operation_tuples:
         return operation_tuples, warnings
 
+    result = list(operation_tuples)
+    inserted_creates: set[tuple[str, str]] = set()
+
     for ref in reference_checks:
         if not isinstance(ref, dict):
             continue
-        status = ref.get("status")
-        if status != "not_found":
+        if ref.get("status") != "not_found":
             continue
-        name = ref.get("name") or "(이름 없음)"
-        category = ref.get("category") or "?"
-        # operation_tuples 에 해당 대상에 대한 create 가 있으면 괜찮음
-        has_create = any(
-            isinstance(op, dict)
-            and str(op.get("action", "")).lower() in {"create", "생성"}
-            for op in operation_tuples
-        )
-        if not has_create:
-            warnings.append(
-                f"참조 불일치: {category}/{name} 이(가) DB 에 없는데 operation_tuples 에 create 없음"
-            )
+        name = (ref.get("name") or "").strip()
+        category = (ref.get("category") or "").strip()
+        if not name or not category:
+            continue
 
-    return operation_tuples, warnings
+        target_file = _CATEGORY_TO_FILE.get(category)
+        if not target_file:
+            warnings.append(f"참조 불일치: 카테고리 '{category}' 에 대응 파일 매핑 없음 (name={name})")
+            continue
+
+        # 이미 같은 (file, name) 에 대한 create 가 ops 에 있으면 noop
+        already_create = any(
+            isinstance(op, dict)
+            and op.get("op") == "create"
+            and op.get("file") == target_file
+            and ((op.get("subject") or {}).get("name") or "").strip() == name
+            for op in result
+        )
+        # update/delete/read 를 가리키는 op 가 있는지 (있어야 선행 create 가 의미 있음)
+        non_create_ref_op = any(
+            isinstance(op, dict)
+            and op.get("op") in {"update", "delete", "read"}
+            and op.get("file") == target_file
+            and ((op.get("subject") or {}).get("name") or "").strip() == name
+            for op in result
+        )
+
+        if already_create or not non_create_ref_op:
+            continue
+
+        key = (target_file, name)
+        if key in inserted_creates:
+            continue
+        inserted_creates.add(key)
+
+        new_op = {
+            "op": "create",
+            "file": target_file,
+            "subject": {"name": name},
+            "field": None,
+            "value": None,
+        }
+        result.insert(0, new_op)
+        warnings.append(
+            f"선행 create 자동 삽입: {target_file} '{name}' — 뒤이은 update/delete 참조 해소"
+        )
+
+    return result, warnings
 
 
 def _collect_fill_slots(plan: list[dict]) -> list[dict]:

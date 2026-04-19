@@ -54,6 +54,16 @@ class _ParsedCommand(BaseModel):
     )
 
 
+class _ParsedExtraction(BaseModel):
+    """다중 엔티티 입력용 — primary 외 추가 대상."""
+
+    field: str = Field(default="")
+    target: str = Field(default="")
+    action: str = Field(default="")
+    property: str = Field(default="")
+    value: str = Field(default="")
+
+
 class _RouterOutput(BaseModel):
     resolved_input: str = Field(default="", description="맥락이 해소된 완전한 요청 문장")
     intent: Literal[
@@ -70,7 +80,14 @@ class _RouterOutput(BaseModel):
     ] = Field(description="분류된 의도 (영문 enum)")
     confidence: float = Field(ge=0.0, le=1.0, description="분류 신뢰도")
     parsed_command: _ParsedCommand = Field(
-        default_factory=_ParsedCommand, description="구조화된 요청"
+        default_factory=_ParsedCommand, description="구조화된 요청 (primary 대상)"
+    )
+    parsed_extractions: list[_ParsedExtraction] = Field(
+        default_factory=list,
+        description=(
+            "같은 동작을 여러 대상에 동시 적용하는 경우 각 대상별 추출. "
+            "primary 1 개만이면 빈 list. 예: '슬라임이랑 드래곤 만들어줘' → 2 개"
+        ),
     )
     needs_context_lookup: bool = Field(
         default=False, description="조사·대명사 참조가 있어 맥락 조회가 필요한지"
@@ -227,12 +244,14 @@ async def router(state: AgentState, *, store: PendingStore | None = None) -> dic
         logger.info("  resolved: %r", resolved)
 
     parsed_command = output.parsed_command.model_dump()
+    parsed_extractions = [e.model_dump() for e in output.parsed_extractions]
 
     result: dict = {
         "intent": intent,
         "confidence": output.confidence,
         "resolved_input": resolved,
         "parsed_command": parsed_command,
+        "parsed_extractions": parsed_extractions,
         "needs_context_lookup": bool(output.needs_context_lookup),
         "pending_resumed": pending_resumed,
         "ranked_map_candidates": ranked_candidates,

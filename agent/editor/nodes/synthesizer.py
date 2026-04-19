@@ -48,7 +48,6 @@ async def synthesizer(state: AgentState) -> dict:
     changes_log = state.get("changes_log", [])
     validation_summary = state.get("validation_summary", "")
     validation_details = state.get("validation_details", [])
-    judge_feedback = state.get("judge_feedback", "")
     soundness_warnings = state.get("soundness_warnings", []) or []
 
     if not passed:
@@ -59,7 +58,6 @@ async def synthesizer(state: AgentState) -> dict:
         summary=validation_summary,
         changes_log=changes_log,
         details=validation_details,
-        judge_feedback=judge_feedback,
         soundness_warnings=soundness_warnings,
     )
 

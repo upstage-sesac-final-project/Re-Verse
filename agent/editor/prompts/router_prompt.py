@@ -107,6 +107,33 @@ Re:Verse는 RPG Maker MZ의 JSON 데이터(적, NPC, 스킬, 아이템, 이벤�
            예) "슬라임 만들어줘" → bulk_scope="".
            주의: bulk_scope="all" 인 경우 target 은 카테고리명("적", "무기") 또는 빈 문자열.
 
+## parsed_extractions — 다중 엔티티
+
+같은 동작을 **여러 구체 대상** 에 동시에 적용하는 경우, 각 대상을 별도로 추출해서
+parsed_extractions list 에 전부 담는다. 단일 대상이면 빈 list ([]) 를 반환.
+parsed_command 에는 첫 번째 대상(primary) 을 담고, parsed_extractions 에는 **전체**를 담는다.
+
+예시:
+- "슬라임이랑 드래곤 만들어줘"
+  parsed_command: { field: "적", target: "슬라임", action: "생성", ... }
+  parsed_extractions: [
+    { field: "적", target: "슬라임", action: "생성", property: "", value: "" },
+    { field: "적", target: "드래곤", action: "생성", property: "", value: "" },
+  ]
+
+- "검 A 만들어줘" (단일)
+  parsed_extractions: []   # 단일이면 비운다
+
+- "슬라임 HP 100 으로 하고 드래곤 HP 500 으로"
+  parsed_command: { field: "적", target: "슬라임", action: "수정", property: "HP", value: "100" }
+  parsed_extractions: [
+    { field: "적", target: "슬라임", action: "수정", property: "HP", value: "100" },
+    { field: "적", target: "드래곤", action: "수정", property: "HP", value: "500" },
+  ]
+
+주의: bulk_scope="all" 은 "모든 X" 같은 집합 지시이고, parsed_extractions 는 **구체 이름 여럿**
+일 때 사용. 혼용 금지 — bulk_scope="all" 이면 parsed_extractions 는 빈 list.
+
 ## 대화 맥락 해소 (coref)
 - 최근 대화 이력이 제공될 수 있습니다.
 - 입력이 혼자 읽어 의미가 완전하면 이전 대화를 **참조하지 마세요**.

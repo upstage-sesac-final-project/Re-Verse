@@ -5,7 +5,7 @@ Phase G 재설계:
   retry 를 유발해 LLM 낭비. 대신 `soundness_warnings` (룰 기반 경고 리스트)
   를 반환하고 synthesizer 가 포장.
 - `success` 는 이제 schema 검증 결과에만 좌우된다.
-- `judge_feedback` 은 호환을 위해 빈 문자열로 유지 (synthesizer 가 여전히 읽음).
+- `judge_feedback` state 필드는 제거됨 (Task 15).
 
 검증만 수행한다. 사용자 응답 생성은 synthesizer 가 담당.
 """
@@ -22,32 +22,101 @@ from agent.editor.nodes.validator.schema_check import validate_changed_files
 logger = logging.getLogger(__name__)
 
 
+def _is_equipment_file(target_file: str) -> bool:
+    return target_file in {"Weapons.json", "Armors.json"}
+
+
+def _iter_event_commands(entry_data: dict | None):
+    """changes_log entry 의 data 에서 이벤트 커맨드 list 반복자.
+
+    이벤트 handler 는 data 로 dict 를 반환 (MapEvent / CommonEvent / Troop).
+    이 중 list 필드 (pages[].list 또는 list 자체) 를 순회한다.
+    """
+    if not isinstance(entry_data, dict):
+        return
+    # CommonEvent: {id, list, ...}
+    lst = entry_data.get("list")
+    if isinstance(lst, list):
+        yield lst
+        return
+    # MapEvent / Troop: {id, pages: [{list, ...}], ...}
+    pages = entry_data.get("pages")
+    if isinstance(pages, list):
+        for page in pages:
+            if isinstance(page, dict) and isinstance(page.get("list"), list):
+                yield page["list"]
+
+
 def _collect_soundness_warnings(
     changes_log: list[dict],
     operation_tuples: list[dict],
 ) -> list[str]:
-    """룰 기반 경고 수집. Phase G 1차 범위는 최소 룰만.
+    """룰 기반 경고 수집. Task 14 에서 룰 카탈로그 확장.
 
-    차기 sprint 에 추가 예정 (YB.md 7-3):
-    - 가격 vs 공격력 단조성 (Weapons/Armors)
-    - 이벤트 code=0 종결 검증
-    - 참조 무결성 (126 커맨드 itemId 존재 여부)
+    룰 카탈로그:
+      1. entity_id 누락 — create/update 성공인데 id 추적 안 됨
+      2. 전부 skipped — 실행 계획 있었는데 아무것도 안 함
+      3. 무기/방어구 price=0 create — 가격 책정 빠짐 경고
+      4. 무기/방어구 params 전부 0 create — 능력치 빠짐 경고
+      5. 이벤트 code=0 종결 — 마지막 커맨드가 terminator (code=0) 가 아님
+      6. HP 값 이상 — 적/액터 params[0]=0 create 는 전투 불가
     """
     warnings: list[str] = []
 
-    # 룰 1: 성공 엔트리에 entity_id 가 누락되면 executor 가 결과를 제대로
-    # 보고 안 했을 가능성. 경고 표시.
     for entry in changes_log:
         if not entry.get("success"):
             continue
         if entry.get("skipped"):
             continue
         action = (entry.get("action") or "").lower()
+        tf = entry.get("target_file", "?")
+
+        # 룰 1: entity_id 누락
         if action in ("create", "update", "update_actor") and entry.get("entity_id") is None:
-            tf = entry.get("target_file", "?")
             warnings.append(
                 f"{tf} {action}: entity_id 가 비어 있습니다 — 실행은 보고됐으나 id 추적이 안 됩니다."
             )
+
+        # 룰 3/4: 장비 create 의 price / params 체크
+        data = entry.get("data")
+        if action.startswith("create") and _is_equipment_file(tf) and isinstance(data, dict):
+            price = data.get("price")
+            if isinstance(price, int) and price == 0:
+                warnings.append(
+                    f"{tf}: '{data.get('name', '?')}' 가격이 0 입니다 — 의도적 free item 이 아니면 확인 필요"
+                )
+            params = data.get("params")
+            if isinstance(params, list) and len(params) == 8 and all(p == 0 for p in params):
+                warnings.append(
+                    f"{tf}: '{data.get('name', '?')}' 능력치(params)가 전부 0 입니다 — 장비 효과 없음"
+                )
+
+        # 룰 6: Enemies/Actors params[0] (MHP) 체크
+        if (
+            action.startswith("create")
+            and tf in {"Enemies.json", "Actors.json"}
+            and isinstance(data, dict)
+        ):
+            params = data.get("params")
+            if isinstance(params, list) and params and params[0] == 0:
+                warnings.append(
+                    f"{tf}: '{data.get('name', '?')}' 최대 HP 가 0 입니다 — 전투 불가 상태"
+                )
+
+        # 룰 5: 이벤트 list code=0 종결 검증
+        if "event" in action or tf in {"CommonEvents.json", "Troops.json"} or (
+            tf.startswith("Map") and tf.endswith(".json")
+        ):
+            for cmd_list in _iter_event_commands(data):
+                if not cmd_list:
+                    continue
+                last = cmd_list[-1]
+                if not (isinstance(last, dict) and last.get("code") == 0):
+                    warnings.append(
+                        f"{tf}: 이벤트 커맨드 list 가 code=0 으로 종결되지 않았습니다 — "
+                        f"RPG Maker 런타임 오류 위험"
+                    )
+                    break
 
     # 룰 2: execution_plan 은 있었는데 changes_log 가 전부 skipped 면 아무것도 안 한 상태
     if operation_tuples and changes_log and all(e.get("skipped") for e in changes_log):
@@ -166,11 +235,9 @@ async def validator(state: dict) -> dict:
         len(schema_failures),
         len(soundness_warnings),
     )
-    # judge_feedback 은 호환 유지를 위해 빈 문자열로 반환 (consumer 가 존재 여부만 체크)
     return {
         "success": success,
         "retry_count": retry_count + (0 if success else 1),
         "validation_summary": summary,
-        "judge_feedback": "",
         "soundness_warnings": soundness_warnings,
     }

@@ -14,7 +14,6 @@ def build_final_response(
     summary: str,
     changes_log: list[dict[str, Any]],
     details: list[str] | None = None,
-    judge_feedback: str = "",
     soundness_warnings: list[str] | None = None,
 ) -> str:
     """최종 사용자 응답 문자열 생성.
@@ -24,9 +23,6 @@ def build_final_response(
     """
     if success:
         resp = _success_response(changes_log)
-        # 호환: 구 judge_feedback 경로는 유지 (Phase G 가 빈 문자열로 치환 중)
-        if judge_feedback:
-            resp += f"\n\n참고: {judge_feedback}"
         if soundness_warnings:
             resp += "\n\n" + _render_soundness_warnings(soundness_warnings)
         return resp

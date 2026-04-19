@@ -24,6 +24,7 @@ from agent.constants import (
     SYSTEM_DEDICATED_FIELDS,
     SYSTEM_TYPE_ARRAY_NAMES,
 )
+from agent.editor.handlers.events import is_event_target
 from agent.editor.nodes.planner.array_op_resolver import resolve_array_op
 from agent.editor.nodes.planner.dependencies import (
     Requirement,
@@ -31,6 +32,45 @@ from agent.editor.nodes.planner.dependencies import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────
+# 이벤트 early-branch (Task 9)
+# ──────────────────────────────────────────────
+
+
+def _is_event_operation(op: dict) -> bool:
+    """operation_tuple 이 이벤트 handler 가 소비할 건지 판별."""
+    target_file = op.get("file", "")
+    # raw_updates 에 template 이 있으면 이벤트 계열로 간주
+    raw = op.get("raw_updates") or {}
+    if isinstance(raw, dict) and raw.get("template"):
+        # file 이 이벤트 handler 대상인지 교차 확인
+        action_name = raw.get("event_action") or "create_event_from_template"
+        return is_event_target(target_file, action_name)
+    return False
+
+
+def _plan_event_operation(op: dict, step_offset: int) -> list[dict]:
+    """이벤트 operation → execution_plan step 1 개.
+
+    raw_updates 로부터 target_info 를 그대로 가져온다. handler 계층 (handlers/events.py)
+    이 실제 CRUD 수행.
+    """
+    target_file = op.get("file", "")
+    raw = dict(op.get("raw_updates") or {})
+    event_action = raw.pop("event_action", None) or "create_event_from_template"
+
+    step = {
+        "step_id": step_offset,
+        "action_type": event_action,
+        "target_file": target_file,
+        "target_info": raw,
+        "depends_on": [],
+        "description": f"{target_file} 에 '{raw.get('template', '?')}' 이벤트 생성",
+        "_op_action": op.get("op", "create"),
+    }
+    return [step]
 
 
 # ──────────────────────────────────────────────
@@ -492,6 +532,13 @@ def _plan_one_operation(op: dict, data_path: Path, step_offset: int) -> list[dic
     value_kind = value.get("kind")
     action = op.get("op", "read")
     subject = op.get("subject") or {}
+
+    # ── 이벤트 계열 early-branch (Task 9) ─────────────────────────
+    # Map NNN / CommonEvents / Troops 의 create_event_from_template 액션은
+    # handlers/events.py 가 직접 소비한다. rule_engine 의 requirement 그래프는
+    # 건너뛰고 target_info 를 그대로 step 으로 만든다.
+    if _is_event_operation(op):
+        return _plan_event_operation(op, step_offset)
 
     # System.json — 엔티티가 아닌 설정 파일, 전용 분기
     if target_file == "System.json":

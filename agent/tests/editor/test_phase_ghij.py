@@ -47,6 +47,105 @@ class TestSoundnessWarnings:
         assert _collect_soundness_warnings(log, []) == []
 
 
+# ── Task 14: 룰 카탈로그 확장 ──────────────────────────────────────
+
+
+class TestExtendedRules:
+    def test_equipment_price_zero_warns(self):
+        log = [
+            {
+                "success": True,
+                "action": "create",
+                "target_file": "Weapons.json",
+                "entity_id": 5,
+                "data": {"name": "검 A", "price": 0, "params": [0, 0, 10, 0, 0, 0, 0, 0]},
+            }
+        ]
+        warnings = _collect_soundness_warnings(log, [])
+        assert any("가격이 0" in w for w in warnings)
+
+    def test_equipment_zero_params_warns(self):
+        log = [
+            {
+                "success": True,
+                "action": "create",
+                "target_file": "Armors.json",
+                "entity_id": 2,
+                "data": {"name": "천 갑옷", "price": 100, "params": [0] * 8},
+            }
+        ]
+        warnings = _collect_soundness_warnings(log, [])
+        assert any("능력치" in w and "전부 0" in w for w in warnings)
+
+    def test_enemy_zero_hp_warns(self):
+        log = [
+            {
+                "success": True,
+                "action": "create",
+                "target_file": "Enemies.json",
+                "entity_id": 7,
+                "data": {"name": "유령", "params": [0, 0, 50, 30, 0, 0, 10, 10]},
+            }
+        ]
+        warnings = _collect_soundness_warnings(log, [])
+        assert any("최대 HP" in w for w in warnings)
+
+    def test_event_missing_terminator_warns(self):
+        log = [
+            {
+                "success": True,
+                "action": "create_event_from_template",
+                "target_file": "Map003.json",
+                "entity_id": 1,
+                "data": {
+                    "pages": [
+                        {
+                            "list": [
+                                {"code": 101, "indent": 0, "parameters": []},
+                                {"code": 401, "indent": 0, "parameters": ["text"]},
+                                # code 0 누락!
+                            ]
+                        }
+                    ]
+                },
+            }
+        ]
+        warnings = _collect_soundness_warnings(log, [])
+        assert any("code=0" in w for w in warnings)
+
+    def test_event_with_terminator_no_warning(self):
+        log = [
+            {
+                "success": True,
+                "action": "create_common_event",
+                "target_file": "CommonEvents.json",
+                "entity_id": 1,
+                "data": {
+                    "list": [
+                        {"code": 101, "indent": 0, "parameters": []},
+                        {"code": 401, "indent": 0, "parameters": ["text"]},
+                        {"code": 0, "indent": 0, "parameters": []},
+                    ]
+                },
+            }
+        ]
+        warnings = _collect_soundness_warnings(log, [])
+        # entity_id 는 있으므로 룰 1 해당 없음. code=0 종결 됐으니 룰 5 해당 없음
+        assert warnings == []
+
+    def test_equipment_healthy_create_no_warning(self):
+        log = [
+            {
+                "success": True,
+                "action": "create",
+                "target_file": "Weapons.json",
+                "entity_id": 5,
+                "data": {"name": "검 A", "price": 500, "params": [0, 0, 10, 0, 0, 0, 0, 0]},
+            }
+        ]
+        assert _collect_soundness_warnings(log, []) == []
+
+
 # ── Phase H: responder ──────────────────────────────────────────
 
 

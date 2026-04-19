@@ -35,9 +35,11 @@ def test_step_without_profiling_skipped():
 
 
 def test_target_file_not_in_registry_skipped():
-    # Skills.json 은 Phase E 1차 대상 아님
-    plan = [_step(1, "Skills.json")]
+    # MapNNN.json / Unknown.json 등은 fill_schemas 레지스트리에 없음 (이벤트는 별도 경로)
+    plan = [_step(1, "Map003.json")]
     assert _collect_fill_slots(plan) == []
+    plan2 = [_step(1, "Unknown.json")]
+    assert _collect_fill_slots(plan2) == []
 
 
 # ── Task 5: reference_checks 소비 ────────────────────────────────────────
@@ -45,47 +47,85 @@ def test_target_file_not_in_registry_skipped():
 
 class TestConsumeReferenceChecks:
     def test_empty_returns_no_warnings(self):
-        ops, warnings = _consume_reference_checks([], [{"action": "update"}])
+        ops, warnings = _consume_reference_checks([], [{"op": "update"}])
         assert warnings == []
 
-    def test_not_found_without_create_produces_warning(self):
+    def test_not_found_triggers_prepended_create(self):
+        """Task 12 — 선행 create 가 자동 삽입되고 경고에 기록."""
         refs = [{"category": "Enemy", "name": "슬라임", "status": "not_found"}]
-        ops = [{"action": "update", "file": "Enemies.json"}]
-        _, warnings = _consume_reference_checks(refs, ops)
+        ops = [
+            {
+                "op": "update",
+                "file": "Enemies.json",
+                "subject": {"name": "슬라임"},
+                "field": "hp",
+            }
+        ]
+        out_ops, warnings = _consume_reference_checks(refs, ops)
+        assert len(out_ops) == 2
+        assert out_ops[0]["op"] == "create"
+        assert out_ops[0]["file"] == "Enemies.json"
+        assert out_ops[0]["subject"]["name"] == "슬라임"
+        assert out_ops[1] is ops[0]
         assert warnings
         assert "슬라임" in warnings[0]
 
-    def test_not_found_with_create_no_warning(self):
+    def test_not_found_but_create_already_exists(self):
         refs = [{"category": "Enemy", "name": "슬라임", "status": "not_found"}]
-        ops = [{"action": "create", "file": "Enemies.json"}]
-        _, warnings = _consume_reference_checks(refs, ops)
+        ops = [
+            {"op": "create", "file": "Enemies.json", "subject": {"name": "슬라임"}},
+        ]
+        out_ops, warnings = _consume_reference_checks(refs, ops)
+        assert out_ops == ops
         assert warnings == []
 
-    def test_found_status_no_warning(self):
+    def test_not_found_no_matching_ops_no_insertion(self):
+        """참조 이름과 일치하는 update/delete op 이 없으면 삽입하지 않음."""
+        refs = [{"category": "Enemy", "name": "슬라임", "status": "not_found"}]
+        ops = [
+            {"op": "update", "file": "Enemies.json", "subject": {"name": "드래곤"}},
+        ]
+        out_ops, warnings = _consume_reference_checks(refs, ops)
+        assert out_ops == ops
+        assert warnings == []
+
+    def test_found_status_no_action(self):
         refs = [{"category": "Enemy", "name": "슬라임", "status": "found"}]
-        ops = [{"action": "update", "file": "Enemies.json"}]
-        _, warnings = _consume_reference_checks(refs, ops)
+        ops = [{"op": "update", "file": "Enemies.json", "subject": {"name": "슬라임"}}]
+        out_ops, warnings = _consume_reference_checks(refs, ops)
+        assert out_ops == ops
         assert warnings == []
 
-    def test_ambiguous_status_no_warning(self):
-        """ambiguous 는 Definition 이 hold 처리해야 할 영역 — 여기서는 noop."""
+    def test_ambiguous_status_no_action(self):
         refs = [{"category": "Enemy", "name": "슬라임", "status": "ambiguous"}]
-        ops = [{"action": "update", "file": "Enemies.json"}]
-        _, warnings = _consume_reference_checks(refs, ops)
+        ops = [{"op": "update", "file": "Enemies.json", "subject": {"name": "슬라임"}}]
+        out_ops, warnings = _consume_reference_checks(refs, ops)
+        assert out_ops == ops
         assert warnings == []
 
-    def test_returns_operation_tuples_unchanged(self):
-        refs = [{"category": "Enemy", "name": "X", "status": "not_found"}]
-        ops = [{"action": "update", "file": "Enemies.json", "x": 1}]
+    def test_unknown_category_warns(self):
+        refs = [{"category": "UnknownCategory", "name": "X", "status": "not_found"}]
+        ops = [{"op": "update", "file": "Actors.json", "subject": {"name": "X"}}]
+        _, warnings = _consume_reference_checks(refs, ops)
+        assert warnings
+        assert "매핑 없음" in warnings[0]
+
+    def test_duplicate_not_found_inserts_only_once(self):
+        refs = [
+            {"category": "Enemy", "name": "슬라임", "status": "not_found"},
+            {"category": "Enemy", "name": "슬라임", "status": "not_found"},
+        ]
+        ops = [{"op": "update", "file": "Enemies.json", "subject": {"name": "슬라임"}}]
         out_ops, _ = _consume_reference_checks(refs, ops)
-        assert out_ops is ops
+        creates = [o for o in out_ops if o["op"] == "create"]
+        assert len(creates) == 1
 
 
 def test_multiple_steps_accumulate_correctly():
     plan = [
         _step(1, "Weapons.json"),
         _step(2, "Actors.json"),
-        _step(3, "Skills.json"),  # skip
+        _step(3, "Unknown.json"),  # skip — 레지스트리에 없음
     ]
     slots = _collect_fill_slots(plan)
     sids = {s["step_id"] for s in slots}

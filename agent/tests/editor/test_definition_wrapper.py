@@ -108,6 +108,42 @@ class TestTryRuleBaseStep12:
         ok, _, _ = _try_rule_base_step12(pc, user_input="슬라임 만들어")
         assert ok is False
 
+    def test_multi_entity_parsed_extractions(self):
+        """Task 13 — parsed_extractions 에 2+ 개면 list 전체 변환."""
+        pc = {"field": "적", "target": "슬라임", "action": "생성"}
+        pe = [
+            {"field": "적", "target": "슬라임", "action": "생성"},
+            {"field": "적", "target": "드래곤", "action": "생성"},
+        ]
+        ok, exts, cls = _try_rule_base_step12(
+            pc, user_input="슬라임이랑 드래곤 만들어줘", parsed_extractions=pe
+        )
+        assert ok is True
+        assert len(exts) == 2
+        assert exts[0]["subject"] == "슬라임"
+        assert exts[1]["subject"] == "드래곤"
+        assert cls[0]["category"] == "Enemy"
+        assert cls[1]["category"] == "Enemy"
+
+    def test_multi_entity_one_missing_falls_back(self):
+        """extractions 중 하나라도 부족하면 전체 LLM 경로로 위임."""
+        pc = {"field": "적", "target": "슬라임", "action": "생성"}
+        pe = [
+            {"field": "적", "target": "슬라임", "action": "생성"},
+            {"field": "", "target": "X", "action": ""},  # 필드 부족
+        ]
+        ok, _, _ = _try_rule_base_step12(
+            pc, user_input="슬라임이랑 X 만들어", parsed_extractions=pe
+        )
+        assert ok is False
+
+    def test_single_entity_empty_extractions_noop(self):
+        """parsed_extractions 가 빈 list 면 단일 경로로 진행."""
+        pc = {"field": "무기", "target": "검 A", "action": "생성"}
+        ok, exts, _ = _try_rule_base_step12(pc, "검 A 만들어줘", parsed_extractions=[])
+        assert ok is True
+        assert len(exts) == 1
+
 
 class TestBuildReferenceChecks:
     """Task 4 — db_lookup 기반 reference_checks 실제 생성."""

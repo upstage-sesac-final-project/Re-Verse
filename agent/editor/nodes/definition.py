@@ -66,61 +66,33 @@ _ACTION_LABEL_TO_UPPER: dict[str, str] = {
 }
 
 
-def _try_rule_base_step12(
-    parsed_command: dict, user_input: str
-) -> tuple[bool, list[dict], list[dict]]:
-    """parsed_command 로부터 Step 1/2 출력 구조를 직접 생성한다.
+def _single_to_extraction(entry: dict) -> tuple[dict, dict] | None:
+    """단일 parsed_command / parsed_extraction dict → (extraction, classification) 쌍.
 
-    성공 조건:
-    - field / target / action 세 필드 모두 채워져 있음
-    - field 가 _FIELD_LABEL_TO_CATEGORY 에서 해석 가능
-    - action 이 _ACTION_LABEL_TO_UPPER 에서 해석 가능
-    - bulk_scope 가 "all" 이 아니어야 함 (bulk 는 기존 LLM 경로로 위임 — RAG 컨텍스트 필요)
-
-    후속:
-    - 성공 시 Step 5 (build_from_extractions) 가 그대로 소비 가능
-    - 실패 시 (False, [], []) 반환 → caller 가 LLM Step 1/2 실행
-
-    Returns:
-        (ok, extractions, classifications)
+    실패 조건:
+    - field/target/action 중 하나라도 빈 값
+    - field 또는 action 이 매핑 불가
     """
-    if not parsed_command:
-        return False, [], []
-
-    field = (parsed_command.get("field") or "").strip()
-    target = (parsed_command.get("target") or "").strip()
-    action = (parsed_command.get("action") or "").strip()
-    prop = (parsed_command.get("property") or "").strip()
-    val = (parsed_command.get("value") or "").strip()
-    bulk_scope = (parsed_command.get("bulk_scope") or "").strip()
+    field = (entry.get("field") or "").strip()
+    target = (entry.get("target") or "").strip()
+    action = (entry.get("action") or "").strip()
+    prop = (entry.get("property") or "").strip()
+    val = (entry.get("value") or "").strip()
 
     if not field or not target or not action:
-        return False, [], []
-
+        return None
     category = _FIELD_LABEL_TO_CATEGORY.get(field)
     action_upper = _ACTION_LABEL_TO_UPPER.get(action)
     if not category or not action_upper:
-        return False, [], []
+        return None
 
-    # bulk 는 기존 LLM 경로 유지 (RAG bulk_context 필요)
-    if bulk_scope == "all":
-        return False, [], []
-
-    # Step 1 post-check 와 동일한 제약: subject 가 user_input 에 있어야 history 오염 아님
-    def _norm(s: str) -> str:
-        return s.replace(" ", "").lower()
-
-    if target and _norm(target) not in _norm(user_input):
-        # router 의 target 이 history 오염으로 들어왔을 가능성 → LLM 경로에 위임
-        return False, [], []
-
-    extraction: dict = {
+    extraction = {
         "subject": target,
         "property": prop or None,
         "value": val or None,
         "action": action_upper,
     }
-    classification: dict = {
+    classification = {
         "name": target,
         "category": category,
         "category_scores": {category: 1.0},
@@ -128,7 +100,65 @@ def _try_rule_base_step12(
         "system_ref": None,
         "reason": "parsed_command rule-base (Step 1/2 LLM 스킵)",
     }
-    return True, [extraction], [classification]
+    return extraction, classification
+
+
+def _try_rule_base_step12(
+    parsed_command: dict,
+    user_input: str,
+    parsed_extractions: list[dict] | None = None,
+) -> tuple[bool, list[dict], list[dict]]:
+    """parsed_command (+ parsed_extractions) 로부터 Step 1/2 출력 구조를 직접 생성한다.
+
+    단일 엔티티 경로: parsed_extractions 가 빈 list 면 parsed_command 하나만 처리.
+    다중 엔티티 경로 (Task 13): parsed_extractions 에 2 개 이상이면 각각 변환.
+
+    성공 조건 (단일 / 다중 공통):
+    - field / target / action 세 필드 모두 채워져 있음
+    - field 가 _FIELD_LABEL_TO_CATEGORY 에서 해석 가능
+    - action 이 _ACTION_LABEL_TO_UPPER 에서 해석 가능
+    - bulk_scope 가 "all" 이 아니어야 함 (bulk 는 기존 LLM 경로로 위임 — RAG 컨텍스트 필요)
+    - subject 가 user_input 에 있어야 history 오염 아님 (post-check)
+
+    Returns:
+        (ok, extractions, classifications)
+    """
+    if not parsed_command:
+        return False, [], []
+
+    bulk_scope = (parsed_command.get("bulk_scope") or "").strip()
+    if bulk_scope == "all":
+        return False, [], []
+
+    def _norm(s: str) -> str:
+        return s.replace(" ", "").lower()
+
+    ui_norm = _norm(user_input)
+
+    # 다중 엔티티 경로 (Task 13)
+    if parsed_extractions and len(parsed_extractions) >= 2:
+        extractions: list[dict] = []
+        classifications: list[dict] = []
+        for entry in parsed_extractions:
+            target = (entry.get("target") or "").strip()
+            if target and _norm(target) not in ui_norm:
+                # 한 엔트리라도 history 오염이면 전체 LLM fallback
+                return False, [], []
+            pair = _single_to_extraction(entry)
+            if pair is None:
+                return False, [], []
+            extractions.append(pair[0])
+            classifications.append(pair[1])
+        return True, extractions, classifications
+
+    # 단일 엔티티 경로
+    target = (parsed_command.get("target") or "").strip()
+    if target and _norm(target) not in ui_norm:
+        return False, [], []
+    pair = _single_to_extraction(parsed_command)
+    if pair is None:
+        return False, [], []
+    return True, [pair[0]], [pair[1]]
 
 SUPPORTED_BULK_TARGETS = {
     "actor": {"target_file": "Actors.json", "rag_category": "Actors"},
@@ -547,9 +577,10 @@ async def _definition_core(state: AgentState) -> dict:
     logger.info("=" * 60)
     logger.info("[Definition] 노드 시작 - game_id: %s, user_input: %s", game_id, user_input)
 
-    # ── Task 3: parsed_command 로부터 Step 1/2 LLM 호출 스킵 시도 ──
+    # ── Task 3 + Task 13: parsed_command (+ parsed_extractions) 로부터 Step 1/2 스킵 ──
     pc = state.get("parsed_command") or {}
-    rb_ok, extractions, classifications = _try_rule_base_step12(pc, user_input)
+    pe = state.get("parsed_extractions") or []
+    rb_ok, extractions, classifications = _try_rule_base_step12(pc, user_input, pe)
 
     if rb_ok:
         logger.info(
@@ -1260,6 +1291,172 @@ def _infer_target_label(
     return ""
 
 
+# ── Task 9: 이벤트 의도 → operation_tuples 직접 생성 ─────────────────────
+
+# 한국어 키워드 → template 이름
+_EVENT_TEMPLATE_KEYWORDS: list[tuple[str, str]] = [
+    # 상점 — "팔", "상점" 등
+    ("상점", "shop"),
+    ("물건을 팔", "shop"),
+    ("팔게 해", "shop"),
+    # NPC 대사 — "말해", "대사" (전투와 구분 위해 "말" 이 먼저)
+    ("말해", "npc_talk"),
+    ("대사", "npc_talk"),
+    ("NPC", "npc_talk"),
+    ("npc", "npc_talk"),
+    ("인사", "npc_talk"),
+    # 장소 이동
+    ("장소 이동", "teleport"),
+    ("맵 이동", "teleport"),
+    ("텔레포트", "teleport"),
+    ("워프", "teleport"),
+    ("이동시키", "teleport"),
+    # 스위치
+    ("스위치", "switch_trigger"),
+    # 전투
+    ("전투", "battle"),
+    ("싸움", "battle"),
+    ("보스", "battle"),
+    ("싸우게", "battle"),
+]
+
+
+def _detect_event_template(user_input: str) -> str | None:
+    """user_input 에서 이벤트 template 추정 (rule-base 키워드)."""
+    if not user_input:
+        return None
+    text = user_input.lower()
+    for kw, template in _EVENT_TEMPLATE_KEYWORDS:
+        if kw.lower() in text:
+            return template
+    return None
+
+
+def _extract_event_config(template: str, user_input: str) -> dict:
+    """template 별 최소 config 를 user_input 에서 추출. 부족한 건 기본값."""
+    config: dict = {}
+    import re as _re
+
+    if template == "npc_talk":
+        # 따옴표 안의 문장 → 대사
+        m = _re.search(r"[\"'](.+?)[\"']", user_input)
+        if m:
+            config["text"] = m.group(1)
+        else:
+            config["text"] = ""
+    elif template == "shop":
+        # 기본값 (상품 없으면 placeholder 단일 아이템)
+        config["items"] = []
+    elif template == "teleport":
+        # "Map 003" / "3번 맵" / "맵 3" 에서 map_id 추출
+        m = _re.search(
+            r"(?:map\s*0*(\d{1,3})|맵\s*(\d{1,3})|(\d{1,3})\s*번\s*맵)",
+            user_input,
+            _re.IGNORECASE,
+        )
+        if m:
+            config["map_id"] = int(next(g for g in m.groups() if g))
+        else:
+            config["map_id"] = 1
+        config["x"] = 0
+        config["y"] = 0
+    elif template == "switch_trigger":
+        m = _re.search(r"스위치\s*(\d{1,3})", user_input)
+        config["switch_id"] = int(m.group(1)) if m else 1
+    elif template == "battle":
+        m = _re.search(r"(?:troop|트룹|부대)\s*(\d{1,3})", user_input, _re.IGNORECASE)
+        config["troop_id"] = int(m.group(1)) if m else 1
+    return config
+
+
+def _extract_event_position(user_input: str) -> tuple[int | None, int | None]:
+    """x/y 좌표 추출 — "(3, 5)", "x=3 y=5" 등 패턴."""
+    import re as _re
+
+    m = _re.search(r"\(?\s*(\d{1,3})\s*[,，]\s*(\d{1,3})\s*\)?", user_input)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    xm = _re.search(r"x\s*[=:]?\s*(\d{1,3})", user_input, _re.IGNORECASE)
+    ym = _re.search(r"y\s*[=:]?\s*(\d{1,3})", user_input, _re.IGNORECASE)
+    return (
+        int(xm.group(1)) if xm else None,
+        int(ym.group(1)) if ym else None,
+    )
+
+
+def _extract_map_id(user_input: str) -> int | None:
+    """user_input 에서 대상 Map 번호 추출."""
+    import re as _re
+
+    m = _re.search(
+        r"(?:map\s*0*(\d{1,3})|맵\s*(\d{1,3})|(\d{1,3})\s*번\s*맵)",
+        user_input,
+        _re.IGNORECASE,
+    )
+    if not m:
+        return None
+    return int(next(g for g in m.groups() if g))
+
+
+def _try_build_event_operation_tuples(
+    parsed_command: dict, user_input: str
+) -> tuple[list[dict], str | None]:
+    """이벤트 생성 의도 → operation_tuples. hold 가 필요하면 hold_reason 반환.
+
+    Returns:
+        (operation_tuples, hold_reason)
+        hold_reason 이 None 이면 정상 진행 가능.
+    """
+    if not parsed_command:
+        return [], None
+
+    field = (parsed_command.get("field") or "").strip()
+    action = (parsed_command.get("action") or "").strip()
+
+    # 이벤트 계열이 아니면 noop
+    if field not in {"이벤트", "공용이벤트", "트룹"} or action != "생성":
+        return [], None
+
+    template = _detect_event_template(user_input)
+    if not template:
+        return [], "ambiguous_ref"  # 어떤 이벤트인지 모름 → hold
+
+    config = _extract_event_config(template, user_input)
+
+    # 대상 파일 결정
+    if field == "공용이벤트":
+        target_file = "CommonEvents.json"
+    elif field == "트룹":
+        target_file = "Troops.json"
+    else:  # "이벤트" — 기본은 Map 이벤트
+        map_id = _extract_map_id(user_input)
+        if map_id is None:
+            return [], "page_condition_unclear"  # 어느 맵인지 불명 → hold
+        target_file = f"Map{map_id:03d}.json"
+
+    raw: dict = {
+        "template": template,
+        "config": config,
+        "name": (parsed_command.get("target") or "").strip() or f"EV_{template}",
+    }
+
+    # Map 이벤트면 좌표 필요
+    if target_file.startswith("Map") and target_file.endswith(".json"):
+        x, y = _extract_event_position(user_input)
+        if x is None or y is None:
+            return [], "ambiguous_position"  # 좌표 미지정 → hold (UI 쪽 협조 필요)
+        raw["x"] = x
+        raw["y"] = y
+
+    op: dict = {
+        "op": "create",
+        "file": target_file,
+        "subject": None,
+        "raw_updates": raw,
+    }
+    return [op], None
+
+
 def _build_reference_checks(
     parsed_command: dict | None,
     game_id: str,
@@ -1355,8 +1552,53 @@ async def definition(state: AgentState) -> dict:
             for k in restored_keys:
                 state[k] = resumed[k]  # type: ignore[literal-required]
 
-    # ── 2. 본체 실행 ─────────────────────────────────────────────
-    result = await _definition_core(state)
+    # ── 2. 이벤트 의도 early-path (Task 9) ─────────────────────
+    # field="이벤트"|"공용이벤트"|"트룹" + action="생성" 이면 _definition_core 를
+    # 건너뛰고 바로 operation_tuples 생성.  LLM 호출 0 회.
+    pc = state.get("parsed_command") or {}
+    ev_ops, ev_hold = _try_build_event_operation_tuples(
+        pc, state.get("user_input", "") or ""
+    )
+
+    if pc and pc.get("field") in {"이벤트", "공용이벤트", "트룹"} and pc.get("action") == "생성":
+        if ev_hold:
+            # 이벤트 의도는 맞는데 정보 부족 → hold
+            hold_msgs = {
+                "ambiguous_ref": "어떤 이벤트를 만들까요? (상점 / NPC 대사 / 장소 이동 / 스위치 / 전투 중 선택)",
+                "page_condition_unclear": "어느 맵에 만들까요? (예: Map003, 3번 맵)",
+                "ambiguous_position": "이벤트 좌표를 알려주세요. (예: (3, 5) 또는 x=3 y=5)",
+            }
+            logger.info("[Definition] 이벤트 의도 hold: reason=%s", ev_hold)
+            result: dict = {
+                "target_files": [],
+                "modifications": [],
+                "extracted_ids": {},
+                "params_sufficient": False,
+                "message_for_user": hold_msgs.get(ev_hold, "이벤트 정보가 부족합니다."),
+                "operation_tuples": [],
+                "plan_meta": {},
+            }
+            # hold_reason 힌트 저장 (아래 wrapper 가 _infer_hold_reason 를 overwrite)
+            state["_event_hold_reason"] = ev_hold  # type: ignore[typeddict-item]
+        else:
+            # 이벤트 의도 + 정보 충분 → operation_tuples 직접 emit
+            logger.info(
+                "[Definition] 이벤트 early-path: file=%s template=%s (LLM 0 회)",
+                ev_ops[0]["file"],
+                ev_ops[0]["raw_updates"]["template"],
+            )
+            target_file = ev_ops[0]["file"]
+            result = {
+                "target_files": [target_file],
+                "modifications": [],
+                "extracted_ids": {},
+                "params_sufficient": True,
+                "operation_tuples": ev_ops,
+                "plan_meta": {},
+            }
+    else:
+        # ── 일반 경로: 기존 본체 실행 ───────────────────────────
+        result = await _definition_core(state)
 
     # ── 3. 신규 contract 필드 보강 ──────────────────────────────
     parsed_command = state.get("parsed_command") or {}
@@ -1386,7 +1628,8 @@ async def definition(state: AgentState) -> dict:
         # hold 상태
         result["resolve"] = False
         msg = result.get("message_for_user") or ""
-        hold_reason = _infer_hold_reason(msg)
+        # 이벤트 early-path 가 설정한 hold_reason 우선
+        hold_reason = state.get("_event_hold_reason") or _infer_hold_reason(msg)  # type: ignore[typeddict-item]
         result["hold_reason"] = hold_reason
         result["hold_question"] = msg or "추가 정보가 필요합니다."
 

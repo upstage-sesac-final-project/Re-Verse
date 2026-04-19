@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import pytest
+
 from agent.editor.nodes.planner.fill_schemas import (
     ACTOR_FILL_SCHEMA,
     ARMOR_FILL_SCHEMA,
+    CLASS_FILL_SCHEMA,
+    ENEMY_FILL_SCHEMA,
     FILL_SCHEMAS,
+    ITEM_FILL_SCHEMA,
+    SKILL_FILL_SCHEMA,
+    STATE_FILL_SCHEMA,
+    SYSTEM_FILL_SCHEMA,
     TRAIT_PRESETS,
     WEAPONS_FILL_SCHEMA,
     build_fill_slots,
@@ -13,9 +21,19 @@ from agent.editor.nodes.planner.fill_schemas import (
 )
 
 
-def test_registry_has_three_schemas():
-    # Phase E 1차 범위 = Weapons / Armors / Actors
-    assert set(FILL_SCHEMAS.keys()) == {"Weapons.json", "Armors.json", "Actors.json"}
+def test_registry_has_all_phase_e_schemas():
+    # Phase E 2차 확장 이후 범위
+    assert set(FILL_SCHEMAS.keys()) == {
+        "Weapons.json",
+        "Armors.json",
+        "Actors.json",
+        "Skills.json",
+        "Items.json",
+        "Classes.json",
+        "Enemies.json",
+        "States.json",
+        "System.json",
+    }
 
 
 def test_weapons_has_fixed_etype_id():
@@ -45,10 +63,20 @@ def test_get_fill_schema_known_file():
     assert get_fill_schema("Actors.json") is ACTOR_FILL_SCHEMA
 
 
+def test_get_fill_schema_phase_e2():
+    # Phase E-2 에서 등록된 6 종
+    assert get_fill_schema("Skills.json") is SKILL_FILL_SCHEMA
+    assert get_fill_schema("Items.json") is ITEM_FILL_SCHEMA
+    assert get_fill_schema("Classes.json") is CLASS_FILL_SCHEMA
+    assert get_fill_schema("Enemies.json") is ENEMY_FILL_SCHEMA
+    assert get_fill_schema("States.json") is STATE_FILL_SCHEMA
+    assert get_fill_schema("System.json") is SYSTEM_FILL_SCHEMA
+
+
 def test_get_fill_schema_unknown_file_returns_none():
-    assert get_fill_schema("Skills.json") is None
     assert get_fill_schema("") is None
     assert get_fill_schema("Map003.json") is None
+    assert get_fill_schema("Unknown.json") is None
 
 
 def test_build_fill_slots_for_weapons():
@@ -64,8 +92,24 @@ def test_build_fill_slots_for_weapons():
 
 
 def test_build_fill_slots_unknown_target_is_empty():
-    assert build_fill_slots(1, "Skills.json") == []
     assert build_fill_slots(1, "") == []
+    assert build_fill_slots(1, "Unknown.json") == []
+
+
+@pytest.mark.parametrize(
+    "target_file,must_have",
+    [
+        ("Skills.json", {"stypeId", "mpCost", "scope", "damage"}),
+        ("Items.json", {"itypeId", "price", "consumable", "damage"}),
+        ("Classes.json", {"expParams", "params"}),
+        ("Enemies.json", {"battlerName", "params", "exp", "gold"}),
+        ("States.json", {"restriction", "priority", "autoRemovalTiming"}),
+    ],
+)
+def test_phase_e2_schemas_build_fill_slots(target_file, must_have):
+    slots = build_fill_slots(step_id=1, target_file=target_file)
+    names = {s["field_name"] for s in slots}
+    assert must_have <= names, (target_file, names)
 
 
 def test_build_fill_slots_carries_bounds():

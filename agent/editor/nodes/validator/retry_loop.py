@@ -105,17 +105,6 @@ async def run_partial_retry(
     }
 
 
-def build_judge_feedback(judge_failures: list[dict]) -> str:
-    """judge 실패 목록을 사용자 응답에 포함할 피드백 텍스트로 변환."""
-    if not judge_failures:
-        return ""
-    lines = ["의미 검증에서 다음 사항이 감지되었습니다:"]
-    for f in judge_failures:
-        reason = f.get("reason", "알 수 없음")
-        lines.append(f"  - {reason}")
-    return "\n".join(lines)
-
-
 def _find_prev_entity_id(step_id: int | None, changes_log: list[dict]) -> int | None:
     """이전 changes_log 에서 해당 step 이 만든 entity_id 를 찾는다."""
     if step_id is None:
