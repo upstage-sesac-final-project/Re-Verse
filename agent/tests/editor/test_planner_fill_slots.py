@@ -120,6 +120,46 @@ class TestConsumeReferenceChecks:
         creates = [o for o in out_ops if o["op"] == "create"]
         assert len(creates) == 1
 
+    # ── Issue A (Task 33): cross-file 참조 엔티티도 선행 create ──────────
+
+    def test_cross_file_reference_triggers_prepend(self):
+        """Actor create + Class not_found (다른 파일 참조) → Class 선행 create 삽입."""
+        refs = [{"category": "Class", "name": "경찰", "status": "not_found"}]
+        ops = [
+            {"op": "create", "file": "Actors.json", "subject": {"name": "이자야"}},
+        ]
+        out_ops, warnings = _consume_reference_checks(refs, ops)
+        # 선행 Class create 가 prepend 되어야
+        assert len(out_ops) == 2
+        assert out_ops[0]["op"] == "create"
+        assert out_ops[0]["file"] == "Classes.json"
+        assert out_ops[0]["subject"]["name"] == "경찰"
+        # 원본 Actor create 가 뒤에 유지
+        assert out_ops[1]["file"] == "Actors.json"
+        assert warnings
+        assert "경찰" in warnings[0]
+
+    def test_cross_file_reference_noop_when_already_created(self):
+        """참조 대상이 이미 create op 로 있으면 중복 삽입 금지."""
+        refs = [{"category": "Class", "name": "경찰", "status": "not_found"}]
+        ops = [
+            {"op": "create", "file": "Classes.json", "subject": {"name": "경찰"}},
+            {"op": "create", "file": "Actors.json", "subject": {"name": "이자야"}},
+        ]
+        out_ops, _ = _consume_reference_checks(refs, ops)
+        creates = [o for o in out_ops if o.get("file") == "Classes.json"]
+        assert len(creates) == 1
+
+    def test_same_file_orphan_reference_still_no_insertion(self):
+        """같은 파일에 op 있지만 이름이 다르면 여전히 orphan — prepend 안 함 (기존 거동 유지)."""
+        refs = [{"category": "Enemy", "name": "슬라임", "status": "not_found"}]
+        ops = [
+            {"op": "update", "file": "Enemies.json", "subject": {"name": "드래곤"}},
+        ]
+        out_ops, warnings = _consume_reference_checks(refs, ops)
+        assert out_ops == ops
+        assert warnings == []
+
 
 def test_multiple_steps_accumulate_correctly():
     plan = [

@@ -100,7 +100,12 @@ Re:Verse는 RPG Maker MZ의 JSON 데이터(적, NPC, 스킬, 아이템, 이벤�
              - "모든 액터" / "액터 전부" = 전체 Actors.json (bulk_scope="all" + target="")
 - target : 대상 이름·id. 따옴표로 감싼 고유명사는 따옴표 **제거** 후 내용만 넣는다.
            예: "\"검 A\"" → target="검 A". 없으면 빈 문자열.
-- action : "생성" | "수정" | "조회" 중 하나. terminal intent 인 경우 빈 문자열 허용.
+- action : 반드시 **"생성" | "수정" | "조회" | "삭제"** 중 하나로 **normalize**. terminal
+           intent 인 경우 빈 문자열 허용.
+           유저가 "추가해줘" / "만들어줘" / "넣어줘" 같은 동의어를 써도 → action="생성"
+           유저가 "바꿔줘" / "변경" → action="수정"
+           유저가 "빼줘" / "지워줘" / "제거" → action="삭제"
+           다른 단어 금지 (downstream 이 이 네 enum 만 인식).
 - property : 수정/조회하려는 속성. "HP", "MP", "공격력", "방어력", "가격", "이름", "레벨", "경험치",
              "설명" 등. 속성이 드러나지 않으면 빈 문자열.
              예) "슬라임 HP 를 200 으로" → property="HP".
@@ -120,11 +125,27 @@ Re:Verse는 RPG Maker MZ의 JSON 데이터(적, NPC, 스킬, 아이템, 이벤�
                {"property": "공격력", "value": "15"}
              ]
            예) "검 A 가격 500" → additional_properties=[] (단일)
-           ※ **액터의 "직업" 지정**: `{"property": "직업", "value": "직업명"}` 형태로 담는다.
-             예) "액터로 경찰 '이자야' 추가" →
-               target="이자야", property="직업", value="경찰"
-               (이자야 가 고유명사 이름, 경찰 이 직업)
-             예) "마법사 직업의 용사" → target="용사", property="직업", value="마법사"
+           ※ **액터의 "직업" 지정 (반드시 감지)**:
+             액터를 추가할 때 직업(class)이 함께 언급되면 **절대 누락하지 말 것**.
+             이름이 따옴표로 감싸여 있고 그 앞에 단어가 하나 더 있으면 그 단어는 거의
+             확실히 직업이다. `{"property": "직업", "value": "<직업명>"}` 형태로 담는다.
+
+             패턴 (generic 예시):
+             - "액터로 기사 '아서' 추가해줘"
+                 → target="아서", property="직업", value="기사"
+             - "전사 직업의 해롤드를 만들어줘"
+                 → target="해롤드", property="직업", value="전사"
+             - "궁수 '라나' 넣어줘"
+                 → target="라나", property="직업", value="궁수"
+             - 직업 + 스탯 동시 지정:
+                 "액터로 사제 '미카' 추가해줘. 체력 400"
+                 → target="미카", property="직업", value="사제",
+                   additional_properties=[{"property":"체력","value":"400"}]
+
+             규칙:
+             - 따옴표 앞 단어가 일반명사(사람/직종/역할)면 → 직업으로 간주
+             - 직업 없이 이름만 있으면 property/value 는 빈 문자열 (액터만 생성)
+
            주의: parsed_extractions 는 **대상이 여럿** 일 때. additional_properties 는
                  **속성이 여럿** 일 때. 혼동 금지.
 

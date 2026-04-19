@@ -6,7 +6,6 @@ router parsed_command.field="이벤트" + action="생성" 이 operation_tuples �
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -22,7 +21,6 @@ from agent.editor.nodes.definition import (
 )
 from agent.editor.nodes.planner.rule_engine import (
     _is_event_operation,
-    _plan_event_operation,
     build_execution_plan,
 )
 
@@ -103,7 +101,7 @@ class TestBuildEventOperationTuples:
     def test_full_sufficient(self):
         pc = {"field": "이벤트", "action": "생성", "target": "마을 NPC"}
         ops, hold = _try_build_event_operation_tuples(
-            pc, "Map003 의 (3,5) 위치에 NPC 가 \"안녕하세요\" 말하는 이벤트"
+            pc, 'Map003 의 (3,5) 위치에 NPC 가 "안녕하세요" 말하는 이벤트'
         )
         assert hold is None
         assert ops

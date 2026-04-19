@@ -28,7 +28,6 @@ from agent.editor.handlers.events import (
     is_event_target,
 )
 
-
 # ── template 빌더 단위 ───────────────────────────────────────────────────
 
 
@@ -143,9 +142,7 @@ class TestCommonEventsCrud:
 
     def test_update(self, tmp_data: Path):
         (tmp_data / "CommonEvents.json").write_text(
-            json.dumps(
-                [None, {"id": 1, "name": "원본", "list": [], "switchId": 1, "trigger": 0}]
-            ),
+            json.dumps([None, {"id": 1, "name": "원본", "list": [], "switchId": 1, "trigger": 0}]),
             encoding="utf-8",
         )
         result = execute_events_step(
@@ -429,9 +426,7 @@ class TestTroopsCrud:
 class TestErrorPaths:
     def test_unsupported_action(self, tmp_data: Path):
         (tmp_data / "CommonEvents.json").write_text("[null]", encoding="utf-8")
-        result = execute_events_step(
-            tmp_data, "bogus_action", "CommonEvents.json", {}
-        )
+        result = execute_events_step(tmp_data, "bogus_action", "CommonEvents.json", {})
         assert result["success"] is False
         assert "미지원" in result["error"]
 

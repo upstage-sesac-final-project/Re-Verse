@@ -111,26 +111,18 @@ def find_candidates(entity_name: str, items: list[dict]) -> list[dict]:
         return []
     if entity_name.isdigit():
         by_id = [
-            item
-            for item in items
-            if isinstance(item, dict) and item.get("id") == int(entity_name)
+            item for item in items if isinstance(item, dict) and item.get("id") == int(entity_name)
         ]
         if by_id:
             return by_id
     exact = [item for item in items if item.get("name") == entity_name]
     if exact:
         return exact
-    ci = [
-        item
-        for item in items
-        if item.get("name", "").lower() == entity_name.lower()
-    ]
+    ci = [item for item in items if item.get("name", "").lower() == entity_name.lower()]
     if ci:
         return ci
     prefix = [
-        item
-        for item in items
-        if item.get("name", "").lower().startswith(entity_name.lower())
+        item for item in items if item.get("name", "").lower().startswith(entity_name.lower())
     ]
     if prefix:
         return prefix
@@ -140,11 +132,7 @@ def find_candidates(entity_name: str, items: list[dict]) -> list[dict]:
 def build_id_name_map(data: Any) -> dict[int, str]:
     if not isinstance(data, list):
         return {}
-    return {
-        item["id"]: item["name"]
-        for item in data
-        if isinstance(item, dict) and item.get("id")
-    }
+    return {item["id"]: item["name"] for item in data if isinstance(item, dict) and item.get("id")}
 
 
 def get_field_value(entity: dict, field_name: str) -> tuple[Any, bool]:
@@ -228,9 +216,7 @@ def lookup_by_name(
 
     # 1) ID 숫자 / exact / CI exact → 단일 매칭 가능
     if name.isdigit():
-        by_id = [
-            item for item in items if isinstance(item, dict) and item.get("id") == int(name)
-        ]
+        by_id = [item for item in items if isinstance(item, dict) and item.get("id") == int(name)]
         if by_id:
             return {**base, "status": "found", "exact_match": by_id[0]}
 

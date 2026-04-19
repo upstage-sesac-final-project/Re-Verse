@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
 from agent.editor.db_lookup import (
     FUZZY_SUGGESTION_THRESHOLD,
     FUZZY_THRESHOLD,

@@ -22,12 +22,6 @@ from agent.editor.db_lookup import (
     FUZZY_SUGGESTION_THRESHOLD as _FUZZY_SUGGESTION_THRESHOLD,
 )
 from agent.editor.db_lookup import (
-    FUZZY_THRESHOLD as _FUZZY_THRESHOLD,
-)
-from agent.editor.db_lookup import (
-    PARAMS_INDEX as _PARAMS_INDEX,
-)
-from agent.editor.db_lookup import (
     build_id_name_map as _build_id_name_map,
 )
 from agent.editor.db_lookup import (

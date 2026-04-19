@@ -252,12 +252,17 @@ def _apply_single_property(
     if target_file == "Actors.json" and field_path == "classId":
         class_id = _resolve_class_id(game_id, val_str)
         if class_id is None:
+            # Task 33 / 36 follow-up: db 에 Class 가 없다는 건 같은 턴에 Class 를
+            # 선행 create 하는 케이스. Profiler LLM 이 채운 잘못된 classId (기본
+            # 1 등) 가 남아있으면 Actor 가 엉뚱한 Class 참조. None 으로 강제 덮어서
+            # executor_v2 가 prev Class create 의 id 로 주입하도록 유도.
             logger.info(
-                "[Profiler] 직업 '%s' 를 Classes.json 에서 찾지 못함 — classId 주입 건너뜀, "
-                "힌트 `_class_not_found` 남김",
+                "[Profiler] 직업 '%s' 를 Classes.json 에서 찾지 못함 — classId=None 강제 "
+                "(executor 가 prev Class create 에서 주입 예정)",
                 val_str,
             )
             target_info["_class_not_found"] = val_str
+            target_info["classId"] = None
             return False
         _set_by_path(target_info, "classId", class_id)
         logger.info(
@@ -419,6 +424,142 @@ _LOCKED_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
 }
 
 
+# ── Task 36: Classes.json rule-base profile ────────────────────────────
+# Class.params 는 `list[list[int]]` 구조 (outer 8 고정, inner = 레벨별 곡선).
+# LLM 이 이 구조를 일관되게 못 만들어 schema fail 반복 발생 (기사 직업 테스트에서
+# 10 items flat list 로 만들어 validator retry 누적 → agent timeout).
+# → Classes 생성은 rule-base 로 곡선 생성. LLM 호출 skip.
+
+_CLASS_STAT_PROPERTY_TO_INDEX: dict[str, int] = {
+    "hp": 0,
+    "HP": 0,
+    "체력": 0,
+    "최대hp": 0,
+    "최대체력": 0,
+    "mp": 1,
+    "MP": 1,
+    "마나": 1,
+    "최대mp": 1,
+    "atk": 2,
+    "ATK": 2,
+    "공격": 2,
+    "공격력": 2,
+    "def": 3,
+    "DEF": 3,
+    "방어": 3,
+    "방어력": 3,
+    "mat": 4,
+    "MAT": 4,
+    "마공": 4,
+    "마법공격력": 4,
+    "mdf": 5,
+    "MDF": 5,
+    "마방": 5,
+    "마법방어력": 5,
+    "agi": 6,
+    "AGI": 6,
+    "민첩": 6,
+    "민첩성": 6,
+    "luk": 7,
+    "LUK": 7,
+    "운": 7,
+}
+
+# RPG Maker MZ 기본 Class "주인공" 등 기준. 레벨 1 표준 base.
+_CLASS_STAT_DEFAULT_BASE: list[int] = [
+    400,  # 0: MHP
+    80,  # 1: MMP
+    20,  # 2: ATK
+    20,  # 3: DEF
+    20,  # 4: MAT
+    20,  # 5: MDF
+    30,  # 6: AGI
+    30,  # 7: LUK
+]
+
+_CLASS_PARAMS_CURVE_LEN = 100  # RPG Maker MZ 표준 (level 0 ~ 99)
+
+
+def _build_class_curve(base_value: int) -> list[int]:
+    """단순 선형 성장 곡선 생성.
+
+    RPG Maker MZ 는 params[stat][level] 에서 level **1-indexed** 로 읽는다 (level 0 미사용).
+    따라서 curve[1] = base, curve[99] = base * 3 이 되도록 설정.
+    curve[0] 은 런타임에서 사용하지 않지만 배열 길이 유지 위해 0 으로 채움.
+    """
+    base = max(1, int(base_value))
+    length = _CLASS_PARAMS_CURVE_LEN  # 100 → index 0..99
+    result: list[int] = [0]  # index 0 unused
+    # index 1..99 을 base ~ base*3 linear growth
+    for lv in range(1, length):
+        result.append(int(base * (1 + 2 * (lv - 1) / (length - 2))))
+    return result
+
+
+def _collect_class_stats_from_parsed(parsed_command: dict | None) -> dict[int, int]:
+    """parsed_command (+ additional_properties) 에서 Class stat 을 추출.
+
+    Returns:
+        dict[param_index, base_value]. 지정 안 된 index 는 default 사용.
+    """
+    if not parsed_command:
+        return {}
+    stats: dict[int, int] = {}
+
+    def _try_add(prop: str, val: str) -> None:
+        idx = _CLASS_STAT_PROPERTY_TO_INDEX.get(prop) or _CLASS_STAT_PROPERTY_TO_INDEX.get(
+            (prop or "").lower()
+        )
+        if idx is None:
+            return
+        try:
+            stats[idx] = int(str(val).strip())
+        except (TypeError, ValueError):
+            return
+
+    prop = (parsed_command.get("property") or "").strip()
+    val = str(parsed_command.get("value") or "").strip()
+    if prop and val:
+        _try_add(prop, val)
+    for extra in parsed_command.get("additional_properties") or []:
+        if isinstance(extra, dict):
+            _try_add(
+                str(extra.get("property") or ""),
+                str(extra.get("value") or ""),
+            )
+    return stats
+
+
+def _build_class_profile(
+    target_info: dict,
+    parsed_command: dict | None,
+) -> dict:
+    """Classes.json 생성을 위한 rule-base target_info 완성.
+
+    - user 지정 스탯은 해당 param index 의 base 로 사용
+    - 지정 안 된 param 은 `_CLASS_STAT_DEFAULT_BASE` 사용
+    - 각 param 은 길이 100 의 선형 성장 곡선으로 생성
+    """
+    result = dict(target_info)
+    user_stats = _collect_class_stats_from_parsed(parsed_command)
+
+    params: list[list[int]] = []
+    for idx in range(8):
+        base = user_stats.get(idx, _CLASS_STAT_DEFAULT_BASE[idx])
+        params.append(_build_class_curve(base))
+    result["params"] = params
+
+    # expParams 는 Class 스키마 default 와 동일 — 명시 세팅으로 안정성 확보
+    if "expParams" not in result:
+        result["expParams"] = [30, 20, 20, 40]
+
+    # 기타 기본 필드 (LLM 안 거치므로 직접 세팅)
+    result.setdefault("learnings", [])
+    result.setdefault("traits", [])
+    result.setdefault("note", "")
+    return result
+
+
 def _enforce_default_field_lock(original_step: dict, enriched_step: dict) -> dict:
     """planner 가 target_info 에 명시적으로 세팅한 optional 기본 필드 (nickname 등)
     를 LLM 이 덮지 못하게 복원. 명시 세팅 없으면 (키 부재) LLM 자율.
@@ -506,9 +647,7 @@ async def profiler(state: dict) -> dict:
         enriched = _enforce_default_field_lock(step, enriched)
         # Task 19 + sprint β + Task 29: parsed_command.value + additional_properties +
         # "직업" → classId 해소 (game_id 필요)
-        enriched = _inject_parsed_command_value(
-            enriched, parsed_command, game_id=game_id
-        )
+        enriched = _inject_parsed_command_value(enriched, parsed_command, game_id=game_id)
         enriched_plan[idx] = enriched
         profiled_count += 1
 
@@ -554,9 +693,25 @@ async def profile_one(
     validator 의 partial retry 에서도 직접 호출된다.
     Task 28: user_input / parsed_command 를 LLM 프롬프트에 함께 주입해
     template default 복사를 차단.
+    Task 36: Classes.json 은 LLM 이 params `list[list[int]]` 구조를 일관되게
+    못 만들어 rule-base 로 생성 (LLM skip).
     """
     target_file = step.get("target_file", "")
     target_info = dict(step.get("target_info") or {})
+
+    # Task 36: Classes.json rule-base 경로 — LLM 호출 skip
+    if target_file == "Classes.json":
+        enriched_info = _build_class_profile(target_info, parsed_command)
+        _coerce_int_fields(enriched_info, target_file)
+        enriched_step = dict(step)
+        enriched_step["target_info"] = enriched_info
+        enriched_step.pop("_needs_profiling", None)
+        logger.info(
+            "[Profiler] Classes.json rule-base (LLM 0 회) name='%s' params curves=%d",
+            enriched_info.get("name", "?"),
+            len(enriched_info.get("params", [])),
+        )
+        return enriched_step
 
     # 기존 엔티티 예시 가져오기 (병목 해결을 위해 비활성화)
     # examples = _get_existing_examples(game_id, target_file)

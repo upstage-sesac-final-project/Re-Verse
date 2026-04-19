@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from agent.editor.nodes.executor.mcp_registry import MCP_TOOL_MAP
 from agent.editor.nodes.validator import _collect_soundness_warnings
 from agent.editor.nodes.validator.responder import (
     build_final_response,
     build_hold_response,
 )
-
 
 # ── Phase G: soundness_warnings 수집 ────────────────────────────
 
@@ -277,27 +275,7 @@ async def test_synthesizer_soundness_warnings_propagate_to_response():
     assert "공격력 대비 가격" in result["final_response"]
 
 
-# ── Phase I: MCP registry 확장 ──────────────────────────────────
-
-
-class TestPhaseIEventMcpEntries:
-    """Phase I 뼈대 — CommonEvents / Troops 엔트리 등록 여부만."""
-
-    @pytest.mark.parametrize(
-        "key",
-        [
-            ("CommonEvents.json", "list"),
-            ("CommonEvents.json", "query"),
-            ("CommonEvents.json", "create"),
-            ("CommonEvents.json", "update"),
-            ("Troops.json", "list"),
-            ("Troops.json", "query"),
-            ("Troops.json", "create"),
-            ("Troops.json", "update"),
-        ],
-    )
-    def test_entry_exists(self, key):
-        assert key in MCP_TOOL_MAP, f"Phase I: {key} 미등록"
-        entry = MCP_TOOL_MAP[key]
-        assert "tool" in entry and entry["tool"]
-        assert "backup_files" in entry
+# Phase I MCP_TOOL_MAP 엔트리 존재 확인 테스트는 제거됨:
+# executor_v2/dispatch.py + handlers/events.py 가 runtime 경로를 이양해
+# MCP_TOOL_MAP 의 CommonEvents/Troops 엔트리는 dead. 실제 이벤트 기능 검증은
+# `test_events_handler.py` + `test_event_definition.py` 가 담당.

@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -55,10 +55,20 @@ async def test_general_exception_graceful_continue(monkeypatch):
     reset_retry_state()
 
     plan = [
-        {"step_id": 1, "action_type": "create", "target_file": "Weapons.json",
-         "target_info": {"name": "검 A"}, "_op_action": "create"},
-        {"step_id": 2, "action_type": "create", "target_file": "Armors.json",
-         "target_info": {"name": "갑옷 B"}, "_op_action": "create"},
+        {
+            "step_id": 1,
+            "action_type": "create",
+            "target_file": "Weapons.json",
+            "target_info": {"name": "검 A"},
+            "_op_action": "create",
+        },
+        {
+            "step_id": 2,
+            "action_type": "create",
+            "target_file": "Armors.json",
+            "target_info": {"name": "갑옷 B"},
+            "_op_action": "create",
+        },
     ]
 
     call_count = {"n": 0}

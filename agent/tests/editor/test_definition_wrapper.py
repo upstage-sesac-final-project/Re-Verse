@@ -23,7 +23,6 @@ from agent.editor.nodes.definition import (
 )
 from agent.editor.pending_store import PendingStore
 
-
 # ── 헬퍼 함수 단위 ───────────────────────────────────────────────
 
 
@@ -98,9 +97,16 @@ class TestTryRuleBaseStep12:
         assert ok is False
 
     def test_missing_required_skips(self):
-        assert _try_rule_base_step12({"field": "무기", "target": "", "action": "생성"}, "x")[0] is False
-        assert _try_rule_base_step12({"field": "", "target": "A", "action": "생성"}, "x")[0] is False
-        assert _try_rule_base_step12({"field": "무기", "target": "A", "action": ""}, "x")[0] is False
+        assert (
+            _try_rule_base_step12({"field": "무기", "target": "", "action": "생성"}, "x")[0]
+            is False
+        )
+        assert (
+            _try_rule_base_step12({"field": "", "target": "A", "action": "생성"}, "x")[0] is False
+        )
+        assert (
+            _try_rule_base_step12({"field": "무기", "target": "A", "action": ""}, "x")[0] is False
+        )
 
     def test_target_not_in_user_input_skips(self):
         """router target 이 history 오염일 가능성 차단."""
@@ -153,9 +159,7 @@ class TestBuildReferenceChecks:
         from unittest.mock import patch
 
         payload = {"status": status, "candidates": [], "suggestions": [], **extras}
-        return patch(
-            "agent.editor.db_lookup.lookup_by_name", return_value=payload
-        ), import_path
+        return patch("agent.editor.db_lookup.lookup_by_name", return_value=payload), import_path
 
     def test_empty_when_no_parsed_command(self):
         assert _build_reference_checks(None, "g", {}) == []
@@ -181,9 +185,7 @@ class TestBuildReferenceChecks:
                 "exact_match": {"id": 3, "name": "슬라임"},
             },
         ):
-            out = _build_reference_checks(
-                {"field": "적", "target": "슬라임"}, "g", {}
-            )
+            out = _build_reference_checks({"field": "적", "target": "슬라임"}, "g", {})
         assert out == [{"category": "Enemy", "name": "슬라임", "status": "found"}]
 
     def test_not_found_with_suggestions(self):
@@ -197,9 +199,7 @@ class TestBuildReferenceChecks:
                 "suggestions": [{"id": 1, "name": "슬라임"}],
             },
         ):
-            out = _build_reference_checks(
-                {"field": "적", "target": "슬라임킹"}, "g", {}
-            )
+            out = _build_reference_checks({"field": "적", "target": "슬라임킹"}, "g", {})
         assert out[0]["status"] == "not_found"
         assert out[0]["suggestions"] == [{"id": 1, "name": "슬라임"}]
 
@@ -315,11 +315,12 @@ async def test_wrapper_writes_to_pending_store_when_conversation_id_present():
     }
     # pending_store 싱글톤을 격리된 인스턴스로 잠시 교체
     fake_store = PendingStore()
-    with patch(
-        "agent.editor.pending_store._default_store", fake_store
-    ), patch(
-        "agent.editor.nodes.definition._definition_core",
-        new=AsyncMock(return_value=mock_core_return),
+    with (
+        patch("agent.editor.pending_store._default_store", fake_store),
+        patch(
+            "agent.editor.nodes.definition._definition_core",
+            new=AsyncMock(return_value=mock_core_return),
+        ),
     ):
         await definition(state)
 
@@ -341,11 +342,12 @@ async def test_wrapper_skips_pending_store_when_no_conversation_id():
     }
     state = {"user_input": "검 A", "game_id": "g"}  # conversation_id 없음
     fake_store = PendingStore()
-    with patch(
-        "agent.editor.pending_store._default_store", fake_store
-    ), patch(
-        "agent.editor.nodes.definition._definition_core",
-        new=AsyncMock(return_value=mock_core_return),
+    with (
+        patch("agent.editor.pending_store._default_store", fake_store),
+        patch(
+            "agent.editor.nodes.definition._definition_core",
+            new=AsyncMock(return_value=mock_core_return),
+        ),
     ):
         result = await definition(state)
 

@@ -105,15 +105,11 @@ class _RouterOutput(BaseModel):
         default=False, description="조사·대명사 참조가 있어 맥락 조회가 필요한지"
     )
     reasoning: str = Field(description="분류 근거")
-    response: str = Field(
-        default="", description="terminal intent 시 즉시 반환할 응답"
-    )
+    response: str = Field(default="", description="terminal intent 시 즉시 반환할 응답")
 
 
 class _YesNoOutput(BaseModel):
-    is_answer: bool = Field(
-        description="현재 입력이 직전 hold 질문에 대한 '답' 인지 여부"
-    )
+    is_answer: bool = Field(description="현재 입력이 직전 hold 질문에 대한 '답' 인지 여부")
     reasoning: str = Field(default="", description="판단 근거 한 줄")
 
 
@@ -139,19 +135,14 @@ async def _judge_pending_answer(user_input: str, hold_question: str) -> bool:
     messages = [
         SystemMessage(content=_YESNO_SYSTEM),
         HumanMessage(
-            content=(
-                f"## 시스템이 던진 질문\n{hold_question}\n\n"
-                f"## 유저의 새 입력\n{user_input}"
-            )
+            content=(f"## 시스템이 던진 질문\n{hold_question}\n\n## 유저의 새 입력\n{user_input}")
         ),
     ]
     try:
         result: _YesNoOutput = await invoke_llm(  # type: ignore[assignment]
             messages, structured_output=_YesNoOutput
         )
-        logger.info(
-            "[Router] pending yes/no 판정: %s (%s)", result.is_answer, result.reasoning
-        )
+        logger.info("[Router] pending yes/no 판정: %s (%s)", result.is_answer, result.reasoning)
         return bool(result.is_answer)
     except Exception as e:  # pragma: no cover — LLM 장애 시 안전 기본값
         logger.warning("[Router] pending yes/no 판정 실패: %s → no(드롭)로 처리", e)

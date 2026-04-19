@@ -519,7 +519,8 @@ def _default_map_event_page(commands: list[dict] | None, image: dict | None = No
             "variableValue": 0,
         },
         "directionFix": False,
-        "image": image or {
+        "image": image
+        or {
             "characterIndex": 0,
             "characterName": "",
             "direction": 2,

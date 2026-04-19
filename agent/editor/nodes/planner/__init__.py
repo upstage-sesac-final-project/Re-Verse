@@ -36,11 +36,15 @@ def _consume_reference_checks(
 ) -> tuple[list[dict], list[str]]:
     """Definition 이 제공한 reference_checks 를 살펴 선행 create step 삽입 / 경고 수집.
 
-    Task 12 —
-    - status="not_found" + (target_file 에 해당 엔티티의 create op 없음) + (update/delete/read op 있음)
-      → 해당 엔티티의 선행 create operation 을 **자동 삽입** (이름만 있는 placeholder, profiler 가 나머지 채움)
-    - status="not_found" 이지만 연관된 op 이 이미 create 면 noop
-    - 삽입 불가능한 케이스 (category 가 매핑 없음 등) → 경고만 누적
+    규칙:
+    - 이미 같은 (file, name) 에 대한 create 가 ops 에 있으면 noop
+    - 같은 (file, name) 에 update/delete/read op 가 있으면 → 선행 create prepend
+      (Task 12, "수정 전 대상 필요" 경로)
+    - 같은 **파일** 에 다른 op 만 있는 고아 참조 → 삽입 안 함 (중복/오타 가능성)
+    - **다른 파일** 에 op 가 있고 이번 참조는 그 op 가 참조하는 엔티티로 보이는 경우
+      → 선행 create prepend (Issue A / Task 33, "cross-file 참조" 경로)
+      패턴: X.create 가 Y.json 의 엔티티 id 를 필요로 하는데 Y 가 not_found
+    - 카테고리 매핑 없음 → 경고만
 
     Returns:
         (수정된 operation_tuples, 경고 문자열 list)
@@ -64,10 +68,12 @@ def _consume_reference_checks(
 
         target_file = _CATEGORY_TO_FILE.get(category)
         if not target_file:
-            warnings.append(f"참조 불일치: 카테고리 '{category}' 에 대응 파일 매핑 없음 (name={name})")
+            warnings.append(
+                f"참조 불일치: 카테고리 '{category}' 에 대응 파일 매핑 없음 (name={name})"
+            )
             continue
 
-        # 이미 같은 (file, name) 에 대한 create 가 ops 에 있으면 noop
+        # 이미 같은 (file, name) create 가 있으면 skip
         already_create = any(
             isinstance(op, dict)
             and op.get("op") == "create"
@@ -75,8 +81,11 @@ def _consume_reference_checks(
             and ((op.get("subject") or {}).get("name") or "").strip() == name
             for op in result
         )
-        # update/delete/read 를 가리키는 op 가 있는지 (있어야 선행 create 가 의미 있음)
-        non_create_ref_op = any(
+        if already_create:
+            continue
+
+        # 같은 (file, name) 에 대해 update/delete/read 가 있는지 — 수정 전 대상 필요
+        same_target_mutation = any(
             isinstance(op, dict)
             and op.get("op") in {"update", "delete", "read"}
             and op.get("file") == target_file
@@ -84,7 +93,14 @@ def _consume_reference_checks(
             for op in result
         )
 
-        if already_create or not non_create_ref_op:
+        # cross-file 참조: ref.file 과 **다른 파일** 의 op 가 존재 → 참조 대상으로 간주
+        cross_file_ref = any(
+            isinstance(op, dict) and op.get("file") and op.get("file") != target_file
+            for op in result
+        )
+
+        # 같은 파일에 업무 대상이 없고 cross-file 참조도 아니면 고아 → skip
+        if not same_target_mutation and not cross_file_ref:
             continue
 
         key = (target_file, name)
@@ -100,9 +116,11 @@ def _consume_reference_checks(
             "value": None,
         }
         result.insert(0, new_op)
-        warnings.append(
-            f"선행 create 자동 삽입: {target_file} '{name}' — 뒤이은 update/delete 참조 해소"
+
+        reason = (
+            "수정/조회 전 대상 생성" if same_target_mutation else "다른 엔티티가 참조 — 선행 생성"
         )
+        warnings.append(f"선행 create 자동 삽입: {target_file} '{name}' — {reason}")
 
     return result, warnings
 
@@ -159,9 +177,7 @@ def planner(state: AgentState) -> dict:
 
     # Task 5: reference_checks 소비 — Definition 이 제공한 참조 사전 검사
     reference_checks = state.get("reference_checks") or []
-    operation_tuples, ref_warnings = _consume_reference_checks(
-        reference_checks, operation_tuples
-    )
+    operation_tuples, ref_warnings = _consume_reference_checks(reference_checks, operation_tuples)
     for w in ref_warnings:
         logger.warning("[Planner] %s", w)
 

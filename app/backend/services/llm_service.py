@@ -210,10 +210,7 @@ class LLMService:
         from pathlib import Path as _Path
 
         affected_files = sorted(
-            set(
-                [_Path(p).name for p in modified_paths if p]
-                + list(modified_state.keys())
-            )
+            set([_Path(p).name for p in modified_paths if p] + list(modified_state.keys()))
         )
         success = final_state.get("success", True)
 

@@ -82,9 +82,7 @@ def _collect_soundness_warnings(
          스탯은 Classes.params 곡선으로 관리되므로 사용자 안내.
     """
     warnings: list[str] = []
-    user_has_stat_spec = bool(user_input) and any(
-        kw in user_input for kw in _ACTOR_STAT_KEYWORDS
-    )
+    user_has_stat_spec = bool(user_input) and any(kw in user_input for kw in _ACTOR_STAT_KEYWORDS)
 
     for entry in changes_log:
         if not entry.get("success"):
@@ -159,9 +157,8 @@ def _collect_soundness_warnings(
                 ti = matching.get("target_info") or {}
                 missing_class = ti.get("_class_not_found")
                 if missing_class:
-                    name = (
-                        (data.get("name") if isinstance(data, dict) else None)
-                        or ti.get("name", "?")
+                    name = (data.get("name") if isinstance(data, dict) else None) or ti.get(
+                        "name", "?"
                     )
                     warnings.append(
                         f"Actors.json: '{name}' 의 직업 '{missing_class}' 가 Classes.json 에 "
@@ -170,8 +167,10 @@ def _collect_soundness_warnings(
                     )
 
         # 룰 5: 이벤트 list code=0 종결 검증
-        if "event" in action or tf in {"CommonEvents.json", "Troops.json"} or (
-            tf.startswith("Map") and tf.endswith(".json")
+        if (
+            "event" in action
+            or tf in {"CommonEvents.json", "Troops.json"}
+            or (tf.startswith("Map") and tf.endswith(".json"))
         ):
             for cmd_list in _iter_event_commands(data):
                 if not cmd_list:
@@ -292,11 +291,7 @@ async def validator(state: dict) -> dict:
 
     # 4. 최종 판정 — schema 만 성공 기준. 경고는 차단 아님.
     success = len(schema_failures) == 0
-    summary = (
-        "성공"
-        if not soundness_warnings
-        else f"성공 (참고사항 {len(soundness_warnings)}건)"
-    )
+    summary = "성공" if not soundness_warnings else f"성공 (참고사항 {len(soundness_warnings)}건)"
 
     elapsed = time.perf_counter() - _t0
     logger.info(

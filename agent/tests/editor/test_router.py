@@ -94,7 +94,14 @@ class TestRouter:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "intent",
-        ["object_create", "object_update", "event_create", "event_update", "query", "game_overview"],
+        [
+            "object_create",
+            "object_update",
+            "event_create",
+            "event_update",
+            "query",
+            "game_overview",
+        ],
     )
     async def test_action_intents_return_intent_and_confidence(self, intent):
         with patch("agent.editor.nodes.router.invoke_llm", new_callable=AsyncMock) as mock_llm:

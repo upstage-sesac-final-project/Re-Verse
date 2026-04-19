@@ -5,7 +5,6 @@ import functools
 import json
 import logging
 import os
-import re
 import shutil
 import time
 import uuid
@@ -16,6 +15,15 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from agent.editor.nodes.executor.mcp_registry import (
+    MCP_TOOL_MAP,
+)
+from agent.editor.nodes.executor.mcp_registry import (
+    parse_map_id_from_target_file as _parse_map_id_from_target_file,
+)
+from agent.editor.nodes.executor.mcp_registry import (
+    resolve_mcp_map_file_entry as _resolve_mcp_map_file_entry,
+)
 from agent.editor.nodes.executor_v2.dispatch import dispatch_step
 from agent.editor.state import AgentState
 from agent.mcp_toolbox import (
@@ -52,17 +60,9 @@ game_locks: defaultdict[str, asyncio.Lock] = defaultdict(lambda: asyncio.Lock())
 # - MapNNN.json + draw_tile → draw_map_tile
 # 플래너는 target_file에 Map003.json 형태를 쓰고, mapId는 파일명에서 자동 보강된다.
 # ────────────────────────────────────────────────────────────
-# Phase F 분해 1단계: MCP registry 는 mcp_registry.py 로 분리.
-# core.py 내부 참조 이름을 유지하기 위해 alias 로 가져온다.
-from agent.editor.nodes.executor.mcp_registry import (  # noqa: E402
-    MCP_TOOL_MAP,
-)
-from agent.editor.nodes.executor.mcp_registry import (
-    parse_map_id_from_target_file as _parse_map_id_from_target_file,
-)
-from agent.editor.nodes.executor.mcp_registry import (
-    resolve_mcp_map_file_entry as _resolve_mcp_map_file_entry,
-)
+# Phase F 분해 1단계: MCP registry 는 mcp_registry.py 로 분리 (import 는 상단).
+# core.py 내부 참조 이름 (MCP_TOOL_MAP / _parse_map_id_from_target_file /
+# _resolve_mcp_map_file_entry) 는 상단 import 에서 alias 로 유지.
 
 
 def _coerce_list_from_mcp_search_payload(data: Any) -> list[Any]:

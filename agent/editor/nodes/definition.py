@@ -59,10 +59,20 @@ _FIELD_LABEL_TO_CATEGORY: dict[str, str] = {
 
 # 한국어 action 라벨 → Step 1 schema 의 action (대문자)
 _ACTION_LABEL_TO_UPPER: dict[str, str] = {
+    # CREATE 계열 — Router LLM 이 "생성" 외에 "추가/만들기" 등으로 emit 할 수 있어 alias 포함
     "생성": "CREATE",
+    "추가": "CREATE",
+    "만들기": "CREATE",
+    "제작": "CREATE",
+    # UPDATE 계열
     "수정": "UPDATE",
+    "변경": "UPDATE",
+    "바꾸기": "UPDATE",
+    # READ / DELETE
     "조회": "READ",
+    "확인": "READ",
     "삭제": "DELETE",
+    "제거": "DELETE",
 }
 
 
@@ -159,6 +169,7 @@ def _try_rule_base_step12(
     if pair is None:
         return False, [], []
     return True, [pair[0]], [pair[1]]
+
 
 SUPPORTED_BULK_TARGETS = {
     "actor": {"target_file": "Actors.json", "rag_category": "Actors"},
@@ -652,7 +663,9 @@ async def _definition_core(state: AgentState) -> dict:
             if matched_cat:
                 cls["category"] = matched_cat
                 cls["is_category_label"] = True
-                logger.info("[Definition] 키워드 매핑으로 카테고리 복구: %s -> %s", name, matched_cat)
+                logger.info(
+                    "[Definition] 키워드 매핑으로 카테고리 복구: %s -> %s", name, matched_cat
+                )
                 kept.append(cls)
             else:
                 removed_count += 1
@@ -1426,9 +1439,7 @@ def _extract_teleport_destination(user_input: str) -> tuple[int | None, int | No
     """
     import re as _re
 
-    m = _re.search(
-        r"\(?\s*(\d{1,3})\s*[,，]\s*(\d{1,3})\s*\)?\s*(?:으로|로|까지)", user_input
-    )
+    m = _re.search(r"\(?\s*(\d{1,3})\s*[,，]\s*(\d{1,3})\s*\)?\s*(?:으로|로|까지)", user_input)
     if m:
         return int(m.group(1)), int(m.group(2))
 
@@ -1601,6 +1612,7 @@ def _build_reverse_teleport(forward_op: dict) -> dict | None:
 
     # src_id 파싱
     import re as _re
+
     m = _re.match(r"^Map(\d{3})\.json$", src_file)
     if not m:
         return None
@@ -1675,13 +1687,11 @@ def _build_reference_checks(
     }
     if result["status"] == "ambiguous" and result.get("candidates"):
         entry["candidates"] = [
-            {"id": c.get("id"), "name": c.get("name")}
-            for c in result["candidates"][:5]
+            {"id": c.get("id"), "name": c.get("name")} for c in result["candidates"][:5]
         ]
     if result["status"] == "not_found" and result.get("suggestions"):
         entry["suggestions"] = [
-            {"id": c.get("id"), "name": c.get("name")}
-            for c in result["suggestions"][:3]
+            {"id": c.get("id"), "name": c.get("name")} for c in result["suggestions"][:3]
         ]
     entries = [entry]
 
@@ -1761,9 +1771,7 @@ async def definition(state: AgentState) -> dict:
         # 현재는 snapshot 형태가 고정 안 됐으니 얕은 merge 만.
         restored_keys = [k for k in resumed if k not in state]
         if restored_keys:
-            logger.info(
-                "[Definition] pending resume: snapshot 복원 키 = %s", restored_keys
-            )
+            logger.info("[Definition] pending resume: snapshot 복원 키 = %s", restored_keys)
             # state 는 TypedDict 지만 dict 로 취급 가능
             for k in restored_keys:
                 state[k] = resumed[k]  # type: ignore[literal-required]
@@ -1772,9 +1780,7 @@ async def definition(state: AgentState) -> dict:
     # field="이벤트"|"공용이벤트"|"트룹" + action="생성" 이면 _definition_core 를
     # 건너뛰고 바로 operation_tuples 생성.  LLM 호출 0 회.
     pc = state.get("parsed_command") or {}
-    ev_ops, ev_hold = _try_build_event_operation_tuples(
-        pc, state.get("user_input", "") or ""
-    )
+    ev_ops, ev_hold = _try_build_event_operation_tuples(pc, state.get("user_input", "") or "")
 
     if pc and pc.get("field") in {"이벤트", "공용이벤트", "트룹"} and pc.get("action") == "생성":
         if ev_hold:
@@ -1871,9 +1877,7 @@ async def definition(state: AgentState) -> dict:
                     hold_question=result["hold_question"],
                     snapshot=snapshot,
                 )
-                logger.info(
-                    "[Definition] pending_store.set (cid=%s, reason=%s)", cid, hold_reason
-                )
+                logger.info("[Definition] pending_store.set (cid=%s, reason=%s)", cid, hold_reason)
             except Exception as e:  # pragma: no cover — store 장애는 로직 차단 금지
                 logger.warning("[Definition] pending_store.set 실패: %s", e)
     else:

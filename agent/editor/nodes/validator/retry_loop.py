@@ -62,9 +62,7 @@ async def run_partial_retry(
 
             try:
                 # profiler 재호출
-                enriched = await profile_one(
-                    step, game_id=game_id, feedback=feedback_text
-                )
+                enriched = await profile_one(step, game_id=game_id, feedback=feedback_text)
 
                 if prev_entity_id is not None:
                     # 이전에 만든 엔트리를 update 하는 방식으로 전환
