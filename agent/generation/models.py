@@ -41,6 +41,11 @@ class SkillSpec(BaseModel):
     class_name: str = "공용"
 
 
+class GuardrailResult(BaseModel):
+    decision: Literal["safe", "unsafe"]
+    reason: str
+
+
 class GameSpec(BaseModel):
     title: str
     theme: str

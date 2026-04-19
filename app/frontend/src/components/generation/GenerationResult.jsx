@@ -1,7 +1,7 @@
 import { useSelector } from 'react-redux'
 
 export default function GenerationResult({ onRetry, onGoToEditor }) {
-  const { status, finalMessage, validationErrors, validationWarnings, completedPhases } =
+  const { status, finalMessage, error, validationErrors, validationWarnings, completedPhases } =
     useSelector((s) => s.generation)
 
   const isSuccess = status === 'completed' || status === 'completed_with_warnings'
@@ -24,9 +24,9 @@ export default function GenerationResult({ onRetry, onGoToEditor }) {
         >
           {isSuccess ? '게임 생성 완료' : '생성 실패'}
         </p>
-        {finalMessage && (
+        {(finalMessage || error) && (
           <p className="text-xs mt-2" style={{ color: 'var(--text-secondary)' }}>
-            {finalMessage}
+            {finalMessage || error}
           </p>
         )}
       </div>

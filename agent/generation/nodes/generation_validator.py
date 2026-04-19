@@ -1247,10 +1247,13 @@ def _auto_repair_troop_positions(final_project: dict) -> dict:
             enemy_id = member.get("enemyId", 0)
             battler_name = _get_battler_name(final_project, enemy_id)
             sprite_h = _BATTLER_HEIGHTS.get(battler_name, _DEFAULT_SPRITE_HALF_H * 2)
-            half_h = sprite_h // 2
+            # MZ 전투 적 Y좌표는 이미지 하단 중앙 기준.
+            # y < sprite_height 이면 상체가 화면 위로 잘림.
+            # 약간의 여유(8px)를 두어 상단이 너무 딱 붙지 않게 함.
+            min_y = sprite_h + 8
 
             new_x = max(0, min(x, _BATTLE_W))
-            new_y = max(half_h, min(y, _BATTLE_H))
+            new_y = max(min_y, min(y, _BATTLE_H))
 
             if new_x != x or new_y != y:
                 logger.warning(
