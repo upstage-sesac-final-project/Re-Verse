@@ -60,7 +60,7 @@ def is_walkable(
             # MZ 표준: 상위 레이어(3)부터 하위 레이어(0)로 내려가며 확인
             for layer in [3, 2, 1, 0]:
                 tile_id = get_tile(data, x, y, width, height, layer)
-                if tile_id == 0:  # 투명 타일은 무시하고 아래 레이어 확인
+                if tile_id in (0, 7520):  # 투명 타일 또는 더미 바닥 타일 무시
                     continue
 
                 if tile_id < len(flags):
@@ -130,7 +130,7 @@ def is_potential_path(
             found_base = False
             for layer in [3, 2, 1, 0]:
                 tile_id = get_tile(data, x, y, width, height, layer)
-                if tile_id == 0:
+                if tile_id in (0, 7520):
                     continue
                 if tile_id < len(flags):
                     f = flags[tile_id]

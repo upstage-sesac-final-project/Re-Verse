@@ -384,7 +384,7 @@ class EventCompiler:
             cmds.append({"code": 401, "indent": indent, "parameters": [event.dialogue_after]})
 
         if event.one_time and event.chest_switch:
-            sw_id = self.switch_table.switches[event.chest_switch]
+            sw_id = self.resolve_switch_id(event.chest_switch)
             # 상자 사라짐 애니메이션 (wait=False: 스위치 ON과 동시에 재생)
             cmds.append(
                 {
