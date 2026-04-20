@@ -38,6 +38,26 @@ RPG Maker MZ는 강력하지만, 에디터를 처음 다루는 사람에게는 �
 
 ---
 
+## 🧱 기술 스택
+
+| 분류 | 기술 |
+|------|------|
+| **Frontend** | React 18, Vite, Redux Toolkit, React Router, Tailwind CSS |
+| **Backend** | FastAPI, Python 3.12, uv, Pydantic v2, SQLAlchemy, WebSocket |
+| **인증/보안** | JWT (python-jose), bcrypt |
+| **Database** | SQLite 기본 (`DATABASE_URL`로 변경 가능), PostgreSQL(RDS) 확장 지원 |
+| **AI Model** | Upstage Solar Pro, Upstage Embedding |
+| **AI Agent** | LangGraph, LangChain, LangSmith |
+| **RAG** | Upstage 임베딩 + ChromaDB |
+| **스토리지** | AWS S3 (게임 파일), boto3 |
+| **배포/운영** | Docker, GitHub Actions, AWS EC2, Vercel (프론트) |
+| **모니터링** | LangSmith (LLM 트레이싱), PostHog (프론트 분석), Discord Webhook |
+| **Quality** | ruff, mypy, pytest, ESLint, pre-commit |
+| **게임 엔진** | RPG Maker MZ |
+| **기타** | MCP (Model Context Protocol) |
+
+---
+
 ## 🧩 한 번에 보는 구조
 
 이 저장소는 **프론트 · 백엔드 · AI 에이전트**가 한 레포에 있습니다.
@@ -88,6 +108,22 @@ RPG Maker MZ는 강력하지만, 에디터를 처음 다루는 사람에게는 �
 - `phase_limit` 으로 assets/maps/full 단계 제어, `map_source` 로 알고리즘/샘플 선택
 
 자세한 노드 동작은 `docs/`와 `agent/editor/`, `agent/generation/` 소스를 함께 보면 좋습니다.
+
+---
+
+## 🗺️ 아키텍처 다이어그램
+
+### 시스템 전체 구조
+
+<img src="docs/img/System_Overall_Structure.png" width="800" alt="System Overall Structure">
+
+### Editor Agent 워크플로우 (증분 편집)
+
+<img src="docs/img/Editor_Agent_Workflow.png" width="480" alt="Editor Agent Workflow">
+
+### Generator Agent 워크플로우 (신규 게임 생성)
+
+<img src="docs/img/Generator_Agent_Workflow.png" width="560" alt="Generator Agent Workflow">
 
 ---
 
