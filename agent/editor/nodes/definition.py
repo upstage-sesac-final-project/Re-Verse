@@ -9,6 +9,7 @@ from agent.constants import (
     CATEGORY_TO_FILE,
     CATEGORY_TO_ID_FIELD,
     CATEGORY_TO_PLURAL,
+    KEYWORD_TO_CATEGORY,
 )
 from agent.core.llm_client import invoke_llm
 from agent.editor.operation_ir import (
@@ -41,21 +42,8 @@ PLURAL_TO_SINGULAR.update({"enemies": "enemy", "actors": "actor"})
 
 # ── Task 3: rule-base Step 1/2 fast path ──────────────────────────────────
 # parsed_command 가 충분한 정보를 갖고 있으면 Step 1/2 LLM 호출을 건너뛴다.
-
-# 한국어 field 라벨 → 카테고리 (KEYWORD_TO_CATEGORY 와 중복이지만 normalize 일관성 위해 별도 유지)
-_FIELD_LABEL_TO_CATEGORY: dict[str, str] = {
-    "적": "Enemy",
-    "몬스터": "Enemy",
-    "무기": "Weapon",
-    "아이템": "Item",
-    "방어구": "Armor",
-    "액터": "Actor",
-    "주인공": "Actor",
-    "캐릭터": "Actor",
-    "직업": "Class",
-    "스킬": "Skill",
-    "상태이상": "State",
-}
+# 한국어 field 라벨 → 카테고리는 constants.KEYWORD_TO_CATEGORY 를 단일 원천으로 사용.
+_FIELD_LABEL_TO_CATEGORY = KEYWORD_TO_CATEGORY
 
 # 한국어 action 라벨 → Step 1 schema 의 action (대문자)
 _ACTION_LABEL_TO_UPPER: dict[str, str] = {

@@ -143,3 +143,29 @@ def build_prompt(state: AgentState) -> list[BaseMessage]:
         SystemMessage(content=_SYSTEM),
         HumanMessage(content=user_content),
     ]
+
+
+# ── pending yes/no 판정 프롬프트 (hold 이어받기) ─────────────────────────
+
+_YESNO_SYSTEM = """\
+당신은 대화 흐름을 분석하는 판별기입니다.
+바로 직전에 시스템이 유저에게 질문(hold)을 던졌고, 유저가 새 입력을 보냈습니다.
+이 새 입력이 그 질문에 대한 "답" 인지, 아니면 무관한 새 요청("딴소리")인지 판별하세요.
+
+판정 기준:
+- 질문에 대해 긍정/부정/선택을 표현하면 is_answer=true
+  예) "어", "응", "그래", "아니", "1번으로", "검 A 로 해"
+- 질문과 전혀 다른 새 요청을 하면 is_answer=false
+  예) "아니 됐고 슬라임 만들어줘", "그건 놔두고 다른 거 하자"
+
+reasoning 에 한 줄로 근거를 써라.
+"""
+
+
+def build_yesno_prompt(user_input: str, hold_question: str) -> list[BaseMessage]:
+    return [
+        SystemMessage(content=_YESNO_SYSTEM),
+        HumanMessage(
+            content=f"## 시스템이 던진 질문\n{hold_question}\n\n## 유저의 새 입력\n{user_input}"
+        ),
+    ]

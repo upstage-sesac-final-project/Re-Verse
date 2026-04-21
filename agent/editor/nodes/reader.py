@@ -42,6 +42,7 @@ from agent.editor.db_lookup import (
 from agent.editor.prompts.reader_prompt import (
     build_entity_name_match_prompt,
     build_entity_type_guess_prompt,
+    build_game_overview_prompt,
     build_prompt,
 )
 from agent.editor.state import AgentState
@@ -677,6 +678,60 @@ def _load_items_for_entity_type(
     return _valid_items(raw_data), None
 
 
+# 한글 field 라벨 → reader entity_type (영문 단수 소문자).
+# constants.KEYWORD_TO_CATEGORY 는 "Actor" capitalized 를 내므로 lowercase 로 변환해 사용.
+_FIELD_LABEL_TO_READER_TYPE: dict[str, str] = {
+    "적": "enemy",
+    "몬스터": "enemy",
+    "무기": "weapon",
+    "아이템": "item",
+    "방어구": "armor",
+    "액터": "actor",
+    "주인공": "actor",
+    "캐릭터": "actor",
+    "직업": "class",
+    "스킬": "skill",
+    "상태이상": "state",
+    "시스템": "system",
+}
+
+
+def _override_from_parsed_command(query: "_ReaderQuery", state: AgentState) -> "_ReaderQuery":
+    """Router parsed_command.target/field 를 Reader query 에 덮어씀.
+
+    LLM 이 한글 entity_name 을 영문 (BattleAxe / Mimi 등) 으로 번역하는 문제 대응.
+    Router 는 프롬프트상 한글을 보존하므로 거기서 복원.
+    """
+    pc = state.get("parsed_command") or {}
+    if not isinstance(pc, dict):
+        return query
+
+    target = (pc.get("target") or "").strip()
+    field = (pc.get("field") or "").strip()
+
+    # entity_name override — Router target 있으면 무조건 우선
+    if target and query.entity_name != target:
+        logger.info(
+            "[Reader] entity_name override: %r → %r (parsed_command.target)",
+            query.entity_name,
+            target,
+        )
+        query = query.model_copy(update={"entity_name": target})
+
+    # entity_type override — Router field 가 있고 Reader LLM 이 빈 값이나 다른 값 내면 보정
+    mapped_type = _FIELD_LABEL_TO_READER_TYPE.get(field)
+    if mapped_type and query.entity_type != mapped_type:
+        logger.info(
+            "[Reader] entity_type override: %r → %r (parsed_command.field=%r)",
+            query.entity_type,
+            mapped_type,
+            field,
+        )
+        query = query.model_copy(update={"entity_type": mapped_type})
+
+    return query
+
+
 def _finish_reader(started_at: float, response: str) -> dict:
     logger.info(
         "─── ✅ Reader END (elapsed=%.2fs, response_len=%d) ────────────────────",
@@ -732,42 +787,14 @@ def _collect_game_overview_payload(game_id: str) -> dict:
     return payload
 
 
-_GAME_OVERVIEW_SYSTEM = """\
-당신은 RPG Maker MZ 게임 데이터를 분석해 유저에게 **게임 컨셉** 을 설명하는
-어시스턴트입니다.
-
-주어진 데이터 payload (제목, 파티, 엔티티 종류별 개수, 대표 이름, 맵 목록, 속성 등)
-를 보고:
-1. 제목과 파티 / 대표 적·스킬·아이템 이름에서 세계관·분위기를 추측
-2. 맵 이름 / 속성 (elements) 에서 주제 유추
-3. 2-4 문장으로 자연스럽게 서술 (나열 금지 — 흐름 있는 문장)
-
-금지:
-- JSON 원문 노출
-- "데이터 payload 에 따르면" 같은 메타 언급
-- 정보 없으면 단정 금지, "~로 보입니다" 같은 추측 표현 OK
-"""
-
-
 async def _game_overview_response(game_id: str, user_input: str) -> str:
     """game_overview intent 전용 — LLM 1 회로 컨셉 요약 생성."""
-    from langchain_core.messages import HumanMessage, SystemMessage
-
-    payload = _collect_game_overview_payload(game_id)
-
     import json as _json
 
+    payload = _collect_game_overview_payload(game_id)
     payload_text = _json.dumps(payload, ensure_ascii=False, indent=2)
-    user_content = (
-        f"## 유저 질문\n{user_input}\n\n## 게임 데이터 payload\n```json\n{payload_text}\n```"
-    )
     try:
-        result = await invoke_llm(
-            [
-                SystemMessage(content=_GAME_OVERVIEW_SYSTEM),
-                HumanMessage(content=user_content),
-            ]
-        )
+        result = await invoke_llm(build_game_overview_prompt(user_input, payload_text))
         text = str(result).strip()
         return text or _fallback_game_overview(payload)
     except Exception as e:
@@ -828,6 +855,11 @@ async def reader(state: AgentState) -> dict:
     except Exception as e:
         logger.error("[Reader] LLM 호출 실패: %s", e, exc_info=True)
         return {"final_response": "요청을 이해하지 못했습니다. 다시 입력해주세요."}
+
+    # Router parsed_command 로 entity_name / entity_type 덮어쓰기 (LLM 영문 번역 차단).
+    # Router 는 한글 그대로 파싱하므로 Reader LLM 이 "전투 도끼" → "BattleAxe" 같은
+    # 번역을 해도 여기서 원본 복원.
+    query = _override_from_parsed_command(query, state)
 
     entity_type = (query.entity_type or "").lower().strip()
     items: list[dict] = []

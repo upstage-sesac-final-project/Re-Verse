@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 
+from agent.constants import CATEGORY_TO_FILE as _CATEGORY_TO_FILE_LOWER
 from agent.editor.nodes.planner.fill_schemas import build_fill_slots, get_fill_schema
 from agent.editor.nodes.planner.rule_engine import build_execution_plan
 from agent.editor.state import AgentState
@@ -18,16 +19,10 @@ from agent.utils.game_data_io import get_game_data_dir
 logger = logging.getLogger(__name__)
 
 
-# category (첫 글자 대문자) → 파일명
+# reference_checks entry 의 category 는 capitalized ("Actor") 로 오므로
+# constants.CATEGORY_TO_FILE (lowercase keys) 을 capitalize 해 재사용.
 _CATEGORY_TO_FILE: dict[str, str] = {
-    "Actor": "Actors.json",
-    "Enemy": "Enemies.json",
-    "Item": "Items.json",
-    "Skill": "Skills.json",
-    "Weapon": "Weapons.json",
-    "Armor": "Armors.json",
-    "Class": "Classes.json",
-    "State": "States.json",
+    cat.capitalize(): fn for cat, fn in _CATEGORY_TO_FILE_LOWER.items()
 }
 
 

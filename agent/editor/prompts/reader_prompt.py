@@ -197,3 +197,29 @@ def build_entity_name_match_prompt(
         _ENTITY_NAME_MATCH_SYSTEM,
         f"## 사용자 입력 이름\n{query_name}\n\n## 게임 데이터 이름 목록\n{names_text}",
     )
+
+
+# ── game_overview 전용 프롬프트 ──────────────────────────────────────────
+
+_GAME_OVERVIEW_SYSTEM = """\
+당신은 RPG Maker MZ 게임 데이터를 분석해 유저에게 **게임 컨셉** 을 설명하는
+어시스턴트입니다.
+
+주어진 데이터 payload (제목, 파티, 엔티티 종류별 개수, 대표 이름, 맵 목록, 속성 등)
+를 보고:
+1. 제목과 파티 / 대표 적·스킬·아이템 이름에서 세계관·분위기를 추측
+2. 맵 이름 / 속성 (elements) 에서 주제 유추
+3. 2-4 문장으로 자연스럽게 서술 (나열 금지 — 흐름 있는 문장)
+
+금지:
+- JSON 원문 노출
+- "데이터 payload 에 따르면" 같은 메타 언급
+- 정보 없으면 단정 금지, "~로 보입니다" 같은 추측 표현 OK
+"""
+
+
+def build_game_overview_prompt(user_input: str, payload_json: str) -> list[BaseMessage]:
+    return _build_messages(
+        _GAME_OVERVIEW_SYSTEM,
+        f"## 유저 질문\n{user_input}\n\n## 게임 데이터 payload\n```json\n{payload_json}\n```",
+    )

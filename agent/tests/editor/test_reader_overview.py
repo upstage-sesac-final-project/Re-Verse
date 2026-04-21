@@ -108,6 +108,56 @@ async def test_reader_game_overview_skips_query_llm():
     assert "T" in result["final_response"] or "판타지" in result["final_response"]
 
 
+class TestOverrideFromParsedCommand:
+    """Router parsed_command 로 Reader query 덮어쓰기 — 한글 → 영문 번역 차단."""
+
+    def _mock_query(self, **kw):
+        from agent.editor.nodes.reader import _ReaderQuery
+
+        defaults = dict(
+            query_type="field_value",
+            entity_type="weapon",
+            entity_name="BattleAxe",  # LLM 이 번역한 값
+            field_name="atk",
+            reasoning="t",
+        )
+        defaults.update(kw)
+        return _ReaderQuery(**defaults)
+
+    def test_overrides_english_name_with_korean(self):
+        from agent.editor.nodes.reader import _override_from_parsed_command
+
+        query = self._mock_query(entity_name="BattleAxe")
+        state = {"parsed_command": {"target": "전투 도끼", "field": "무기"}}
+        out = _override_from_parsed_command(query, state)
+        assert out.entity_name == "전투 도끼"
+
+    def test_overrides_type_when_field_mismatch(self):
+        from agent.editor.nodes.reader import _override_from_parsed_command
+
+        query = self._mock_query(entity_type="enemy")  # 오분류
+        state = {"parsed_command": {"target": "검 A", "field": "무기"}}
+        out = _override_from_parsed_command(query, state)
+        assert out.entity_type == "weapon"
+
+    def test_no_override_when_no_parsed_command(self):
+        from agent.editor.nodes.reader import _override_from_parsed_command
+
+        query = self._mock_query(entity_name="Mimi")
+        state = {}
+        out = _override_from_parsed_command(query, state)
+        assert out.entity_name == "Mimi"  # 변경 없음
+
+    def test_preserves_other_fields(self):
+        from agent.editor.nodes.reader import _override_from_parsed_command
+
+        query = self._mock_query(field_name="atk", query_type="field_value")
+        state = {"parsed_command": {"target": "전투 도끼", "field": "무기"}}
+        out = _override_from_parsed_command(query, state)
+        assert out.field_name == "atk"
+        assert out.query_type == "field_value"
+
+
 @pytest.mark.asyncio
 async def test_reader_query_intent_uses_query_parse_path():
     """intent=query 이면 기존 query 파싱 경로 (LLM 으로 _ReaderQuery 구조화)."""

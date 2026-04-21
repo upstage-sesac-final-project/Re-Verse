@@ -36,42 +36,17 @@ PARAMS_INDEX: dict[str, int] = {
     "luk": 7,
 }
 
-# 한국어 스탯 라벨 → 표준 field_name 매핑 (Definition Step 1 value 파서 보조)
-KO_STAT_ALIAS: dict[str, str] = {
-    "hp": "maxhp",
-    "mp": "maxmp",
-    "체력": "maxhp",
-    "마력": "maxmp",
-    "공격": "atk",
-    "공격력": "atk",
-    "방어": "def",
-    "방어력": "def",
-    "마법공격력": "mat",
-    "마법방어력": "mdf",
-    "민첩": "agi",
-    "민첩성": "agi",
-    "운": "luk",
-}
-
 FUZZY_THRESHOLD = 0.6
 FUZZY_SUGGESTION_THRESHOLD = 0.5
 
 # ── 카테고리 ↔ 파일 ─────────────────────────────────────────────────────────
-
-_CATEGORY_TO_FILE: dict[str, str] = {
-    "actor": "Actors.json",
-    "enemy": "Enemies.json",
-    "item": "Items.json",
-    "weapon": "Weapons.json",
-    "armor": "Armors.json",
-    "class": "Classes.json",
-    "state": "States.json",
-    "skill": "Skills.json",
-}
+# 중복 제거: agent.constants.CATEGORY_TO_FILE 을 단일 원천으로 사용
 
 
 def category_to_file(category: str) -> str | None:
-    return _CATEGORY_TO_FILE.get((category or "").lower())
+    from agent.constants import CATEGORY_TO_FILE
+
+    return CATEGORY_TO_FILE.get((category or "").lower())
 
 
 # ── 저수준 후보 탐색 ──────────────────────────────────────────────────────────
