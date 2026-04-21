@@ -79,6 +79,11 @@ logs/
 CLAUDE.md
 .superpowers/
 .claude/
+.serena/
+
+# REPL 수동 테스트용 실패 케이스 모음 (로컬 전용)
+_repl_errorcase.txt
+_repl_input.txt
 
 # =============================================================================
 # Vector Databases

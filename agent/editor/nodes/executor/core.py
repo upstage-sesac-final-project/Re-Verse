@@ -5,7 +5,6 @@ import functools
 import json
 import logging
 import os
-import re
 import shutil
 import time
 import uuid
@@ -16,6 +15,15 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from agent.editor.nodes.executor.mcp_registry import (
+    MCP_TOOL_MAP,
+)
+from agent.editor.nodes.executor.mcp_registry import (
+    parse_map_id_from_target_file as _parse_map_id_from_target_file,
+)
+from agent.editor.nodes.executor.mcp_registry import (
+    resolve_mcp_map_file_entry as _resolve_mcp_map_file_entry,
+)
 from agent.editor.nodes.executor_v2.dispatch import dispatch_step
 from agent.editor.state import AgentState
 from agent.mcp_toolbox import (
@@ -52,119 +60,9 @@ game_locks: defaultdict[str, asyncio.Lock] = defaultdict(lambda: asyncio.Lock())
 # - MapNNN.json + draw_tile → draw_map_tile
 # 플래너는 target_file에 Map003.json 형태를 쓰고, mapId는 파일명에서 자동 보강된다.
 # ────────────────────────────────────────────────────────────
-MCP_TOOL_MAP: dict[tuple[str, str], dict[str, Any]] = {
-    # Actors.json
-    ("Actors.json", "list"): {"tool": "list_actors", "backup_files": []},
-    ("Actors.json", "search"): {"tool": "search_actors", "backup_files": []},
-    ("Actors.json", "query_by_id"): {"tool": "get_actor", "backup_files": []},
-    ("Actors.json", "create"): {"tool": "create_actor", "backup_files": ["Actors.json"]},
-    ("Actors.json", "update_actor"): {"tool": "update_actor", "backup_files": ["Actors.json"]},
-    # Skills.json
-    ("Skills.json", "list"): {"tool": "list_skills", "backup_files": []},
-    ("Skills.json", "query"): {"tool": "get_skill", "backup_files": []},
-    ("Skills.json", "search"): {"tool": "search_skills", "backup_files": []},
-    ("Skills.json", "create"): {"tool": "create_skill", "backup_files": ["Skills.json"]},
-    ("Skills.json", "create_damage"): {
-        "tool": "create_damage_skill",
-        "backup_files": ["Skills.json"],
-    },
-    ("Skills.json", "create_healing"): {
-        "tool": "create_healing_skill",
-        "backup_files": ["Skills.json"],
-    },
-    ("Skills.json", "create_buff"): {"tool": "create_buff_skill", "backup_files": ["Skills.json"]},
-    ("Skills.json", "create_state"): {
-        "tool": "create_state_skill",
-        "backup_files": ["Skills.json"],
-    },
-    ("Skills.json", "update"): {"tool": "update_skill", "backup_files": ["Skills.json"]},
-    # Items.json
-    ("Items.json", "list"): {"tool": "list_items", "backup_files": []},
-    ("Items.json", "search"): {"tool": "search_items", "backup_files": []},
-    ("Items.json", "create"): {"tool": "create_item", "backup_files": ["Items.json"]},
-    ("Items.json", "update"): {"tool": "update_item", "backup_files": ["Items.json"]},
-    # Weapons.json
-    ("Weapons.json", "list"): {"tool": "list_weapons", "backup_files": []},
-    ("Weapons.json", "create"): {"tool": "create_weapon", "backup_files": ["Weapons.json"]},
-    ("Weapons.json", "update"): {"tool": "update_weapon", "backup_files": ["Weapons.json"]},
-    # Armors.json
-    ("Armors.json", "list"): {"tool": "list_armors", "backup_files": []},
-    ("Armors.json", "create"): {"tool": "create_armor", "backup_files": ["Armors.json"]},
-    ("Armors.json", "update"): {"tool": "update_armor", "backup_files": ["Armors.json"]},
-    # Classes.json (통합 MCP에서 추가)
-    ("Classes.json", "list"): {"tool": "list_classes", "backup_files": []},
-    ("Classes.json", "create"): {"tool": "create_class", "backup_files": ["Classes.json"]},
-    ("Classes.json", "update"): {"tool": "update_class", "backup_files": ["Classes.json"]},
-    # States.json (통합 MCP에서 추가)
-    ("States.json", "list"): {"tool": "list_states", "backup_files": []},
-    ("States.json", "create"): {"tool": "create_state", "backup_files": ["States.json"]},
-    ("States.json", "update"): {"tool": "update_state", "backup_files": ["States.json"]},
-    # Enemies.json (통합 MCP에서 추가)
-    ("Enemies.json", "list"): {"tool": "list_enemies", "backup_files": []},
-    ("Enemies.json", "create"): {"tool": "create_enemy", "backup_files": ["Enemies.json"]},
-    ("Enemies.json", "update"): {"tool": "update_enemy", "backup_files": ["Enemies.json"]},
-    # System.json
-    ("System.json", "query"): {"tool": "get_system", "backup_files": []},
-    ("System.json", "list_variables"): {"tool": "get_variables", "backup_files": []},
-    ("System.json", "set_variable_name"): {
-        "tool": "set_variable_name",
-        "backup_files": ["System.json"],
-    },
-    ("System.json", "list_switches"): {"tool": "get_switches", "backup_files": []},
-    ("System.json", "set_switch_name"): {
-        "tool": "set_switch_name",
-        "backup_files": ["System.json"],
-    },
-    ("System.json", "get_game_title"): {"tool": "get_game_title", "backup_files": []},
-    ("System.json", "update_game_title"): {
-        "tool": "update_game_title",
-        "backup_files": ["System.json"],
-    },
-    ("System.json", "update_starting_position"): {
-        "tool": "update_starting_position",
-        "backup_files": ["System.json"],
-    },
-    # MapInfos.json — 맵 목록/생성 (맵 단일 파일 MapNNN.json 과 구분)
-    ("MapInfos.json", "list"): {"tool": "list_maps", "backup_files": ["MapInfos.json"]},
-    ("MapInfos.json", "query"): {"tool": "list_maps", "backup_files": ["MapInfos.json"]},
-    ("MapInfos.json", "create"): {"tool": "create_map", "backup_files": ["MapInfos.json"]},
-}
-
-
-_MAP_JSON_FILE_RE = re.compile(r"^Map(\d{1,3})\.json$", re.IGNORECASE)
-
-
-def _parse_map_id_from_target_file(target_file: str) -> int | None:
-    m = _MAP_JSON_FILE_RE.match((target_file or "").strip())
-    if not m:
-        return None
-    try:
-        return int(m.group(1))
-    except ValueError:
-        return None
-
-
-def _resolve_mcp_map_file_entry(target_file: str, action: str) -> dict[str, Any] | None:
-    """Map001.json … Map999.json + action → MCP 툴 (MCP_TOOL_MAP 정적 키로 넣기 어려워 동적 분기)."""
-    if _parse_map_id_from_target_file(target_file) is None:
-        return None
-    a = (action or "").strip().lower()
-    tool_by_action: dict[str, str] = {
-        "query": "get_map",
-        "read": "get_map",
-        "update": "update_map",
-        "list_events": "get_map_events",
-        "search": "search_map_events",
-        "search_events": "search_map_events",
-        "create_event": "create_map_event",
-        "update_event": "update_map_event",
-        "add_event_command": "add_event_command",
-        "draw_tile": "draw_map_tile",
-    }
-    tool = tool_by_action.get(a)
-    if not tool:
-        return None
-    return {"tool": tool, "backup_files": [target_file]}
+# Phase F 분해 1단계: MCP registry 는 mcp_registry.py 로 분리 (import 는 상단).
+# core.py 내부 참조 이름 (MCP_TOOL_MAP / _parse_map_id_from_target_file /
+# _resolve_mcp_map_file_entry) 는 상단 import 에서 alias 로 유지.
 
 
 def _coerce_list_from_mcp_search_payload(data: Any) -> list[Any]:
@@ -984,7 +882,6 @@ def _actors_validate_actor_id_context(
         user_input = getattr(_execute_one_structured_step, "_current_user_input", "")
         if user_input:
             original_request = str(user_input).lower()
-            print(f"🔧 [DEBUG] 원본 사용자 요청: '{user_input[:100]}'")
             logger.warning("[Executor] 🔧 원본 사용자 요청 확인: '%s'", user_input[:100])
 
         # execution_plan 전체의 다른 스텝들에서도 힌트 추출
@@ -1741,7 +1638,6 @@ async def _execute_one_structured_step(
     if target_file == "Items.json":
         target_info = _enrich_items_target_info_from_deps(step, step_results, target_info)
     if target_file == "Actors.json":
-        print(f"🔧 [EXECUTOR DEBUG] 액터 스텝 처리 시작: step_id={sid}")
         logger.warning("🔧 [EXECUTOR DEBUG] 액터 스텝 처리 시작: step_id=%s", sid)
 
         target_info = _enrich_actors_target_info_from_deps(step, step_results, target_info)
@@ -1751,23 +1647,19 @@ async def _execute_one_structured_step(
         old_name_check = _actors_old_name_for_reconcile(target_info)
         aid = target_info.get("actor_id")
 
-        print(f"🔧 [DEBUG] old_name_check='{old_name_check}', actor_id={aid}")
         logger.warning("🔧 [DEBUG] old_name_check='%s', actor_id=%s", old_name_check, aid)
 
         if not old_name_check and aid:
             aid_str = str(aid)
-            print(f"🔧 [DEBUG] 맥락 검증 진입: aid={aid}, isdigit={aid_str.isdigit()}")
             logger.warning("🔧 [DEBUG] 맥락 검증 진입: aid=%s, isdigit=%s", aid, aid_str.isdigit())
 
             if aid_str.isdigit():
                 # execution_plan 전체를 맥락 검증에 전달
                 ep = getattr(_execute_one_structured_step, "_current_execution_plan", None)
-                print("🔧 [DEBUG] 맥락 검증 실행 중...")
                 logger.warning("🔧 [DEBUG] 맥락 검증 실행 중...")
 
                 target_info = _actors_validate_actor_id_context(data_path, target_info, step, ep)
 
-                print(f"🔧 [DEBUG] 맥락 검증 완료: {target_info}")
                 logger.warning("🔧 [DEBUG] 맥락 검증 완료: %s", target_info)
     # raw_action은 디버그/에러 메시지에 남기고, 실제 실행 분기는 정규화된 action으로 통일한다.
     raw_action = (step.get("action_type") or "").strip().lower()
@@ -2978,8 +2870,10 @@ async def _executor_structured(
     ordered = _topological_sort_steps(execution_plan)
     target_files = sorted(_collect_structured_target_files(execution_plan))
     if not target_files:
-        logger.info("[Executor structured] target_files 비어있음, 기본값 Actors.json 사용")
-        target_files = ["Actors.json"]
+        # 기본값 없음. execution_plan 이 target_file 을 명시하지 않으면 즉시 실패.
+        raise ValueError(
+            "[Executor structured] target_files 비어있음. execution_plan 에 target_file 명시 필요"
+        )
 
     logger.info(
         "[Executor structured] game_id=%s steps=%d files=%s",
@@ -3100,7 +2994,9 @@ async def executor(state: AgentState) -> dict:
     """MVP 버전 Executor"""
 
     execution_plan = state.get("execution_plan", [])
-    game_id = state.get("game_id", "game_001")
+    game_id = state.get("game_id")
+    if not game_id:
+        raise ValueError("[Executor] game_id 가 state 에 없음. router/definition 에서 명시 필요")
     retry_count = state.get("retry_count", 0)
     user_input = state.get("user_input", "")
     _t0 = time.perf_counter()
@@ -3244,22 +3140,12 @@ async def executor(state: AgentState) -> dict:
 
         return _finish(result, mode="structured")
 
-    logger.warning("[Executor] 비구조화(번역) 경로는 제거된 json_modify_tools에 의존해 비활성화됨")
-    result = {
-        "changes_log": [
-            {
-                "success": False,
-                "error": (
-                    "비구조화 executor 경로는 제거된 legacy json_modify_tools 경로에 "
-                    "의존해 더 이상 지원되지 않습니다. 구조화 execution_plan을 사용하세요."
-                ),
-                "timestamp": datetime.now().isoformat(),
-            }
-        ],
-        "tool_results": [],
-        "modified_file_paths": [],
-    }
-    return _finish(result, mode="legacy_removed", icon="⚠️")
+    # 비구조화(legacy) 경로는 이미 dead code 였다. Phase A 에서 완전 제거.
+    # execution_plan 이 구조화 포맷이 아니면 즉시 에러.
+    raise ValueError(
+        "[Executor] execution_plan 이 구조화 포맷(action_type/step_id/target_file)이 아님. "
+        "planner 가 구조화 플랜을 생성해야 함."
+    )
 
 
 # ────────────────────────────────────────────────────────────

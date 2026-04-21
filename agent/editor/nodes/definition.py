@@ -9,6 +9,7 @@ from agent.constants import (
     CATEGORY_TO_FILE,
     CATEGORY_TO_ID_FIELD,
     CATEGORY_TO_PLURAL,
+    KEYWORD_TO_CATEGORY,
 )
 from agent.core.llm_client import invoke_llm
 from agent.editor.operation_ir import (
@@ -37,6 +38,126 @@ logger = logging.getLogger(__name__)
 # 복수형(파일명/폴더명) -> 단수형(내부 타겟명) 변환용
 PLURAL_TO_SINGULAR = {v.lower(): k for k, v in CATEGORY_TO_PLURAL.items()}
 PLURAL_TO_SINGULAR.update({"enemies": "enemy", "actors": "actor"})
+
+
+# ── Task 3: rule-base Step 1/2 fast path ──────────────────────────────────
+# parsed_command 가 충분한 정보를 갖고 있으면 Step 1/2 LLM 호출을 건너뛴다.
+# 한국어 field 라벨 → 카테고리는 constants.KEYWORD_TO_CATEGORY 를 단일 원천으로 사용.
+_FIELD_LABEL_TO_CATEGORY = KEYWORD_TO_CATEGORY
+
+# 한국어 action 라벨 → Step 1 schema 의 action (대문자)
+_ACTION_LABEL_TO_UPPER: dict[str, str] = {
+    # CREATE 계열 — Router LLM 이 "생성" 외에 "추가/만들기" 등으로 emit 할 수 있어 alias 포함
+    "생성": "CREATE",
+    "추가": "CREATE",
+    "만들기": "CREATE",
+    "제작": "CREATE",
+    # UPDATE 계열
+    "수정": "UPDATE",
+    "변경": "UPDATE",
+    "바꾸기": "UPDATE",
+    # READ / DELETE
+    "조회": "READ",
+    "확인": "READ",
+    "삭제": "DELETE",
+    "제거": "DELETE",
+}
+
+
+def _single_to_extraction(entry: dict) -> tuple[dict, dict] | None:
+    """단일 parsed_command / parsed_extraction dict → (extraction, classification) 쌍.
+
+    실패 조건:
+    - field/target/action 중 하나라도 빈 값
+    - field 또는 action 이 매핑 불가
+    """
+    field = (entry.get("field") or "").strip()
+    target = (entry.get("target") or "").strip()
+    action = (entry.get("action") or "").strip()
+    prop = (entry.get("property") or "").strip()
+    val = (entry.get("value") or "").strip()
+
+    if not field or not target or not action:
+        return None
+    category = _FIELD_LABEL_TO_CATEGORY.get(field)
+    action_upper = _ACTION_LABEL_TO_UPPER.get(action)
+    if not category or not action_upper:
+        return None
+
+    extraction = {
+        "subject": target,
+        "property": prop or None,
+        "value": val or None,
+        "action": action_upper,
+    }
+    classification = {
+        "name": target,
+        "category": category,
+        "category_scores": {category: 1.0},
+        "is_category_label": False,
+        "system_ref": None,
+        "reason": "parsed_command rule-base (Step 1/2 LLM 스킵)",
+    }
+    return extraction, classification
+
+
+def _try_rule_base_step12(
+    parsed_command: dict,
+    user_input: str,
+    parsed_extractions: list[dict] | None = None,
+) -> tuple[bool, list[dict], list[dict]]:
+    """parsed_command (+ parsed_extractions) 로부터 Step 1/2 출력 구조를 직접 생성한다.
+
+    단일 엔티티 경로: parsed_extractions 가 빈 list 면 parsed_command 하나만 처리.
+    다중 엔티티 경로 (Task 13): parsed_extractions 에 2 개 이상이면 각각 변환.
+
+    성공 조건 (단일 / 다중 공통):
+    - field / target / action 세 필드 모두 채워져 있음
+    - field 가 _FIELD_LABEL_TO_CATEGORY 에서 해석 가능
+    - action 이 _ACTION_LABEL_TO_UPPER 에서 해석 가능
+    - bulk_scope 가 "all" 이 아니어야 함 (bulk 는 기존 LLM 경로로 위임 — RAG 컨텍스트 필요)
+    - subject 가 user_input 에 있어야 history 오염 아님 (post-check)
+
+    Returns:
+        (ok, extractions, classifications)
+    """
+    if not parsed_command:
+        return False, [], []
+
+    bulk_scope = (parsed_command.get("bulk_scope") or "").strip()
+    if bulk_scope == "all":
+        return False, [], []
+
+    def _norm(s: str) -> str:
+        return s.replace(" ", "").lower()
+
+    ui_norm = _norm(user_input)
+
+    # 다중 엔티티 경로 (Task 13)
+    if parsed_extractions and len(parsed_extractions) >= 2:
+        extractions: list[dict] = []
+        classifications: list[dict] = []
+        for entry in parsed_extractions:
+            target = (entry.get("target") or "").strip()
+            if target and _norm(target) not in ui_norm:
+                # 한 엔트리라도 history 오염이면 전체 LLM fallback
+                return False, [], []
+            pair = _single_to_extraction(entry)
+            if pair is None:
+                return False, [], []
+            extractions.append(pair[0])
+            classifications.append(pair[1])
+        return True, extractions, classifications
+
+    # 단일 엔티티 경로
+    target = (parsed_command.get("target") or "").strip()
+    if target and _norm(target) not in ui_norm:
+        return False, [], []
+    pair = _single_to_extraction(parsed_command)
+    if pair is None:
+        return False, [], []
+    return True, [pair[0]], [pair[1]]
+
 
 SUPPORTED_BULK_TARGETS = {
     "actor": {"target_file": "Actors.json", "rag_category": "Actors"},
@@ -421,8 +542,12 @@ def _format_to_progress_spec(modifications: list[dict], classifications: list[di
     return formatted_mods
 
 
-async def definition(state: AgentState) -> dict:
+async def _definition_core(state: AgentState) -> dict:
     """사용자 입력을 operation IR 로 변환하는 10 단계 파이프라인.
+
+    Phase D+E-3 에서 Step 1/2/5/5.5/6/7 이 rule-base 로 대체될 예정.
+    현재는 기존 Step 구조 유지. 상위 `definition` wrapper 가 hold / pending /
+    신규 contract 필드 (field / target / description / reference_checks / resolve) 를 보강한다.
 
     각 Step 의 역할은 다음과 같습니다:
         Step 1  extract_keywords          LLM 으로 subject/property/value/action 추출.
@@ -451,76 +576,118 @@ async def definition(state: AgentState) -> dict:
     logger.info("=" * 60)
     logger.info("[Definition] 노드 시작 - game_id: %s, user_input: %s", game_id, user_input)
 
-    # --- [1단계: 핵심 키워드 추출] ---
-    logger.info(f"[Definition] Step 1: '{user_input}'에서 키워드 추출 중...")
-    messages_1 = build_step1_prompt(state)
-    response_1 = cast(
-        Step1ExtractionResponse,
-        await invoke_llm(messages=messages_1, structured_output=Step1ExtractionResponse),
-    )
-    extractions = [ext.model_dump() for ext in response_1.extractions]
-    logger.debug("[Definition] Step 1 완료 - 추출된 키워드 수: %d", len(extractions))
+    # ── Task 3 + Task 13: parsed_command (+ parsed_extractions) 로부터 Step 1/2 스킵 ──
+    pc = state.get("parsed_command") or {}
+    pe = state.get("parsed_extractions") or []
+    rb_ok, extractions, classifications = _try_rule_base_step12(pc, user_input, pe)
 
-    # Step 1 post-check: subject/value 가 현재 user_input 내부 substring 이어야 함.
-    # 이전 대화의 엔티티가 LLM hallucination 으로 넘어온 경우를 차단 (1-② 오염 방지).
-    def _norm(s: str) -> str:
-        return s.replace(" ", "").lower()
+    if rb_ok:
+        logger.info(
+            "[Definition] Step 1/2 rule-base 성공 → LLM 2 회 건너뜀 (subject=%s, category=%s, action=%s)",
+            classifications[0]["name"],
+            classifications[0]["category"],
+            extractions[0]["action"],
+        )
+    else:
+        # --- [1단계: 핵심 키워드 추출] ---
+        logger.info(f"[Definition] Step 1: '{user_input}'에서 키워드 추출 중...")
+        messages_1 = build_step1_prompt(state)
+        response_1 = cast(
+            Step1ExtractionResponse,
+            await invoke_llm(messages=messages_1, structured_output=Step1ExtractionResponse),
+        )
+        extractions = [ext.model_dump() for ext in response_1.extractions]
+        logger.debug("[Definition] Step 1 완료 - 추출된 키워드 수: %d", len(extractions))
 
-    _ui_norm = _norm(user_input)
-    _cleaned: list[dict] = []
-    for ext in extractions:
-        subj = str(ext.get("subject") or "").strip()
-        if subj and _norm(subj) not in _ui_norm:
-            logger.warning(
-                "[Definition] Step 1 post-check: subject '%s' 가 현재 user_input 에 없음 → 추출 제거 (history 오염 의심)",
-                subj,
-            )
-            continue
-        val = ext.get("value")
-        if isinstance(val, str) and val.strip():
-            # 숫자·기호는 제외하고, 엔티티 이름류 value 만 검사
-            val_s = val.strip()
-            is_numeric = val_s.replace(".", "", 1).lstrip("-").isdigit()
-            if not is_numeric and _norm(val_s) not in _ui_norm:
+        # Step 1 post-check: subject/value 가 현재 user_input 내부 substring 이어야 함.
+        # 이전 대화의 엔티티가 LLM hallucination 으로 넘어온 경우를 차단 (1-② 오염 방지).
+        def _norm(s: str) -> str:
+            return s.replace(" ", "").lower()
+
+        _ui_norm = _norm(user_input)
+        _cleaned: list[dict] = []
+        for ext in extractions:
+            subj = str(ext.get("subject") or "").strip()
+            if subj and _norm(subj) not in _ui_norm:
                 logger.warning(
-                    "[Definition] Step 1 post-check: value '%s' 가 현재 user_input 에 없음 → value 비움",
-                    val_s,
+                    "[Definition] Step 1 post-check: subject '%s' 가 현재 user_input 에 없음 → 추출 제거 (history 오염 의심)",
+                    subj,
                 )
-                ext["value"] = None
-        _cleaned.append(ext)
-    extractions = _cleaned
+                continue
+            val = ext.get("value")
+            if isinstance(val, str) and val.strip():
+                val_s = val.strip()
+                is_numeric = val_s.replace(".", "", 1).lstrip("-").isdigit()
+                if not is_numeric and _norm(val_s) not in _ui_norm:
+                    logger.warning(
+                        "[Definition] Step 1 post-check: value '%s' 가 현재 user_input 에 없음 → value 비움",
+                        val_s,
+                    )
+                    ext["value"] = None
+            _cleaned.append(ext)
+        extractions = _cleaned
 
-    # --- [2단계: 카테고리 분류] ---
-    logger.info("[Definition] Step 2: 추출된 대상들 카테고리 분류 중...")
-    messages_2 = build_step2_prompt(extractions, user_input=user_input)
-    response_2 = cast(
-        Step2ClassificationResponse,
-        await invoke_llm(messages=messages_2, structured_output=Step2ClassificationResponse),
-    )
-    classifications = [cls.model_dump() for cls in response_2.classifications]
-    logger.debug("[Definition] Step 2 완료 - 분류된 엔티티 수: %d", len(classifications))
+        # --- [2단계: 카테고리 분류] ---
+        logger.info("[Definition] Step 2: 추출된 대상들 카테고리 분류 중...")
+        messages_2 = build_step2_prompt(extractions, user_input=user_input)
+        response_2 = cast(
+            Step2ClassificationResponse,
+            await invoke_llm(messages=messages_2, structured_output=Step2ClassificationResponse),
+        )
+        classifications = [cls.model_dump() for cls in response_2.classifications]
+        logger.debug("[Definition] Step 2 완료 - 분류된 엔티티 수: %d", len(classifications))
 
-    # category=None 보정: 한국어 키워드 매핑으로 복구 가능하면 복구, 아니면 제거
-    from agent.constants import KEYWORD_TO_CATEGORY
+        # category=None 보정: 한국어 키워드 매핑으로 복구 가능하면 복구, 아니면 제거
+        from agent.constants import KEYWORD_TO_CATEGORY
 
-    kept: list[dict] = []
-    removed_count = 0
+        kept: list[dict] = []
+        removed_count = 0
+        for cls in classifications:
+            if cls.get("category") is not None:
+                kept.append(cls)
+                continue
+            name = (cls.get("name") or "").strip()
+            matched_cat = KEYWORD_TO_CATEGORY.get(name)
+            if matched_cat:
+                cls["category"] = matched_cat
+                cls["is_category_label"] = True
+                logger.info(
+                    "[Definition] 키워드 매핑으로 카테고리 복구: %s -> %s", name, matched_cat
+                )
+                kept.append(cls)
+            else:
+                removed_count += 1
+        classifications = kept
+        if removed_count:
+            logger.info("[Definition] category=None 분류 %d건 제거 (수치 표현 등)", removed_count)
+
+    # ── bulk 지시어 후처리 — "모든 주인공" / "~들" / "전체 액터" 같은 패턴 감지 ──
+    # LLM 이 classify 할 때 "주인공" keyword 때문에 system_ref=hero 로 단일 취급하는
+    # 오류 방지. 복수/전체 수식이 붙으면 bulk 처리 (is_category_label=True, hero 해제).
+    _BULK_PREFIX_KEYWORDS = ("모든", "전체", "전부의", "모두의", "각")
+    _BULK_SUFFIX_KEYWORDS = ("들", "전부", "모두")
     for cls in classifications:
-        if cls.get("category") is not None:
-            kept.append(cls)
+        name = str(cls.get("name") or "").strip()
+        if not name:
             continue
-        name = (cls.get("name") or "").strip()
-        matched_cat = KEYWORD_TO_CATEGORY.get(name)
-        if matched_cat:
-            cls["category"] = matched_cat
+        is_bulk_name = name.endswith(_BULK_SUFFIX_KEYWORDS) or any(
+            name.startswith(kw + " ") or name.startswith(kw) for kw in _BULK_PREFIX_KEYWORDS
+        )
+        # user_input 수준에서도 검사 (LLM 이 수식을 떼버려 "주인공" 만 남기는 경우)
+        ui = (state.get("user_input") or "").replace(" ", "")
+        for kw in _BULK_PREFIX_KEYWORDS:
+            if kw + name.replace(" ", "") in ui or kw in ui and name.replace(" ", "") in ui:
+                is_bulk_name = True
+                break
+        if is_bulk_name:
+            # bulk 는 단일 hero 가 아니라 범위 처리
+            if cls.get("system_ref") == "hero":
+                cls["system_ref"] = None
+                logger.info(
+                    "[Definition] bulk 감지 → hero 보정 해제: name='%s' → is_category_label=True",
+                    name,
+                )
             cls["is_category_label"] = True
-            logger.info("[Definition] 키워드 매핑으로 카테고리 복구: %s -> %s", name, matched_cat)
-            kept.append(cls)
-        else:
-            removed_count += 1
-    classifications = kept
-    if removed_count:
-        logger.info("[Definition] category=None 분류 %d건 제거 (수치 표현 등)", removed_count)
 
     bulk_scope_targets = _detect_bulk_scope_targets(extractions, classifications)
     unsupported_bulk_targets = _detect_unsupported_bulk_targets(extractions, classifications)
@@ -1091,4 +1258,617 @@ async def definition(state: AgentState) -> dict:
         len(final_extracted_ids),
         resolved_params_sufficient,
     )
+    return result
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase D+E-1 wrapper — hold / pending_store / 신규 contract 필드 보강
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+# 기존 CATEGORY_TO_FILE 의 역매핑: "Weapons.json" → "무기" 같은 한국어 라벨.
+_FILE_TO_KOREAN_LABEL = {
+    "Actors.json": "액터",
+    "Classes.json": "직업",
+    "Skills.json": "스킬",
+    "Items.json": "아이템",
+    "Weapons.json": "무기",
+    "Armors.json": "방어구",
+    "Enemies.json": "적",
+    "Troops.json": "트룹",
+    "States.json": "상태이상",
+    "Animations.json": "애니메이션",
+    "Tilesets.json": "타일셋",
+    "CommonEvents.json": "공용이벤트",
+    "System.json": "시스템",
+    "MapInfos.json": "맵",
+}
+
+
+def _infer_field_label(target_files: list[str], parsed_command: dict | None) -> str:
+    """field 라벨 추론. parsed_command.field 우선, 없으면 target_files 첫 번째로부터."""
+    if parsed_command:
+        f = (parsed_command.get("field") or "").strip()
+        if f:
+            return f
+    for tf in target_files:
+        if tf in _FILE_TO_KOREAN_LABEL:
+            return _FILE_TO_KOREAN_LABEL[tf]
+        if tf.startswith("Map") and tf.endswith(".json"):
+            return "이벤트"
+    return ""
+
+
+def _infer_target_label(
+    modifications: list[dict], extracted_ids: dict, parsed_command: dict | None
+) -> str:
+    """target (확정된 대상 요약). parsed_command.target 우선."""
+    if parsed_command:
+        t = (parsed_command.get("target") or "").strip()
+        if t:
+            return t
+    # modifications[0].params.name 또는 extracted_ids 첫 번째
+    for mod in modifications or []:
+        params = mod.get("params") if isinstance(mod, dict) else None
+        if isinstance(params, dict):
+            name = params.get("name")
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+    for k in extracted_ids or {}:
+        if isinstance(k, str) and k.strip():
+            return k.strip()
+    return ""
+
+
+# ── Task 9: 이벤트 의도 → operation_tuples 직접 생성 ─────────────────────
+
+# 한국어 키워드 → template 이름
+_EVENT_TEMPLATE_KEYWORDS: list[tuple[str, str]] = [
+    # 상점 — "팔", "상점" 등
+    ("상점", "shop"),
+    ("물건을 팔", "shop"),
+    ("팔게 해", "shop"),
+    # NPC 대사 — "말해", "대사" (전투와 구분 위해 "말" 이 먼저)
+    ("말해", "npc_talk"),
+    ("대사", "npc_talk"),
+    ("NPC", "npc_talk"),
+    ("npc", "npc_talk"),
+    ("인사", "npc_talk"),
+    # 장소 이동
+    ("장소 이동", "teleport"),
+    ("맵 이동", "teleport"),
+    ("텔레포트", "teleport"),
+    ("워프", "teleport"),
+    ("이동시키", "teleport"),
+    ("넘어가", "teleport"),  # "Map002 로 넘어가기"
+    ("건너가", "teleport"),
+    ("로 가는", "teleport"),  # "...로 가는 이벤트"
+    ("로 이동", "teleport"),
+    # 스위치
+    ("스위치", "switch_trigger"),
+    # 전투
+    ("전투", "battle"),
+    ("싸움", "battle"),
+    ("보스", "battle"),
+    ("싸우게", "battle"),
+]
+
+
+def _detect_event_template(user_input: str) -> str | None:
+    """user_input 에서 이벤트 template 추정 (rule-base 키워드)."""
+    if not user_input:
+        return None
+    text = user_input.lower()
+    for kw, template in _EVENT_TEMPLATE_KEYWORDS:
+        if kw.lower() in text:
+            return template
+    return None
+
+
+def _extract_event_config(template: str, user_input: str) -> dict:
+    """template 별 최소 config 를 user_input 에서 추출. 부족한 건 기본값."""
+    config: dict = {}
+    import re as _re
+
+    if template == "npc_talk":
+        # 따옴표 안의 문장 → 대사
+        m = _re.search(r"[\"'](.+?)[\"']", user_input)
+        if m:
+            config["text"] = m.group(1)
+        else:
+            config["text"] = ""
+    elif template == "shop":
+        # 기본값 (상품 없으면 placeholder 단일 아이템)
+        config["items"] = []
+    elif template == "teleport":
+        # teleport 는 이벤트가 놓일 map + 목적지 map 두 가지 구분 필요.
+        # 목적지 map_id / x / y 는 기본값 대체 금지 (미지정이면 hold 유도).
+        config["map_id"] = _extract_teleport_target_map(user_input)
+        dest_coord = _extract_teleport_destination(user_input)
+        config["x"], config["y"] = dest_coord
+    elif template == "switch_trigger":
+        m = _re.search(r"스위치\s*(\d{1,3})", user_input)
+        config["switch_id"] = int(m.group(1)) if m else 1
+    elif template == "battle":
+        m = _re.search(r"(?:troop|트룹|부대)\s*(\d{1,3})", user_input, _re.IGNORECASE)
+        config["troop_id"] = int(m.group(1)) if m else 1
+    return config
+
+
+_MAP_REFS_RE = __import__("re").compile(
+    r"(?:map\s*0*(\d{1,3})|맵\s*(\d{1,3})|(\d{1,3})\s*번\s*맵)", __import__("re").IGNORECASE
+)
+_COORD_RE = __import__("re").compile(r"\(?\s*(\d{1,3})\s*[,，]\s*(\d{1,3})\s*\)?")
+
+
+def _find_all_map_refs(user_input: str) -> list[int]:
+    """user_input 에 등장하는 모든 Map 번호를 등장 순서대로 반환."""
+    out: list[int] = []
+    for m in _MAP_REFS_RE.finditer(user_input):
+        for g in m.groups():
+            if g:
+                out.append(int(g))
+                break
+    return out
+
+
+def _find_all_coords(user_input: str) -> list[tuple[int, int]]:
+    """user_input 에 등장하는 모든 (x,y) 쌍을 등장 순서대로 반환."""
+    return [(int(m.group(1)), int(m.group(2))) for m in _COORD_RE.finditer(user_input)]
+
+
+def _extract_teleport_destination(user_input: str) -> tuple[int | None, int | None]:
+    """teleport 의 **목적지** 좌표 추출.
+
+    규칙 (우선순위):
+    1. "으로|로|까지" 조사 바로 앞의 좌표 → 명시적 목적지
+    2. 두 개 이상 좌표가 등장하면 두 번째 이후 것을 목적지로
+    3. 둘 다 실패면 (None, None) — 호출자가 hold
+    """
+    import re as _re
+
+    m = _re.search(r"\(?\s*(\d{1,3})\s*[,，]\s*(\d{1,3})\s*\)?\s*(?:으로|로|까지)", user_input)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+
+    coords = _find_all_coords(user_input)
+    if len(coords) >= 2:
+        return coords[1]
+    return None, None
+
+
+def _extract_teleport_target_map(user_input: str) -> int | None:
+    """teleport 의 **목적지 map** 추출.
+
+    규칙 (우선순위):
+    1. Map 번호가 두 개 이상 등장하면 두 번째를 목적지로
+       (첫 번째는 이벤트 생성 위치)
+    2. 단일 Map + 그 Map 바로 뒤에 목적지 조사("으로|로|까지") → 목적지
+    3. 단일 Map + 이어지는 좌표 뒤에 목적지 조사 → 그 Map 이 목적지
+       (예: "Map003 의 (5,6) 으로 이동")
+    4. 단일 Map + "에" 조사 (이벤트 생성 위치) → 목적지 아님
+    5. 그 외 → None (hold)
+    """
+    import re as _re
+
+    maps = _find_all_map_refs(user_input)
+    if len(maps) >= 2:
+        return maps[1]
+    if len(maps) == 1:
+        map_num = maps[0]
+        # Map 바로 뒤 목적지 조사
+        if _re.search(
+            r"(?:map\s*0*\d{1,3}|맵\s*\d{1,3}|\d{1,3}\s*번\s*맵)\s*(?:으로|로|까지)",
+            user_input,
+            _re.IGNORECASE,
+        ):
+            return map_num
+        # Map ... coord 으로/로/까지 패턴
+        if _re.search(
+            r"(?:map\s*0*\d{1,3}|맵\s*\d{1,3}|\d{1,3}\s*번\s*맵)"
+            r"[^\d]*\(?\s*\d{1,3}\s*[,，]\s*\d{1,3}\s*\)?\s*(?:으로|로|까지)",
+            user_input,
+            _re.IGNORECASE,
+        ):
+            return map_num
+    return None
+
+
+def _extract_event_position(user_input: str) -> tuple[int | None, int | None]:
+    """x/y 좌표 추출 — "(3, 5)", "x=3 y=5" 등 패턴."""
+    import re as _re
+
+    m = _re.search(r"\(?\s*(\d{1,3})\s*[,，]\s*(\d{1,3})\s*\)?", user_input)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    xm = _re.search(r"x\s*[=:]?\s*(\d{1,3})", user_input, _re.IGNORECASE)
+    ym = _re.search(r"y\s*[=:]?\s*(\d{1,3})", user_input, _re.IGNORECASE)
+    return (
+        int(xm.group(1)) if xm else None,
+        int(ym.group(1)) if ym else None,
+    )
+
+
+def _extract_map_id(user_input: str) -> int | None:
+    """user_input 에서 대상 Map 번호 추출."""
+    import re as _re
+
+    m = _re.search(
+        r"(?:map\s*0*(\d{1,3})|맵\s*(\d{1,3})|(\d{1,3})\s*번\s*맵)",
+        user_input,
+        _re.IGNORECASE,
+    )
+    if not m:
+        return None
+    return int(next(g for g in m.groups() if g))
+
+
+def _try_build_event_operation_tuples(
+    parsed_command: dict, user_input: str
+) -> tuple[list[dict], str | None]:
+    """이벤트 생성 의도 → operation_tuples. hold 가 필요하면 hold_reason 반환.
+
+    Returns:
+        (operation_tuples, hold_reason)
+        hold_reason 이 None 이면 정상 진행 가능.
+    """
+    if not parsed_command:
+        return [], None
+
+    field = (parsed_command.get("field") or "").strip()
+    action = (parsed_command.get("action") or "").strip()
+
+    # 이벤트 계열이 아니면 noop
+    if field not in {"이벤트", "공용이벤트", "트룹"} or action != "생성":
+        return [], None
+
+    template = _detect_event_template(user_input)
+    if not template:
+        return [], "ambiguous_ref"  # 어떤 이벤트인지 모름 → hold
+
+    config = _extract_event_config(template, user_input)
+
+    # teleport 추가 검증: 목적지 map_id / x / y 누락이면 hold
+    if template == "teleport":
+        if config.get("map_id") is None:
+            return [], "page_condition_unclear"  # "어디로" 미지정
+        if config.get("x") is None or config.get("y") is None:
+            return [], "destination_unclear"  # 목적지 좌표 미지정 (이벤트 위치와 구분)
+
+    # 대상 파일 결정
+    if field == "공용이벤트":
+        target_file = "CommonEvents.json"
+    elif field == "트룹":
+        target_file = "Troops.json"
+    else:  # "이벤트" — 기본은 Map 이벤트
+        map_id = _extract_map_id(user_input)
+        if map_id is None:
+            return [], "page_condition_unclear"  # 어느 맵인지 불명 → hold
+        target_file = f"Map{map_id:03d}.json"
+
+    raw: dict = {
+        "template": template,
+        "config": config,
+        "name": (parsed_command.get("target") or "").strip() or f"EV_{template}",
+    }
+
+    # Map 이벤트면 좌표 필요
+    if target_file.startswith("Map") and target_file.endswith(".json"):
+        x, y = _extract_event_position(user_input)
+        if x is None or y is None:
+            return [], "ambiguous_position"  # 좌표 미지정 → hold (UI 쪽 협조 필요)
+        raw["x"] = x
+        raw["y"] = y
+
+    op: dict = {
+        "op": "create",
+        "file": target_file,
+        "subject": None,
+        "raw_updates": raw,
+    }
+    ops = [op]
+
+    # teleport 기본 양방향 — 두 맵 + 양쪽 좌표 모두 있고, 유저가 "단방향/한방향"
+    # 명시하지 않았으면 reverse teleport 도 자동 생성. "양방향/왕복" 은 굳이 명시
+    # 안 해도 기본값.
+    if template == "teleport" and target_file.startswith("Map"):
+        if not _is_one_way_requested(user_input):
+            reverse = _build_reverse_teleport(op)
+            if reverse is not None:
+                ops.append(reverse)
+
+    return ops, None
+
+
+def _is_one_way_requested(user_input: str) -> bool:
+    """'단방향' / '한방향' / '일방' / '한쪽으로만' 명시 시 True."""
+    if not user_input:
+        return False
+    keys = ("단방향", "한방향", "일방", "한쪽으로만", "한 쪽으로만", "편도")
+    return any(k in user_input for k in keys)
+
+
+def _build_reverse_teleport(forward_op: dict) -> dict | None:
+    """forward teleport op 을 보고 반대 방향 op 생성.
+
+    forward: Map(src_id) 의 (raw.x, raw.y) → destination Map(config.map_id) (config.x, config.y)
+    reverse: Map(config.map_id) 의 (config.x, config.y) → destination Map(src_id) (raw.x, raw.y)
+    """
+    raw = forward_op.get("raw_updates") or {}
+    cfg = raw.get("config") or {}
+    src_file = forward_op.get("file", "")
+
+    # src_id 파싱
+    import re as _re
+
+    m = _re.match(r"^Map(\d{3})\.json$", src_file)
+    if not m:
+        return None
+    src_id = int(m.group(1))
+
+    dest_id = cfg.get("map_id")
+    dest_x = cfg.get("x")
+    dest_y = cfg.get("y")
+    src_x = raw.get("x")
+    src_y = raw.get("y")
+
+    if dest_id is None or dest_x is None or dest_y is None:
+        return None
+    if src_x is None or src_y is None:
+        return None
+    # 같은 맵 내 이동이면 reverse 불필요
+    if int(dest_id) == src_id:
+        return None
+
+    reverse_raw = {
+        "template": "teleport",
+        "config": {"map_id": src_id, "x": src_x, "y": src_y},
+        "name": (raw.get("name") or "") + " (반대방향)",
+        "x": dest_x,
+        "y": dest_y,
+    }
+    return {
+        "op": "create",
+        "file": f"Map{int(dest_id):03d}.json",
+        "subject": None,
+        "raw_updates": reverse_raw,
+    }
+
+
+def _build_reference_checks(
+    parsed_command: dict | None,
+    game_id: str,
+    extracted_ids: dict,
+) -> list[dict]:
+    """db_lookup 기반 참조 체크 리스트 생성.
+
+    Planner (Task 5) 가 이 결과를 보고:
+    - status="not_found" + action="수정" → hold(not_found) 선행
+    - status="ambiguous" + action="생성" → hold(already_exists) 선행
+    - status="found" → 정상 진행
+
+    현재 버전은 parsed_command 의 주 대상만 검사한다. 다중 엔티티·보조 엔티티
+    (Actor.classId 등) 는 차기 sprint.
+
+    Returns:
+        list[{category, name, status, candidates?, suggestions?}]
+    """
+    from agent.editor.db_lookup import lookup_by_name
+
+    if not parsed_command or not game_id:
+        return []
+
+    target = (parsed_command.get("target") or "").strip()
+    field = (parsed_command.get("field") or "").strip()
+    if not target or not field:
+        return []
+
+    category = _FIELD_LABEL_TO_CATEGORY.get(field)
+    if not category:
+        return []
+
+    result = lookup_by_name(game_id, category.lower(), target)
+    entry: dict = {
+        "category": category,
+        "name": target,
+        "status": result["status"],  # found / not_found / ambiguous
+    }
+    if result["status"] == "ambiguous" and result.get("candidates"):
+        entry["candidates"] = [
+            {"id": c.get("id"), "name": c.get("name")} for c in result["candidates"][:5]
+        ]
+    if result["status"] == "not_found" and result.get("suggestions"):
+        entry["suggestions"] = [
+            {"id": c.get("id"), "name": c.get("name")} for c in result["suggestions"][:3]
+        ]
+    entries = [entry]
+
+    # Task 32: Actor create + "직업" 지정 시 Class 참조도 reference_checks 에 추가.
+    # Planner 의 `_consume_reference_checks` (Task 12) 가 status=not_found 면
+    # 선행 Class create op 을 자동 prepend → Actor 가 new Class 의 id 참조.
+    if category == "Actor":
+        job_name = _extract_job_from_parsed(parsed_command)
+        if job_name:
+            class_result = lookup_by_name(game_id, "class", job_name)
+            class_entry: dict = {
+                "category": "Class",
+                "name": job_name,
+                "status": class_result["status"],
+            }
+            if class_result["status"] == "ambiguous":
+                class_entry["candidates"] = [
+                    {"id": c.get("id"), "name": c.get("name")}
+                    for c in (class_result.get("candidates") or [])[:5]
+                ]
+            entries.append(class_entry)
+
+    return entries
+
+
+def _extract_job_from_parsed(parsed_command: dict) -> str | None:
+    """parsed_command 에서 '직업'/'클래스' property 값 추출."""
+    JOB_KEYS = ("직업", "클래스", "class")
+    prop = (parsed_command.get("property") or "").strip().lower()
+    val = str(parsed_command.get("value") or "").strip()
+    if prop in JOB_KEYS and val:
+        return val
+    for extra in parsed_command.get("additional_properties") or []:
+        if not isinstance(extra, dict):
+            continue
+        p = (extra.get("property") or "").strip().lower()
+        v = str(extra.get("value") or "").strip()
+        if p in JOB_KEYS and v:
+            return v
+    return None
+
+
+def _infer_hold_reason(message_for_user: str) -> str:
+    """message_for_user 에서 hold_reason 추론 (heuristic).
+
+    Phase D+E-3 에서 rule-base 분기로 정확한 reason 생성 예정.
+    현재는 대부분의 clarification 케이스가 'not_found' 혹은 'ambiguous_ref'
+    중 하나라서 키워드 기반 분류만 함.
+    """
+    if not message_for_user:
+        return "ambiguous_ref"
+    m = message_for_user
+    if ("찾을 수 없" in m) or ("없습니다" in m) or ("존재하지 않" in m) or ("미식별" in m):
+        return "not_found"
+    if ("이미 있" in m) or ("이미 존재" in m):
+        return "already_exists"
+    return "ambiguous_ref"
+
+
+async def definition(state: AgentState) -> dict:
+    """Phase D+E-1 wrapper.
+
+    책임:
+    1. router 의 `resumed_snapshot` 복원 — 이전 턴의 user_input 로 재실행
+    2. 본체 `_definition_core` 실행
+    3. 결과에 신규 contract 필드 보강: field / target / description / reference_checks / resolve
+    4. hold 발생 시 pending_store 에 set (conversation_id 있을 때)
+
+    Phase D+E-3 에서 본체 Step 1/2/5/5.5/6/7 제거 + 재작성 예정.
+    """
+    from agent.editor.pending_store import get_default_store
+
+    # ── 1. resumed_snapshot 복원 ─────────────────────────────────
+    resumed = state.get("resumed_snapshot") or {}
+    if resumed and state.get("pending_resumed"):
+        # 이전 턴 user_input 이 snapshot 에 있다면 복원.
+        # 현재는 snapshot 형태가 고정 안 됐으니 얕은 merge 만.
+        restored_keys = [k for k in resumed if k not in state]
+        if restored_keys:
+            logger.info("[Definition] pending resume: snapshot 복원 키 = %s", restored_keys)
+            # state 는 TypedDict 지만 dict 로 취급 가능
+            for k in restored_keys:
+                state[k] = resumed[k]  # type: ignore[literal-required]
+
+    # ── 2. 이벤트 의도 early-path (Task 9) ─────────────────────
+    # field="이벤트"|"공용이벤트"|"트룹" + action="생성" 이면 _definition_core 를
+    # 건너뛰고 바로 operation_tuples 생성.  LLM 호출 0 회.
+    pc = state.get("parsed_command") or {}
+    ev_ops, ev_hold = _try_build_event_operation_tuples(pc, state.get("user_input", "") or "")
+
+    if pc and pc.get("field") in {"이벤트", "공용이벤트", "트룹"} and pc.get("action") == "생성":
+        if ev_hold:
+            # 이벤트 의도는 맞는데 정보 부족 → hold
+            hold_msgs = {
+                "ambiguous_ref": "어떤 이벤트를 만들까요? (상점 / NPC 대사 / 장소 이동 / 스위치 / 전투 중 선택)",
+                "page_condition_unclear": "어느 맵에 만들까요? (예: Map003, 3번 맵)",
+                "ambiguous_position": "이벤트가 놓일 좌표를 알려주세요. (예: (3, 5) 또는 x=3 y=5)",
+                "destination_unclear": "텔레포트 목적지 좌표를 알려주세요. 예: 'Map002 (5, 10) 으로 이동'",
+            }
+            logger.info("[Definition] 이벤트 의도 hold: reason=%s", ev_hold)
+            result: dict = {
+                "target_files": [],
+                "modifications": [],
+                "extracted_ids": {},
+                "params_sufficient": False,
+                "message_for_user": hold_msgs.get(ev_hold, "이벤트 정보가 부족합니다."),
+                "operation_tuples": [],
+                "plan_meta": {},
+            }
+            # hold_reason 힌트 저장 (아래 wrapper 가 _infer_hold_reason 를 overwrite)
+            state["_event_hold_reason"] = ev_hold  # type: ignore[typeddict-item]
+        else:
+            # 이벤트 의도 + 정보 충분 → operation_tuples 직접 emit
+            logger.info(
+                "[Definition] 이벤트 early-path: file=%s template=%s (LLM 0 회)",
+                ev_ops[0]["file"],
+                ev_ops[0]["raw_updates"]["template"],
+            )
+            target_file = ev_ops[0]["file"]
+            result = {
+                "target_files": [target_file],
+                "modifications": [],
+                "extracted_ids": {},
+                "params_sufficient": True,
+                "operation_tuples": ev_ops,
+                "plan_meta": {},
+            }
+    else:
+        # ── 일반 경로: 기존 본체 실행 ───────────────────────────
+        result = await _definition_core(state)
+
+    # ── 3. 신규 contract 필드 보강 ──────────────────────────────
+    parsed_command = state.get("parsed_command") or {}
+    target_files = result.get("target_files") or []
+    modifications = result.get("modifications") or []
+    extracted_ids = result.get("extracted_ids") or {}
+
+    field_label = _infer_field_label(target_files, parsed_command)
+    target_label = _infer_target_label(modifications, extracted_ids, parsed_command)
+    description = state.get("user_input") or ""
+
+    result["field"] = field_label
+    result["target"] = target_label
+    result["description"] = description
+    # reference_checks — Task 4: db_lookup 기반 실제 생성
+    try:
+        result["reference_checks"] = _build_reference_checks(
+            parsed_command, state.get("game_id", "") or "", extracted_ids
+        )
+    except Exception as e:  # pragma: no cover — lookup 실패는 치명적이지 않음
+        logger.warning("[Definition] reference_checks 생성 실패: %s", e)
+        result["reference_checks"] = []
+
+    # ── 4. resolve / hold 분기 + pending_store set ───────────────
+    params_ok = bool(result.get("params_sufficient", False))
+    if not params_ok:
+        # hold 상태
+        result["resolve"] = False
+        msg = result.get("message_for_user") or ""
+        # 이벤트 early-path 가 설정한 hold_reason 우선
+        hold_reason = state.get("_event_hold_reason") or _infer_hold_reason(msg)  # type: ignore[typeddict-item]
+        result["hold_reason"] = hold_reason
+        result["hold_question"] = msg or "추가 정보가 필요합니다."
+        # hold 는 route_after_definition 이 __end__ 로 바로 보냄 (synthesizer 안 거침).
+        # API 레이어가 success / final_response 를 올바르게 읽을 수 있도록 여기서 세팅.
+        result["success"] = False
+        result["final_response"] = result["hold_question"]
+
+        # pending_store 에 저장 (conversation_id 있을 때만)
+        cid = state.get("conversation_id") or ""
+        if cid:
+            try:
+                snapshot = {
+                    "user_input": state.get("user_input", ""),
+                    "parsed_command": parsed_command,
+                    "field": field_label,
+                    "target": target_label,
+                    "description": description,
+                }
+                get_default_store().set(
+                    cid,
+                    hold_reason=hold_reason,  # type: ignore[arg-type]
+                    hold_question=result["hold_question"],
+                    snapshot=snapshot,
+                )
+                logger.info("[Definition] pending_store.set (cid=%s, reason=%s)", cid, hold_reason)
+            except Exception as e:  # pragma: no cover — store 장애는 로직 차단 금지
+                logger.warning("[Definition] pending_store.set 실패: %s", e)
+    else:
+        result["resolve"] = True
+
     return result

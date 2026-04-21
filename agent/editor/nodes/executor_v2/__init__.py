@@ -180,19 +180,35 @@ def _inject_prev_results(
     주요 패턴:
       - 이전 create step 의 entity_id → updates 내 참조 해소
       - _equip.item_id, _add_learning.skill_id 등이 None 이면 이전 결과에서 채움
+      - (신규) Actor create 의 target_info.classId=None → 이전 Classes create 에서 주입
     """
     info = dict(target_info)
-    updates = info.get("updates")
-    if not isinstance(updates, dict):
-        return info
 
-    # 의존 step 들의 결과 수집
+    # 의존 step 들의 결과 수집. depends_on 이 비어있으면 이전 전체 성공 create 를
+    # 훑는다 (Planner auto-prepend 가 Actor step 의 depends_on 을 채우지 않는
+    # 경로 대응).
     prev_ids: dict[str, int] = {}  # target_file → entity_id
-    for dep_sid in depends_on:
+    sids = depends_on or list(step_results.keys())
+    for dep_sid in sids:
         prev = step_results.get(dep_sid, {})
         if prev.get("success") and prev.get("entity_id") is not None:
             prev_file = prev.get("target_file", "")
+            # 같은 파일에 여러 create 가 있으면 마지막 (가장 최근) 것 우선
             prev_ids[prev_file] = prev["entity_id"]
+
+    # Actor create 등 create op 의 top-level classId = None → 이전 Classes 주입
+    if "classId" in info and info.get("classId") is None:
+        new_class_id = prev_ids.get("Classes.json")
+        if new_class_id is not None:
+            info["classId"] = new_class_id
+            logger.info(
+                "[reconcile] Actor create.classId=None → prev Classes.json id=%d 주입",
+                new_class_id,
+            )
+
+    updates = info.get("updates")
+    if not isinstance(updates, dict):
+        return info
 
     new_updates = dict(updates)
 

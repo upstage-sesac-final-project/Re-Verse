@@ -90,7 +90,14 @@ STEP2_SYSTEM_PROMPT = """당신은 사용자의 요청에서 대상(Subject)이 
    - "아이템", "템", "적", "몬스터", "몹", "캐릭터", "캐릭", "스킬", "기술" 등과 같이 **구체적인 이름이 아닌 카테고리 자체를 지칭하는 단어**는 반드시 `is_category_label: true`로 설정하십시오.
    - "슬라임", "포션"과 같이 구체적인 고유 명칭은 `false`입니다.
    - 단, "모든 액터", "전체 캐릭터", "전부 적"처럼 범위 수식이 붙더라도 Subject 자체는 여전히 카테고리 지칭어이므로 `is_category_label: true`로 유지하십시오.
-3. **주인공 처리**: "주인공", "쥔공" 등은 category: Actor, system_ref: hero, is_category_label: false로 고정하십시오.
+3. **주인공 / 파티 / 플레이어블 액터 처리 — 반드시 아래 정의 준수**:
+   - "주인공", "쥔공", "용사", "영웅" (단수 지칭): 현재 플레이어블한 액터 중 **첫 번째** (= System.json `startingParty[0]`).
+     → category: Actor, system_ref: hero, is_category_label: false, **단일 대상**.
+   - "주인공 파티", "파티", "파티원들", "동료들", "플레이어블 액터 전부": System.json `startingParty[]` 에 포함된 **모든 액터**.
+     → category: Actor, system_ref: party, is_category_label: true (카테고리 범위 지칭), bulk_scope 사용.
+   - "모든 액터", "액터 전부", "전체 캐릭터": Actors.json 의 **모든 엔트리** (파티 외 포함).
+     → category: Actor, is_category_label: true, bulk_scope 사용.
+   - 원칙: "주인공"은 항상 단수·playable. "파티" 가 붙으면 playable 액터 집합. "모든 액터" 는 playable 여부 무관 전체.
 4. 이 단계에서는 분류 정보만 제공하며, 어떠한 실행 계획도 세우지 마십시오.
 
 ### [분류 핵심 원칙 - 엄격 준수]

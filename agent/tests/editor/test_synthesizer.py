@@ -20,7 +20,7 @@ from agent.editor.state import AgentState
 
 
 def _state(
-    intent: str = "게임_요소_수정",
+    intent: str = "object_update",
     user_input: str = "슬라임 HP를 200으로 올려줘",
     passed: bool = True,
     errors: list | None = None,
@@ -62,8 +62,8 @@ class TestBuildPrompt:
         assert "슬라임 HP를 200으로 올려줘" in msgs[1].content
 
     def test_intent_in_human_message(self):
-        msgs = build_prompt(_state(intent="게임_요소_생성"))
-        assert "게임_요소_생성" in msgs[1].content
+        msgs = build_prompt(_state(intent="object_create"))
+        assert "object_create" in msgs[1].content
 
     def test_success_status_in_human_message(self):
         msgs = build_prompt(_state(passed=True))
@@ -136,7 +136,7 @@ class TestSynthesizer:
     @pytest.mark.asyncio
     async def test_query_intent(self):
         state = _state(
-            intent="게임_요소_조회",
+            intent="query",
             user_input="슬라임 HP가 얼마야?",
             current={"Enemies": [{"id": 1, "name": "슬라임", "params": {"mhp": 100}}]},
         )
@@ -158,7 +158,7 @@ class TestSynthesizerIntegration:
     @pytest.mark.asyncio
     async def test_modify_success(self):
         state = _state(
-            intent="게임_요소_수정",
+            intent="object_update",
             user_input="슬라임 HP를 200으로 올려줘",
             passed=True,
             current={"Enemies": [{"id": 1, "name": "슬라임", "params": {"mhp": 100}}]},
@@ -172,7 +172,7 @@ class TestSynthesizerIntegration:
     @pytest.mark.asyncio
     async def test_create_success(self):
         state = _state(
-            intent="게임_요소_생성",
+            intent="object_create",
             user_input="드래곤 적 만들어줘",
             passed=True,
             modified={
@@ -187,7 +187,7 @@ class TestSynthesizerIntegration:
     @pytest.mark.asyncio
     async def test_query_success(self):
         state = _state(
-            intent="게임_요소_조회",
+            intent="query",
             user_input="적 목록 보여줘",
             passed=True,
             current={
@@ -204,7 +204,7 @@ class TestSynthesizerIntegration:
     @pytest.mark.asyncio
     async def test_validation_failure(self):
         state = _state(
-            intent="게임_요소_수정",
+            intent="object_update",
             user_input="슬라임킹 HP 올려줘",
             passed=False,
             errors=["Enemy '슬라임킹' not found in Enemies.json"],

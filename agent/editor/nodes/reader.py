@@ -13,15 +13,36 @@ LLM 1회(+@) 및 직접 파일 읽기로 조회 결과를 즉시 반환한다.
 import logging
 import statistics
 import time
-from difflib import SequenceMatcher
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
 
 from agent.core.llm_client import invoke_llm
+from agent.editor.db_lookup import (
+    FUZZY_SUGGESTION_THRESHOLD as _FUZZY_SUGGESTION_THRESHOLD,
+)
+from agent.editor.db_lookup import (
+    build_id_name_map as _build_id_name_map,
+)
+from agent.editor.db_lookup import (
+    find_candidates as _find_candidates,
+)
+from agent.editor.db_lookup import (
+    fuzzy_match as _fuzzy_match,
+)
+from agent.editor.db_lookup import (
+    get_field_value as _get_field_value,
+)
+from agent.editor.db_lookup import (
+    get_numeric_value as _get_numeric_value,
+)
+from agent.editor.db_lookup import (
+    valid_items as _valid_items,
+)
 from agent.editor.prompts.reader_prompt import (
     build_entity_name_match_prompt,
     build_entity_type_guess_prompt,
+    build_game_overview_prompt,
     build_prompt,
 )
 from agent.editor.state import AgentState
@@ -43,23 +64,8 @@ _CATEGORY_DISPLAY: dict[str, str] = {
     "system": "시스템",
 }
 
-# RPG Maker MZ params 배열 인덱스 (enemy/actor 공통 8개 기본 스탯)
-_PARAMS_INDEX: dict[str, int] = {
-    "maxhp": 0,
-    "mhp": 0,
-    "maxmp": 1,
-    "mmp": 1,
-    "atk": 2,
-    "def": 3,
-    "mat": 4,
-    "mdf": 5,
-    "agi": 6,
-    "luk": 7,
-}
-
-_FUZZY_THRESHOLD = 0.6
-_FUZZY_SUGGESTION_THRESHOLD = 0.5
 _BULK_LIST_TRUNCATE_THRESHOLD = 30
+# _PARAMS_INDEX / _FUZZY_THRESHOLD / _FUZZY_SUGGESTION_THRESHOLD 는 db_lookup 에서 import.
 
 # ── 참조 해소 맵 ──────────────────────────────────────────────────────────────
 # (entity_type, field_name) → 참조 정의
@@ -185,89 +191,9 @@ class _ReaderQuery(BaseModel):
 
 
 # ── 헬퍼 ──────────────────────────────────────────────────────────────────────
-
-
-def _valid_items(data: list) -> list[dict]:
-    """RPG Maker MZ JSON 배열에서 null 항목과 name이 빈 슬롯을 제거한다."""
-    return [item for item in data if isinstance(item, dict) and item.get("name")]
-
-
-def _fuzzy_match(
-    entity_name: str, items: list[dict], threshold: float = _FUZZY_THRESHOLD
-) -> list[dict]:
-    """entity_name과 SequenceMatcher로 유사도 매칭, threshold 이상인 항목을 유사도 내림차순으로 반환한다."""
-    scored: list[tuple[float, dict]] = []
-    for item in items:
-        name = item.get("name", "")
-        if not name:
-            continue
-        ratio = SequenceMatcher(None, entity_name.lower(), name.lower()).ratio()
-        if ratio >= threshold:
-            scored.append((ratio, item))
-    scored.sort(reverse=True, key=lambda x: x[0])
-    return [item for _, item in scored]
-
-
-def _find_candidates(entity_name: str, items: list[dict]) -> list[dict]:
-    """ID 숫자 > exact > case-insensitive exact > prefix > fuzzy 우선순위로 후보를 반환한다."""
-    # 0. 숫자면 ID로 직접 접근
-    if entity_name.isdigit():
-        by_id = [
-            item for item in items if isinstance(item, dict) and item.get("id") == int(entity_name)
-        ]
-        if by_id:
-            return by_id
-    # 1. 완전 일치
-    exact = [item for item in items if isinstance(item, dict) and item.get("name") == entity_name]
-    if exact:
-        return exact
-    # 2. 대소문자 무시 완전 일치
-    ci = [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("name", "").lower() == entity_name.lower()
-    ]
-    if ci:
-        return ci
-    # 3. prefix match (entity_name으로 시작하는 이름 전부)
-    prefix = [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("name", "").lower().startswith(entity_name.lower())
-    ]
-    if prefix:
-        return prefix
-    # 4. 퍼지 매칭
-    return _fuzzy_match(entity_name, items)
-
-
-def _get_field_value(entity: dict, field_name: str) -> tuple[Any, bool]:
-    """엔티티에서 필드값을 추출한다. dot notation(damage.elementId)과 params 배열 접근도 처리한다."""
-    # dot notation 처리 (예: damage.elementId)
-    if "." in field_name:
-        parts = field_name.split(".", 1)
-        nested = entity.get(parts[0])
-        if isinstance(nested, dict):
-            return _get_field_value(nested, parts[1])
-        return None, False
-    if field_name in entity:
-        return entity[field_name], True
-    idx = _PARAMS_INDEX.get(field_name.lower())
-    if idx is not None:
-        params = entity.get("params", [])
-        if isinstance(params, list) and len(params) > idx:
-            # Classes.params는 list[list[int]]이므로 첫 원소가 int인지 확인
-            if isinstance(params[idx], (int, float)):
-                return params[idx], True
-    return None, False
-
-
-def _get_numeric_value(entity: dict, field_name: str) -> float | None:
-    """엔티티에서 숫자 필드값을 추출한다. 숫자가 아니거나 없으면 None 반환."""
-    value, found = _get_field_value(entity, field_name)
-    if found and isinstance(value, (int, float)):
-        return float(value)
-    return None
+#
+# _valid_items / _fuzzy_match / _find_candidates / _get_field_value / _get_numeric_value /
+# _build_id_name_map 는 agent/editor/db_lookup 으로 이동했다. 이 파일 상단의 import 참조.
 
 
 def _get_category_display(entity_type: str | None) -> str:
@@ -299,10 +225,6 @@ def _build_ambiguous_response(entity_name: str | None, candidates: list[dict]) -
         f"'{entity_name}'과(와) 유사한 이름이 여럿 있습니다. 어떤 것을 찾으시나요?\n"
         f"{_format_candidate_lines(candidates)}"
     )
-
-
-def _build_id_name_map(data: list[Any]) -> dict[int, str]:
-    return {item["id"]: item["name"] for item in data if isinstance(item, dict) and item.get("id")}
 
 
 def _format_entity_summary(entity: dict) -> str:
@@ -756,6 +678,60 @@ def _load_items_for_entity_type(
     return _valid_items(raw_data), None
 
 
+# 한글 field 라벨 → reader entity_type (영문 단수 소문자).
+# constants.KEYWORD_TO_CATEGORY 는 "Actor" capitalized 를 내므로 lowercase 로 변환해 사용.
+_FIELD_LABEL_TO_READER_TYPE: dict[str, str] = {
+    "적": "enemy",
+    "몬스터": "enemy",
+    "무기": "weapon",
+    "아이템": "item",
+    "방어구": "armor",
+    "액터": "actor",
+    "주인공": "actor",
+    "캐릭터": "actor",
+    "직업": "class",
+    "스킬": "skill",
+    "상태이상": "state",
+    "시스템": "system",
+}
+
+
+def _override_from_parsed_command(query: "_ReaderQuery", state: AgentState) -> "_ReaderQuery":
+    """Router parsed_command.target/field 를 Reader query 에 덮어씀.
+
+    LLM 이 한글 entity_name 을 영문 (BattleAxe / Mimi 등) 으로 번역하는 문제 대응.
+    Router 는 프롬프트상 한글을 보존하므로 거기서 복원.
+    """
+    pc = state.get("parsed_command") or {}
+    if not isinstance(pc, dict):
+        return query
+
+    target = (pc.get("target") or "").strip()
+    field = (pc.get("field") or "").strip()
+
+    # entity_name override — Router target 있으면 무조건 우선
+    if target and query.entity_name != target:
+        logger.info(
+            "[Reader] entity_name override: %r → %r (parsed_command.target)",
+            query.entity_name,
+            target,
+        )
+        query = query.model_copy(update={"entity_name": target})
+
+    # entity_type override — Router field 가 있고 Reader LLM 이 빈 값이나 다른 값 내면 보정
+    mapped_type = _FIELD_LABEL_TO_READER_TYPE.get(field)
+    if mapped_type and query.entity_type != mapped_type:
+        logger.info(
+            "[Reader] entity_type override: %r → %r (parsed_command.field=%r)",
+            query.entity_type,
+            mapped_type,
+            field,
+        )
+        query = query.model_copy(update={"entity_type": mapped_type})
+
+    return query
+
+
 def _finish_reader(started_at: float, response: str) -> dict:
     logger.info(
         "─── ✅ Reader END (elapsed=%.2fs, response_len=%d) ────────────────────",
@@ -763,6 +739,85 @@ def _finish_reader(started_at: float, response: str) -> dict:
         len(response),
     )
     return {"final_response": response}
+
+
+# ── game_overview 전용 경로 ───────────────────────────────────────────────────
+
+
+def _collect_game_overview_payload(game_id: str) -> dict:
+    """game_overview 에 필요한 데이터 수집 — System + 카테고리 count + 대표 엔티티.
+
+    LLM 에 넘길 요약 payload. 직접 표시용 아님.
+    """
+    payload: dict[str, Any] = {}
+
+    sys_data = read_game_json(game_id, "System.json")
+    if isinstance(sys_data, dict):
+        payload["title"] = sys_data.get("gameTitle") or ""
+        payload["currency"] = sys_data.get("currencyUnit") or ""
+        payload["startingParty"] = sys_data.get("startingParty") or []
+        payload["elements"] = [e for e in (sys_data.get("elements") or []) if e]
+
+    # 카테고리별 count + 대표 이름 (최대 5 개)
+    for cat, plural in CATEGORY_TO_PLURAL.items():
+        raw = read_game_json(game_id, plural + ".json")
+        if not isinstance(raw, list):
+            continue
+        items = _valid_items(raw)
+        payload[f"{cat}_count"] = len(items)
+        payload[f"{cat}_names"] = [it.get("name", "") for it in items[:5] if it.get("name")]
+
+    # 맵 개수
+    map_infos = read_game_json(game_id, "MapInfos.json")
+    if isinstance(map_infos, list):
+        map_entries = [m for m in map_infos if isinstance(m, dict) and m.get("name")]
+        payload["map_count"] = len(map_entries)
+        payload["map_names"] = [m["name"] for m in map_entries[:5]]
+
+    # 파티 actor 이름 해소
+    starting = payload.get("startingParty") or []
+    actor_names_by_id: dict[int, str] = {}
+    actors_raw = read_game_json(game_id, "Actors.json")
+    if isinstance(actors_raw, list):
+        for a in actors_raw:
+            if isinstance(a, dict) and a.get("id") and a.get("name"):
+                actor_names_by_id[a["id"]] = a["name"]
+    payload["party_names"] = [actor_names_by_id.get(pid, f"id={pid}") for pid in starting]
+
+    return payload
+
+
+async def _game_overview_response(game_id: str, user_input: str) -> str:
+    """game_overview intent 전용 — LLM 1 회로 컨셉 요약 생성."""
+    import json as _json
+
+    payload = _collect_game_overview_payload(game_id)
+    payload_text = _json.dumps(payload, ensure_ascii=False, indent=2)
+    try:
+        result = await invoke_llm(build_game_overview_prompt(user_input, payload_text))
+        text = str(result).strip()
+        return text or _fallback_game_overview(payload)
+    except Exception as e:
+        logger.error("[Reader] game_overview LLM 실패: %s — fallback 템플릿 사용", e)
+        return _fallback_game_overview(payload)
+
+
+def _fallback_game_overview(payload: dict) -> str:
+    """LLM 실패 시 결정론 템플릿."""
+    title = payload.get("title") or "제목 미정"
+    lines = [f"게임 '{title}' 입니다."]
+    if payload.get("party_names"):
+        lines.append(f"초기 파티: {', '.join(payload['party_names'])}")
+    counts = []
+    for cat in ("actor", "enemy", "item", "skill", "weapon", "armor", "class"):
+        c = payload.get(f"{cat}_count")
+        if c:
+            counts.append(f"{cat} {c}")
+    if counts:
+        lines.append("등록 데이터: " + ", ".join(counts))
+    if payload.get("map_count"):
+        lines.append(f"맵 {payload['map_count']}개")
+    return " / ".join(lines)
 
 
 # ── 노드 함수 ──────────────────────────────────────────────────────────────────
@@ -775,6 +830,13 @@ async def reader(state: AgentState) -> dict:
     logger.info("  game  : %s", state.get("game_id"))
 
     game_id = state.get("game_id", "game_001")
+
+    # game_overview intent → 전용 경로 (LLM 1 회, query 파싱 스킵)
+    if state.get("intent") == "game_overview":
+        user_input = state.get("user_input", "") or ""
+        logger.info("[Reader] game_overview 경로 — payload 수집 + 컨셉 요약")
+        response = await _game_overview_response(game_id, user_input)
+        return _finish_reader(_t0, response)
 
     messages = build_prompt(state)
     try:
@@ -793,6 +855,11 @@ async def reader(state: AgentState) -> dict:
     except Exception as e:
         logger.error("[Reader] LLM 호출 실패: %s", e, exc_info=True)
         return {"final_response": "요청을 이해하지 못했습니다. 다시 입력해주세요."}
+
+    # Router parsed_command 로 entity_name / entity_type 덮어쓰기 (LLM 영문 번역 차단).
+    # Router 는 한글 그대로 파싱하므로 Reader LLM 이 "전투 도끼" → "BattleAxe" 같은
+    # 번역을 해도 여기서 원본 복원.
+    query = _override_from_parsed_command(query, state)
 
     entity_type = (query.entity_type or "").lower().strip()
     items: list[dict] = []

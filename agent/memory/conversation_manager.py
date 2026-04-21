@@ -10,8 +10,19 @@ from app.backend.repositories.project_repository import project_repository
 
 logger = logging.getLogger(__name__)
 
-# 게임 관련 인텐트만 history에 포함 (#3)
+# 게임 관련 인텐트만 history에 포함 (#3) — Phase C 이후 영문 enum 사용.
+# 구 한국어 literal 은 DB 에 이미 쌓여있을 수 있어 하위 호환으로 병행 허용.
 _GAME_INTENTS = {
+    # 신(Phase C): agent/editor/intents.py IntentValue
+    "object_create",
+    "object_update",
+    "event_create",
+    "event_update",
+    "query",
+    "game_overview",
+    "multi_intent",
+    "clarification_needed",
+    # 구(Phase C 이전): 호환용. 기존 로그 로드 시 필터 통과.
     "게임_요소_생성",
     "게임_요소_수정",
     "게임_요소_조회",

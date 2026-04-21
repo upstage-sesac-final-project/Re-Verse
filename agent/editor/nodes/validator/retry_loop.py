@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -59,35 +60,61 @@ async def run_partial_retry(
             # 이전 실행에서 이미 만든 entity_id 가 있는지 확인
             prev_entity_id = _find_prev_entity_id(sid, prev_log)
 
-            # profiler 재호출
-            enriched = await profile_one(step, game_id=game_id, feedback=feedback_text)
+            try:
+                # profiler 재호출
+                enriched = await profile_one(step, game_id=game_id, feedback=feedback_text)
 
-            if prev_entity_id is not None:
-                # 이전에 만든 엔트리를 update 하는 방식으로 전환
-                logger.info(
-                    "[retry] step=%s create→update 전환 (entity_id=%d)",
-                    sid,
-                    prev_entity_id,
-                )
-                enriched = dict(enriched)
-                enriched["action_type"] = "update"
-                ti = dict(enriched.get("target_info") or {})
-                ti["id"] = prev_entity_id
-                # target_info 전체를 updates 로 변환
-                updates = {k: v for k, v in ti.items() if k not in ("id", "name")}
-                ti["updates"] = updates
-                enriched["target_info"] = ti
+                if prev_entity_id is not None:
+                    # 이전에 만든 엔트리를 update 하는 방식으로 전환
+                    logger.info(
+                        "[retry] step=%s create→update 전환 (entity_id=%d)",
+                        sid,
+                        prev_entity_id,
+                    )
+                    enriched = dict(enriched)
+                    enriched["action_type"] = "update"
+                    ti = dict(enriched.get("target_info") or {})
+                    ti["id"] = prev_entity_id
+                    # target_info 전체를 updates 로 변환
+                    updates = {k: v for k, v in ti.items() if k not in ("id", "name")}
+                    ti["updates"] = updates
+                    enriched["target_info"] = ti
 
-            retried_any = True
-            result = await execute_one(game_id, enriched)
-            patched_log.append(result)
+                retried_any = True
+                result = await execute_one(game_id, enriched)
+                patched_log.append(result)
 
-            if not result.get("success"):
-                all_ok = False
+                if not result.get("success"):
+                    all_ok = False
+                    logger.warning(
+                        "[retry] step=%s 재실행 실패: %s",
+                        step.get("step_id"),
+                        result.get("error"),
+                    )
+            except asyncio.CancelledError:
+                # 상위 wait_for 의 timeout 으로 인한 cancel — traceback 한 번만 남기고
+                # 재-raise 해서 wait_for 가 TimeoutError 로 일관되게 잡도록 함.
                 logger.warning(
-                    "[retry] step=%s 재실행 실패: %s",
-                    step.get("step_id"),
-                    result.get("error"),
+                    "[retry] step=%s cancelled (상위 timeout 추정) — 루프 중단",
+                    sid,
+                )
+                raise
+            except Exception as e:
+                # LLM 장애 / 네트워크 등 일반 예외 — 해당 step 만 실패로 기록하고 루프 지속.
+                logger.error(
+                    "[retry] step=%s 재실행 예외: %s (%s) — 다른 step 계속 시도",
+                    sid,
+                    type(e).__name__,
+                    e,
+                )
+                all_ok = False
+                retried_any = True
+                patched_log.append(
+                    {
+                        "step_id": sid,
+                        "success": False,
+                        "error": f"retry 예외: {type(e).__name__}: {e}",
+                    }
                 )
 
     # 재시도 대상이 하나도 없으면 실패로 반환 (원본 실패가 삼켜지지 않게)
@@ -103,17 +130,6 @@ async def run_partial_retry(
         "changes_log": patched_log,
         "summary": "부분 재시도 성공" if all_ok else "부분 재시도 실패",
     }
-
-
-def build_judge_feedback(judge_failures: list[dict]) -> str:
-    """judge 실패 목록을 사용자 응답에 포함할 피드백 텍스트로 변환."""
-    if not judge_failures:
-        return ""
-    lines = ["의미 검증에서 다음 사항이 감지되었습니다:"]
-    for f in judge_failures:
-        reason = f.get("reason", "알 수 없음")
-        lines.append(f"  - {reason}")
-    return "\n".join(lines)
 
 
 def _find_prev_entity_id(step_id: int | None, changes_log: list[dict]) -> int | None:
